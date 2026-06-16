@@ -59,6 +59,6 @@ admin/     the web admin panel
 
 ## Status, license, and contributing
 
-Pre-release and under active construction — expect breaking changes. A license
-will be chosen before the first public release. Issues and discussion are welcome
-once the initial scaffold lands.
+Pre-release and under active construction — expect breaking changes. Licensed
+under the [MIT License](LICENSE). Issues and discussion are welcome once the
+initial scaffold lands.

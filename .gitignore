@@ -1,6 +1,8 @@
 # ── Secrets: NEVER commit (this repo is public-bound) ─────────────────
 *.env
 !*.env.example
+# local-only leak-scan deny-list (deployment-specific strings; see tools/leak-scan.sh)
+.leak-deny
 *.key
 *.pem
 *.token
