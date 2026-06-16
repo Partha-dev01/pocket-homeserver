@@ -64,7 +64,9 @@ done
 
 # 2) Public IPv4 addresses (loopback / private / link-local are not leaks).
 ip_pat='\b([0-9]{1,3}\.){3}[0-9]{1,3}\b'
-benign='(127\.[0-9.]+|0\.0\.0\.0|10\.[0-9.]+|192\.168\.[0-9.]+|172\.(1[6-9]|2[0-9]|3[01])\.[0-9.]+|255\.[0-9.]+|169\.254\.[0-9.]+)'
+# loopback / unspecified / private / link-local / broadcast, plus well-known
+# PUBLIC DNS resolvers (universal constants, not anyone's infrastructure).
+benign='(127\.[0-9.]+|0\.0\.0\.0|10\.[0-9.]+|192\.168\.[0-9.]+|172\.(1[6-9]|2[0-9]|3[01])\.[0-9.]+|255\.[0-9.]+|169\.254\.[0-9.]+|1\.1\.1\.1|1\.0\.0\.1|8\.8\.8\.8|8\.8\.4\.4|9\.9\.9\.9)'
 ip_hits="$(grep -nIE -- "$ip_pat" "${files[@]}" 2>/dev/null | grep -vE -- "$benign" || true)"
 [ -n "$ip_hits" ] && report "public-ip" "$ip_pat" "$ip_hits"
 
