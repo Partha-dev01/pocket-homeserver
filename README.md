@@ -41,20 +41,30 @@ storage and (optionally) a SIM for connectivity. Paired with a Cloudflare Tunnel
 for ingress, it can serve real HTTPS traffic from anywhere without a static IP —
 a cheap, resilient, and genuinely practical way to self-host.
 
+## Documentation
+
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — how it all fits together: layers,
+  request flow, components, storage.
+- [docs/SECURITY.md](docs/SECURITY.md) — threat model, layered defenses, and an
+  operator checklist.
+- [docs/SETUP.md](docs/SETUP.md) — zero-to-running setup guide (skeleton; firming
+  up as the scripts land).
+
 ## Target layout
 
 ```
 docs/      architecture, security model, setup guides, findings
 scripts/   idempotent install, service, and backup scripts
 admin/     the web admin panel
+tools/     repo tooling (e.g. the leak-scan pre-push guard)
 ```
 
 ## Roadmap
 
+- [x] Architecture & security documentation
+- [ ] Zero-to-running setup guide for a fresh phone (skeleton in place)
 - [ ] Generalize the install scripts from the reference deployment
 - [ ] Ship the web admin panel
-- [ ] Zero-to-running setup guide for a fresh phone
-- [ ] Architecture & security documentation
 - [ ] First tagged release
 
 ## Status, license, and contributing
