@@ -1,0 +1,33 @@
+# conduwuit / continuwuity config template for pocket-homeserver.
+# Rendered to config/rendered/conduwuit.toml by scripts/render-config.sh, which
+# substitutes ${MATRIX_SERVER_NAME}.
+#
+# Rate-limiting key names vary between server versions; cross-check against your
+# installed build's example config before relying on them.
+
+[global]
+server_name        = "${MATRIX_SERVER_NAME}"
+database_backend   = "rocksdb"
+database_path      = "/var/lib/conduwuit/db"
+address            = "127.0.0.1"
+port               = 8448
+max_request_size   = 52428800            # 50 MB
+
+# Registration is closed; create accounts with single-use invite tokens minted
+# by the admin. Set a strong token out-of-band — never commit it here.
+allow_registration = false
+# registration_token = "<strong-random-value>"
+
+# Federation OFF — the single most important hardening line for a private server.
+allow_federation        = false
+allow_outgoing_presence = false
+allow_incoming_presence = false
+
+# Keep the room directory private (no anonymous enumeration).
+allow_public_room_directory_over_federation = false
+allow_public_room_directory_without_auth    = false
+
+[global.media]
+# Media path is bind-mounted onto the large volume (${DATA_DIR}) at runtime.
+path             = "/var/lib/conduwuit/media"
+max_request_size = 52428800              # 50 MB per upload

@@ -40,3 +40,6 @@ build/
 *.swp
 .idea/
 .vscode/
+
+# generated config output
+config/rendered/
