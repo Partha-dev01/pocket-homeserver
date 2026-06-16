@@ -1,0 +1,40 @@
+# ── Secrets: NEVER commit (this repo is public-bound) ─────────────────
+*.env
+!*.env.example
+*.key
+*.pem
+*.token
+*.secret
+secrets/
+credentials*
+CREDENTIALS*
+*-credentials*
+.envrc
+*-token.txt
+*-identity.txt
+
+# ── Backups / large artifacts ─────────────────────────────────────────
+*.tar
+*.tar.zst
+*.tar.gz
+*.tgz
+backups/
+laptop-backups/
+*.gguf
+
+# ── Builds / dependencies ─────────────────────────────────────────────
+node_modules/
+__pycache__/
+*.pyc
+.venv/
+venv/
+dist/
+build/
+*.log
+
+# ── OS / editor cruft ─────────────────────────────────────────────────
+.DS_Store
+*~
+*.swp
+.idea/
+.vscode/
