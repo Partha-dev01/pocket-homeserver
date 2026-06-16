@@ -62,9 +62,11 @@ tools/     repo tooling (e.g. the leak-scan pre-push guard)
 ## Roadmap
 
 - [x] Architecture & security documentation
+- [x] Config-driven script framework (library, `.env`, renderer, orchestrator)
+- [x] Core stack install + bring-up (userland, cloudflared, Caddy, Matrix, Element)
+- [ ] Auth gateway + optional-app install scripts
+- [ ] Web admin panel
 - [ ] Zero-to-running setup guide for a fresh phone (skeleton in place)
-- [ ] Generalize the install scripts from the reference deployment
-- [ ] Ship the web admin panel
 - [ ] First tagged release
 
 ## Status, license, and contributing
