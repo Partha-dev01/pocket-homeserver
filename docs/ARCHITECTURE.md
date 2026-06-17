@@ -47,8 +47,9 @@ tunnel:
 - routes by hostname / path to each backing service,
 - serves the Matrix `.well-known` delegation and the static Element Web client,
 - applies security headers,
-- and enforces the **SSO / forward-auth gate** in front of the private apps, so
-  only an authenticated member can reach them.
+- and serves the apps over plain HTTP on the loopback (the tunnel terminates
+  public TLS), gated at the Cloudflare edge by default — with an optional
+  Matrix-SSO `forward_auth` gate available per app (see [APP_AUTH.md](APP_AUTH.md)).
 
 ### 4. Cloudflare Tunnel + `cloudflared`
 
@@ -120,7 +121,7 @@ stripped before the gate so they cannot be forged.
 | Component | Role | Binds (loopback) | Example hostname |
 |---|---|---|---|
 | Matrix homeserver | chat server (RocksDB) | `127.0.0.1:8448` | `matrix.${DOMAIN}` |
-| Caddy | reverse proxy, TLS-internal, auth gate, static files | `${CADDY_BIND}:${CADDY_PORT}` | the front door |
+| Caddy | reverse proxy (plain-HTTP loopback origin), static files, security headers | `${CADDY_BIND}:${CADDY_PORT}` | the front door |
 | cloudflared | Cloudflare Tunnel connector | outbound only | — |
 | Element Web | Matrix web client (static) | served by Caddy | `chat.${DOMAIN}` |
 | Auth gateway | SSO / forward-auth for private apps | loopback | — |

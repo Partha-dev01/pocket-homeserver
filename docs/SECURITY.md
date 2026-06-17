@@ -31,11 +31,11 @@ to no other Matrix server).
 ```
  untrusted internet
         │
-   Cloudflare edge        ← WAF, rate limiting, bot protection
+   Cloudflare edge        ← WAF, rate limiting, bot protection, Access (identity gate, default)
         │  mutually-authenticated tunnel
-   cloudflared / Caddy    ← TLS-internal origin; security headers
+   cloudflared / Caddy    ← plain-HTTP loopback origin (tunnel terminates TLS); security headers
         │
-   SSO / forward-auth gate ← private apps require an authenticated member
+   app login / optional SSO ← native app login by default; optional Matrix-SSO forward-auth gate
         │
    loopback services      ← "same host, same user" trust; nothing binds public
 ```

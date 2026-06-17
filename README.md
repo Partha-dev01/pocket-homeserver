@@ -49,6 +49,8 @@ a cheap, resilient, and genuinely practical way to self-host.
   operator checklist.
 - [docs/SETUP.md](docs/SETUP.md) — zero-to-running setup guide (skeleton; firming
   up as the scripts land).
+- [docs/APP_AUTH.md](docs/APP_AUTH.md) — how the optional apps are protected:
+  Cloudflare Access (default) and the optional Matrix-SSO gateway.
 
 ## Target layout
 
@@ -64,7 +66,9 @@ tools/     repo tooling (e.g. the leak-scan pre-push guard)
 - [x] Architecture & security documentation
 - [x] Config-driven script framework (library, `.env`, renderer, orchestrator)
 - [x] Core stack install + bring-up (userland, cloudflared, Caddy, Matrix, Element)
-- [ ] Auth gateway + optional-app install scripts
+- [x] Optional-app install scripts (bookmarks, RSS, notes, tasks, file sharing,
+  metasearch, dev tools, status) + the app-auth model (Cloudflare Access)
+- [ ] Optional Matrix-SSO auth gateway (advanced, single sign-on)
 - [ ] Web admin panel
 - [ ] Zero-to-running setup guide for a fresh phone (skeleton in place)
 - [ ] First tagged release
