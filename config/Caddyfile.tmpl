@@ -48,18 +48,13 @@ chat.${DOMAIN} {
 }
 
 # ── App vhosts ───────────────────────────────────────────────────────────────
-# Each enabled app appends a block below, of the form:
+# Optional apps (bookmarks, RSS, notes, ...) are NOT configured in this core
+# file. Each app's install script writes a self-contained site block to
+# /etc/caddy/apps/<app>.caddy, so enabling or removing an app never requires
+# hand-editing this file. By default those apps are gated at the Cloudflare edge
+# (Cloudflare Access); the optional Matrix-SSO gateway is an advanced add-on —
+# see docs/APP_AUTH.md.
 #
-#   links.${DOMAIN} {
-#       bind ${CADDY_BIND}
-#       tls internal
-#       # gate private apps behind the SSO / forward-auth endpoint:
-#       forward_auth 127.0.0.1:9095 {
-#           uri /authgw/verify
-#           copy_headers Remote-User
-#       }
-#       reverse_proxy 127.0.0.1:<app-port>
-#   }
-#
-# (Strip client-supplied Remote-* headers before the gate; rewrite upstream
-#  headers with `header_up` *inside* reverse_proxy, i.e. after the gate.)
+# This import is a no-op until the first app is installed: per the Caddy docs,
+# a missing *specific* file is an error, but an empty *glob* pattern is not.
+import /etc/caddy/apps/*.caddy

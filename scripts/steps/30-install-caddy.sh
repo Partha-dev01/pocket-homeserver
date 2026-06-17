@@ -46,7 +46,9 @@ run_once caddy-apt -- in_debian '
     fi
     caddy version
   fi
-  mkdir -p /etc/caddy /var/log/caddy
+  # /etc/caddy/apps holds one self-contained site block per optional app; the
+  # core Caddyfile imports it with a glob (empty glob = no-op, not an error).
+  mkdir -p /etc/caddy /etc/caddy/apps /var/log/caddy
 ' || die "caddy install inside the userland failed"
 
 # ── 2. Ensure the rendered Caddyfile exists ──────────────────────────────────
