@@ -51,6 +51,10 @@ a cheap, resilient, and genuinely practical way to self-host.
   up as the scripts land).
 - [docs/APP_AUTH.md](docs/APP_AUTH.md) — how the optional apps are protected:
   Cloudflare Access (default) and the optional Matrix-SSO gateway.
+- [docs/ADMIN.md](docs/ADMIN.md) — the web admin panel: health, controls, backups,
+  and the guarded danger zone.
+- [docs/BACKUPS.md](docs/BACKUPS.md) — snapshot scripts, retention, encryption, and
+  the restore path.
 
 ## Target layout
 
@@ -69,7 +73,9 @@ tools/     repo tooling (e.g. the leak-scan pre-push guard)
 - [x] Optional-app install scripts (bookmarks, RSS, notes, tasks, file sharing,
   metasearch, dev tools, status) + the app-auth model (Cloudflare Access)
 - [x] Optional Matrix-SSO auth gateway (advanced, single sign-on)
-- [ ] Web admin panel
+- [x] Web admin panel (health, controls, backups, danger zone)
+- [x] Backups & recovery — DB + rootfs snapshot scripts, retention, restore (a
+  scheduled backup daemon is still to come)
 - [ ] Zero-to-running setup guide for a fresh phone (skeleton in place)
 - [ ] First tagged release
 
