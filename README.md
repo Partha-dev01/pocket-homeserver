@@ -68,7 +68,7 @@ tools/     repo tooling (e.g. the leak-scan pre-push guard)
 - [x] Core stack install + bring-up (userland, cloudflared, Caddy, Matrix, Element)
 - [x] Optional-app install scripts (bookmarks, RSS, notes, tasks, file sharing,
   metasearch, dev tools, status) + the app-auth model (Cloudflare Access)
-- [ ] Optional Matrix-SSO auth gateway (advanced, single sign-on)
+- [x] Optional Matrix-SSO auth gateway (advanced, single sign-on)
 - [ ] Web admin panel
 - [ ] Zero-to-running setup guide for a fresh phone (skeleton in place)
 - [ ] First tagged release

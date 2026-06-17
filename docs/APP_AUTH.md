@@ -74,32 +74,40 @@ and service tokens for automation.
 ## Advanced (optional): the Matrix-SSO gateway
 
 If you would rather your Matrix users sign in **once** and reach every app without
-a separate per-app account, you can run an optional Matrix-SSO gateway. It is a
+a separate per-app account, you can run the optional Matrix-SSO gateway. It is a
 small loopback service that turns a Matrix login into a session cookie scoped to
-your parent domain (and acts as an OIDC identity provider for apps that speak
-OIDC). It is **not installed by default**.
+your parent domain (and can act as an OIDC identity provider for apps that speak
+OIDC). It is **not installed by default**. The full runbook is
+[MATRIX_AUTH_GW.md](MATRIX_AUTH_GW.md); the short version:
 
-Every app's generated vhost in `/etc/caddy/apps/<app>.caddy` already contains the
-hook, commented out:
+1. **Enable + install it**: set `ENABLE_AUTH_GATEWAY=true` in `.env` (optionally
+   `AUTHGW_ADMINS=<localpart>`), then run `scripts/steps/60-install-auth-gw.sh`.
+   It runs on loopback `127.0.0.1:${AUTHGW_PORT}` (default `9095`).
+2. **Gate each app** in its `/etc/caddy/apps/<app>.caddy` vhost. Every app's
+   generated vhost already contains the `forward_auth` hook commented out; turning
+   it on needs **two** blocks, both **before** the app's catch-all
+   `reverse_proxy`/`handle`:
 
-```caddy
-# forward_auth 127.0.0.1:9095 {
-#     uri /authgw/verify
-#     copy_headers Remote-User
-# }
-```
+   ```caddy
+   # (a) keep the gateway's own endpoints reachable (login form / verify / logout)
+   handle /authgw/* {
+       reverse_proxy 127.0.0.1:9095 {
+           header_up X-Real-IP {client_ip}
+       }
+   }
+   # (b) strip any client-supplied identity header before the gate, then gate:
+   request_header -Remote-User
+   forward_auth 127.0.0.1:9095 {
+       uri /authgw/verify
+       copy_headers Remote-User
+   }
+   ```
 
-To use it you would:
-
-1. Install + enable the gateway (an optional component — `ENABLE_AUTH_GATEWAY` and
-   `scripts/steps/60-install-auth-gw.sh`; this is a planned advanced add-on, so
-   treat the commented hooks as the integration point until you have it running).
-2. Uncomment the `forward_auth` block in the vhost of each app you want gated by
-   the gateway (place it **before** the app's `reverse_proxy`/`handle` so an
-   unauthenticated request is redirected to login first).
-3. For apps that natively support OIDC (Linkding, Vikunja, Memos, Pingvin, Gatus),
-   point the app at the gateway's OIDC endpoints instead of using `forward_auth`,
-   per that app's docs.
+   Then `bash scripts/start-stack.sh --restart`. See the header-ordering gotcha
+   in [MATRIX_AUTH_GW.md](MATRIX_AUTH_GW.md) before editing a gated vhost.
+3. **Or use native OIDC** for apps that speak it (Linkding, Vikunja, Memos,
+   Pingvin, Gatus): register the client and point the app at the gateway's OIDC
+   endpoints instead of `forward_auth` — see *Native OIDC* in the runbook.
 
 ### Header-ordering gotcha (read before editing a gated vhost)
 
