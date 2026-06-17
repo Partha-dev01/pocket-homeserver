@@ -29,7 +29,10 @@ require_var DATA_DIR        "folder on your large volume / SD card"
 require_var CF_TUNNEL_TOKEN "the Cloudflare Tunnel token"
 require_var ADMIN_PASSWORD  "the admin panel password"
 
-# Ordered core plan: "label:relative-script-path".
+# Ordered core PROVISION plan: "label:relative-script-path". These install and
+# configure components but do NOT start the long-running stack — that happens
+# last (start-stack.sh below), AFTER every enabled app has dropped its Caddy
+# vhost, so the edge comes up already aware of all the apps.
 core_steps=(
   "prereqs:steps/00-prereqs.sh"
   "userland:steps/10-install-userland.sh"
@@ -40,7 +43,6 @@ core_steps=(
   "element:steps/50-install-element.sh"
   "auth-gateway:steps/60-install-auth-gw.sh"
   "admin:steps/70-install-admin.sh"
-  "start:start-stack.sh"
 )
 
 # Optional apps, in install order, each gated by ENABLE_<APP>.
@@ -80,4 +82,8 @@ for app in "${app_order[@]}"; do
     run_step "app:${app,,}" "${app_step[$app]}"
   fi
 done
+
+# Start the stack LAST: by now every enabled app has installed its backend and
+# written its vhost into /etc/caddy/apps, so Caddy loads them all on first start.
+run_step "start" "start-stack.sh"
 ok "install plan complete (check=$CHECK)"

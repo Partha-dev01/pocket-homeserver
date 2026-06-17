@@ -47,35 +47,12 @@ CACHE_DIR="${DATA_DIR}/binaries"
 CW_LOCAL="${CACHE_DIR}/conduwuit-linux-arm64"
 mkdir -p "${CACHE_DIR}"
 
-verify_sha256() {  # verify_sha256 FILE WANT — fail closed (delete) on mismatch
-  local f="$1" want="$2" got
-  [ -f "$f" ] || die "sha256 verify: file not found: $f"
-  got="$(sha256sum "$f" 2>/dev/null | cut -d' ' -f1)"
-  if [ "$got" != "$want" ]; then
-    rm -f "$f"
-    die "sha256 MISMATCH for $(basename "$f") — expected $want, got ${got:-<none>}; refusing to install"
-  fi
-  ok "sha256 verified: $(basename "$f") (${want})"
-}
-
-# ── 1. Download to the cache (re-verify any cached copy against the pin) ──────
-need_dl=true
-if [ -f "${CW_LOCAL}" ]; then
-  if [ "$(sha256sum "${CW_LOCAL}" 2>/dev/null | cut -d' ' -f1)" = "${CW_SHA256}" ]; then
-    need_dl=false
-    ok "continuwuity cached + sha256-verified (v${CW_VER})"
-  else
-    warn "cached continuwuity does not match the pinned sha256 — re-downloading v${CW_VER}"
-  fi
-fi
-if [ "${need_dl}" = "true" ]; then
-  say "downloading continuwuity v${CW_VER} to cache"
-  curl -fsSL --retry 3 -o "${CW_LOCAL}.tmp" "${CW_URL}" || die "continuwuity download failed (${CW_URL})"
-  verify_sha256 "${CW_LOCAL}.tmp" "${CW_SHA256}"
-  chmod +x "${CW_LOCAL}.tmp"
-  mv -f "${CW_LOCAL}.tmp" "${CW_LOCAL}"
-  ok "continuwuity v${CW_VER} cached at ${CW_LOCAL} ($(wc -c < "${CW_LOCAL}") bytes)"
-fi
+# ── 1. Download to the cache, sha256-verified fail-closed ────────────────────
+# fetch_verified (from common.sh) reuses a cached copy that already matches the
+# pin, and deletes + aborts on any mismatch.
+fetch_verified "${CW_URL}" "${CW_LOCAL}" "${CW_SHA256}"
+chmod +x "${CW_LOCAL}"
+ok "continuwuity v${CW_VER} ready at ${CW_LOCAL} ($(wc -c < "${CW_LOCAL}") bytes)"
 
 # ── 2. Install into the userland ─────────────────────────────────────────────
 # proot-distro manages the rootfs path; copy through `proot-distro login` so we

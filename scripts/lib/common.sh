@@ -65,6 +65,39 @@ require_var() {
 }
 require_cmd() { command -v "$1" >/dev/null 2>&1 || die "missing required command: $1"; }
 
+# ── Supply-chain: verified downloads ─────────────────────────────────────────
+# Every binary we fetch is pinned to an exact sha256 and verified fail-closed, so
+# a corrupt or tampered download is deleted and the install aborts rather than
+# silently running an unknown binary.
+#
+# verify_sha256 FILE WANT — compare FILE's sha256 to WANT; on mismatch delete
+# FILE and die.
+verify_sha256() {
+  local f="$1" want="$2" got
+  [ -f "$f" ] || die "sha256 verify: file not found: $f"
+  got="$(sha256sum "$f" 2>/dev/null | cut -d' ' -f1)"
+  if [ "$got" != "$want" ]; then
+    rm -f "$f"
+    die "sha256 MISMATCH for $(basename "$f") — expected $want, got ${got:-<none>}; refusing to use it"
+  fi
+  ok "sha256 verified: $(basename "$f") ($want)"
+}
+
+# fetch_verified URL DEST WANT — download URL to DEST (atomic via .tmp), verifying
+# the sha256 fail-closed. If DEST already matches WANT it is reused (cache hit),
+# so this is safe to re-run. Requires curl.
+fetch_verified() {
+  local url="$1" dest="$2" want="$3"
+  if [ -f "$dest" ] && [ "$(sha256sum "$dest" 2>/dev/null | cut -d' ' -f1)" = "$want" ]; then
+    ok "cached + sha256-verified: $(basename "$dest")"; return 0
+  fi
+  mkdir -p "$(dirname "$dest")"
+  say "downloading $(basename "$dest")"
+  curl -fsSL --retry 3 -o "$dest.tmp" "$url" || die "download failed: $url"
+  verify_sha256 "$dest.tmp" "$want"
+  mv -f "$dest.tmp" "$dest"
+}
+
 # ── Idempotency markers ─────────────────────────────────────────────────────
 _state_file() { printf '%s/%s.done' "$POCKET_STATE_DIR" "$1"; }
 mark_done() { mkdir -p "$POCKET_STATE_DIR"; : > "$(_state_file "$1")"; }
