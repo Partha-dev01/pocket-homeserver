@@ -15,16 +15,17 @@ for ~20 users alongside 20+ supporting services on a single mid-range phone for
 months: automated backups, self-healing supervision that survives reboots, a web
 admin panel, and a documented security review.
 
-> **Status: early — scaffolding.** This repository is being productized from that
-> working deployment. The layout and roadmap below are the target; content lands
-> incrementally and interfaces will change until the first tagged release.
+> **Status: v0.1.0 — pre-release.** Productized from that working deployment; all
+> the pieces below have landed. Interfaces may still change before 1.0, and the
+> fresh-phone, zero-to-running walkthrough is still being hardened — expect some
+> rough edges, and see the [changelog](CHANGELOG.md).
 
 ## What it aims to provide
 
 - **The stack** — a Matrix homeserver (continuwuity / conduwuit) behind Caddy,
-  plus optional self-hosted apps (bookmarks, file sharing, RSS, notes, tasks,
-  metasearch, webmail, a status page, and more) — all bound to loopback behind a
-  single Cloudflare Tunnel.
+  plus eight optional self-hosted apps (bookmarks, file sharing, RSS, notes,
+  tasks, metasearch, a developer toolbox, and a status page) — all bound to
+  loopback behind a single Cloudflare Tunnel.
 - **Idempotent install scripts** — numbered, re-runnable, predictable bring-up;
   one "start everything" entrypoint; reboot survival via Termux:Boot.
 - **A web admin panel** — health, service controls, and break-glass actions,
@@ -94,10 +95,14 @@ tools/     repo tooling (e.g. the leak-scan pre-push guard)
   scheduled backup daemon is still to come)
 - [x] Guided `setup.sh` wizard + zero-to-running setup guide (fresh-phone
   end-to-end walkthrough still being hardened)
-- [ ] First tagged release
+- [x] First tagged release (v0.1.0)
+- [ ] Reboot-survival + watchdog self-heal as install steps — a Termux:Boot
+  launcher and a `JobScheduler` watchdog (manual boot setup is documented for now)
 
 ## Status, license, and contributing
 
-Pre-release and under active construction — expect breaking changes. Licensed
-under the [MIT License](LICENSE). Issues and discussion are welcome once the
-initial scaffold lands.
+Pre-release (v0.1.0) and under active construction — expect breaking changes.
+Licensed under the [MIT License](LICENSE). Issues, bug reports, and discussion
+are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md). Because the repo is public,
+every change is scanned for secrets and deployment-specific data by
+[`tools/leak-scan.sh`](tools/leak-scan.sh) before it lands.

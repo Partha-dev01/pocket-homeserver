@@ -23,11 +23,13 @@ CGNAT, on mobile data, or on any network, with nothing exposed to scan.
 
 The base is an ordinary Android phone running [Termux](https://termux.dev), a
 userspace terminal environment. No root is required or used. Two Termux add-ons
-do the heavy lifting for reliability:
+support reliability and are recommended:
 
-- **Termux:Boot** re-launches the whole stack after a reboot.
-- **Termux:API** exposes Android's `JobScheduler`, which the watchdog uses to
-  recover from the low-memory killer (see *Supervision* below).
+- **Termux:Boot** can re-launch the whole stack after a reboot. *(Today that is a
+  short manual step — see [SETUP.md](SETUP.md); an install step that wires it up
+  automatically is on the roadmap.)*
+- **Termux:API** is optional; it exposes Android's `JobScheduler`, the basis for
+  the planned watchdog self-heal (see *Supervision* below).
 
 ### 2. proot Debian userland
 
@@ -68,29 +70,36 @@ bound to loopback (default `127.0.0.1:8448`). Federation is **off by default**
 ### 6. Optional app suite
 
 Each app is independent, binds loopback, sits behind the auth gate, and is
-toggled with an `ENABLE_*` flag in `.env`. The suite includes bookmarks,
-file-sharing, an RSS reader, notes, tasks, a metasearch engine, a status page,
-and webmail. Enable only what you want.
+toggled with an `ENABLE_*` flag in `.env`. The suite is eight apps — bookmarks,
+file sharing, an RSS reader, notes, tasks, a metasearch engine, a developer
+toolbox, and a status page (the installers live in
+[`scripts/apps/`](../scripts/apps/); see [APPS.md](APPS.md)). Enable only what you
+want.
 
 ### 7. Web admin panel
 
-A small loopback web panel (`admin/`) for health, service control, and
-break-glass actions, reached through the tunnel behind authentication.
+A small loopback web panel ([`admin/app.py`](../admin/app.py)) for health, service
+control, and break-glass actions, reached through the tunnel behind
+authentication (see [ADMIN.md](ADMIN.md)).
 
-### 8. Supervision, self-healing, and backups
+### 8. Supervision, backups, and resilience
 
 Termux has no `init`/`systemd`, so each long-running service runs under a tiny
-bash supervisor loop that respawns it if it exits. Two layers keep the system up
-without human intervention:
+bash supervisor loop ([`scripts/lib/common.sh`](../scripts/lib/common.sh)) that
+respawns it within seconds if it exits. **This crash-respawn is what ships
+today.** Surviving larger events is on the roadmap:
 
-- A **watchdog** registered with Android's `JobScheduler` re-runs the
-  *idempotent* bring-up script every ~15 minutes. This recovers services (and
-  their supervisors) killed by Android's low-memory killer, surviving even a full
-  Termux app kill.
-- **Termux:Boot** runs the bring-up on every reboot.
+- **Reboot survival** — re-running the bring-up on boot via **Termux:Boot**. For
+  now this is a short manual step ([SETUP.md](SETUP.md)); an install step that
+  configures it automatically is planned.
+- **Watchdog self-heal** — a periodic job (Android's `JobScheduler`, via
+  Termux:API) that re-runs the *idempotent* bring-up to recover services killed
+  by the low-memory killer. Planned; not yet bundled.
 
-Scheduled jobs snapshot the Matrix database and the userland to the large volume
-(see *Storage* below), with retention and optional encryption.
+Backups are produced by the [`scripts/ops/`](../scripts/ops/) scripts — run by
+hand or from the admin panel — snapshotting the Matrix database and the userland
+to the large volume with retention and optional encryption (see
+[BACKUPS.md](BACKUPS.md)). A scheduled backup daemon is still to come.
 
 ## Request flow
 
@@ -132,10 +141,10 @@ stripped before the gate so they cannot be forged.
 | Notes | optional app | loopback | `notes.${DOMAIN}` |
 | Tasks | optional app | loopback | `tasks.${DOMAIN}` |
 | Metasearch | optional app | loopback | `search.${DOMAIN}` |
+| Developer tools | optional app | loopback | `tools.${DOMAIN}` |
 | Status page | optional app | loopback | `status.${DOMAIN}` |
-| Webmail | optional app | loopback | `webmail.${DOMAIN}` |
-| Supervisors + watchdog | keep services alive | — | — |
-| Backup jobs | scheduled DB + userland snapshots | — | — |
+| Supervisors | respawn crashed services | — | — |
+| Backup scripts | on-demand DB + userland snapshots | — | — |
 
 Exact ports for the apps are assigned by the install scripts; the rule is simply
 that **nothing binds anything but loopback** — a `0.0.0.0` listener from any of

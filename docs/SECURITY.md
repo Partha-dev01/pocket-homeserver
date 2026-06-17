@@ -98,11 +98,15 @@ reach is **loopback** — where the sensitive services live. Mitigations:
 ### Secrets and supply chain
 - Secrets live in mode-`600` files, are kept out of git, and are never passed on
   the command line or written to logs.
+- Because the repository is public, a [`tools/leak-scan.sh`](../tools/leak-scan.sh)
+  guard scans every change for secrets, keys, public IPs, and deployment-specific
+  strings before it is pushed.
 - Backups can be encrypted at rest (e.g. with [`age`](https://github.com/FiloSottile/age)).
   **Store the decryption key off the device** — a backup you cannot decrypt is
   not a backup.
-- Downloaded binaries are verified fail-closed (pinned versions + `sha256`
-  checks) so a compromised mirror cannot inject a payload.
+- Downloaded binaries are verified fail-closed — pinned versions + `sha256`
+  checks (the [`verify_sha256` / `fetch_verified`](../scripts/lib/common.sh)
+  helpers) — so a compromised mirror cannot inject a payload.
 
 ### Physical
 - Strong screen lock; device encryption on (default on modern Android).

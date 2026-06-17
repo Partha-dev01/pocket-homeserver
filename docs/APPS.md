@@ -4,7 +4,9 @@ Beyond the Matrix homeserver and Element, pocket-homeserver can install a suite
 of self-hosted web apps. They are all **optional** and **off by default**. You
 turn each one on with its `ENABLE_<APP>` flag in `.env` (the [`setup.sh`](../setup.sh)
 wizard asks about each), then run the installer — every enabled app installs its
-backend and drops a Caddy vhost, and the edge comes up already aware of it.
+backend and drops a Caddy vhost, and the edge comes up already aware of it. Each
+app's installer lives in [`scripts/apps/`](../scripts/apps/) (e.g. `linkding.sh`)
+and is run by [`scripts/install.sh`](../scripts/install.sh) when its flag is on.
 
 ```bash
 # in .env (or via ./setup.sh)

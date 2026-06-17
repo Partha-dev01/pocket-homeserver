@@ -52,17 +52,20 @@ Install [Termux](https://termux.dev) and its add-ons **from F-Droid** (not the
 Play Store builds, which are outdated and incompatible):
 
 - **Termux** — the terminal environment.
-- **Termux:Boot** — re-launches the stack after a reboot.
-- **Termux:API** — lets the watchdog use Android's job scheduler to self-heal.
+- **Termux:Boot** — runs a launcher on boot; used for reboot survival (a short
+  manual step for now, see [Reboot survival](#reboot-survival) below).
+- **Termux:API** — optional; provides wake-lock and is the basis for the planned
+  watchdog self-heal.
 
 Then update packages and install git inside Termux.
 
 ## 3. Install the Debian userland
 
 The server software runs in a Debian userland provided by `proot-distro` (no root
-needed). You'll install `proot-distro`, then a Debian rootfs at `${ROOTFS_DIR}`.
-
-> Exact commands land with the install scripts (Phase 2).
+needed). You don't run this by hand — the installer's first steps
+([`scripts/steps/00-prereqs.sh`](../scripts/steps/00-prereqs.sh) and
+[`10-install-userland.sh`](../scripts/steps/10-install-userland.sh)) install
+`proot-distro` and the Debian rootfs at `${ROOTFS_DIR}` for you in step 7.
 
 ## 4. Set up Cloudflare (domain + tunnel)
 
@@ -145,8 +148,9 @@ admin. You can mint or rotate the token later from the admin panel's danger zone
 ## 9. Enable the apps you want
 
 In `.env`, flip the `ENABLE_*` toggles for the apps you want (bookmarks, RSS,
-notes, tasks, file sharing, metasearch, status page, webmail), then re-run the
-installer. Each enabled app is served on its own subdomain behind the login gate.
+notes, tasks, file sharing, metasearch, a developer toolbox, status page), then
+re-run the installer. Each enabled app is served on its own subdomain behind the
+login gate — see [APPS.md](APPS.md) for what each one is.
 
 ## 10. Verify
 
@@ -157,16 +161,38 @@ installer. Each enabled app is served on its own subdomain behind the login gate
 
 ## Reboot survival
 
-Termux:Boot re-runs the bring-up after every reboot, and the watchdog re-runs the
-idempotent bring-up every ~15 minutes to recover anything Android kills. You
-should not need to babysit the phone.
+While Termux is running, each service runs under a supervisor that respawns it if
+it crashes. Surviving a **full reboot** needs one more piece: have **Termux:Boot**
+re-run the bring-up. A turnkey install step for this is on the roadmap; until
+then, set it up manually — create a launcher that Termux:Boot runs on boot:
+
+```bash
+mkdir -p ~/.termux/boot
+cat > ~/.termux/boot/00-pocket-homeserver.sh <<'EOF'
+#!/data/data/com.termux/files/usr/bin/bash
+termux-wake-lock
+# idempotent full bring-up — restores the core stack AND any enabled apps
+bash ~/pocket-homeserver/scripts/install.sh
+EOF
+chmod +x ~/.termux/boot/00-pocket-homeserver.sh
+```
+
+Adjust the path if you cloned elsewhere, and open the **Termux:Boot** app once
+after installing it so Android lets it run at boot. `install.sh` is idempotent, so
+on boot it simply re-launches whatever isn't already up; for a core-only restart
+you can call [`scripts/start-stack.sh`](../scripts/start-stack.sh) instead.
+
+A periodic **watchdog** (to recover services Android's low-memory killer takes
+down) and a packaged version of the launcher above are the next items on the
+roadmap.
 
 ## Troubleshooting (where to look)
 
-- **Service down?** Check its log and let the supervisor/watchdog respawn it.
+- **Service down?** Check its log under `${POCKET_LOG_DIR}` and let the supervisor
+  respawn it; re-running `./scripts/install.sh` is always safe.
 - **Site unreachable?** Check the Cloudflare Tunnel connector status first; a
   down connector means the phone-side tunnel isn't running.
 - **App returns a login loop or 502?** Check the auth gateway and the reverse
   proxy config for that hostname.
 
-A fuller troubleshooting guide ships with the scripts.
+If something stays down, capture the relevant log lines and open an issue.

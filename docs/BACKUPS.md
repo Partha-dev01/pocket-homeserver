@@ -1,6 +1,6 @@
 # Backups & recovery
 
-pocket-homeserver ships a small set of snapshot scripts under `scripts/ops/`. They
+pocket-homeserver ships a small set of snapshot scripts under [`scripts/ops/`](../scripts/ops/). They
 are exposed as buttons in the [web admin panel](ADMIN.md) and can also be run by
 hand. All output lands under `${BACKUP_DIR}` (default `${DATA_DIR}/backups`), with a
 `.sha256` integrity sidecar next to every archive.
@@ -14,9 +14,9 @@ hand. All output lands under `${BACKUP_DIR}` (default `${DATA_DIR}/backups`), wi
 
 | Script | Captures | Downtime | Output |
 |---|---|---|---|
-| `ops/backup-db.sh` | the Matrix homeserver database (conduwuit RocksDB, `/var/lib/conduwuit/db`) | homeserver stopped for the snapshot (tens of seconds) | `${BACKUP_DIR}/db/db-<UTC>.tar.zst` |
-| `ops/backup-all.sh` | the **entire** Debian userland rootfs (all installed software + configs + the homeserver DB) | homeserver stopped during the tar; large + slow (~1 GB) | `${BACKUP_DIR}/rootfs/rootfs-<UTC>.tar.zst` |
-| `ops/rotate-backups.sh` | — (prunes old archives to retention) | none | — |
+| [`ops/backup-db.sh`](../scripts/ops/backup-db.sh) | the Matrix homeserver database (conduwuit RocksDB, `/var/lib/conduwuit/db`) | homeserver stopped for the snapshot (tens of seconds) | `${BACKUP_DIR}/db/db-<UTC>.tar.zst` |
+| [`ops/backup-all.sh`](../scripts/ops/backup-all.sh) | the **entire** Debian userland rootfs (all installed software + configs + the homeserver DB) | homeserver stopped during the tar; large + slow (~1 GB) | `${BACKUP_DIR}/rootfs/rootfs-<UTC>.tar.zst` |
+| [`ops/rotate-backups.sh`](../scripts/ops/rotate-backups.sh) | — (prunes old archives to retention) | none | — |
 
 **Media and app data are deliberately out of scope of these archives.** Matrix
 media and every app's data (Linkding, Pingvin, FreshRSS, …) live on the large
@@ -28,7 +28,7 @@ need a fully quiescent rootfs snapshot.
 
 ## Retention
 
-`ops/rotate-backups.sh` keeps the newest **`BACKUP_KEEP_DB`** db snapshots and
+[`ops/rotate-backups.sh`](../scripts/ops/rotate-backups.sh) keeps the newest **`BACKUP_KEEP_DB`** db snapshots and
 **`BACKUP_KEEP_ROOTFS`** rootfs snapshots (defaults `3` and `4`, set in `.env`). It
 runs automatically at the end of `backup-db.sh` and `backup-all.sh`, and removes a
 pruned archive together with its `.sha256` / `.age` / `.age.sha256` sidecars.
@@ -62,6 +62,6 @@ keeps a destructive path from being a single mis-click). The shape is:
 ## Scheduling (optional)
 
 These scripts are intended to be invoked from the admin panel or by hand. To run
-them automatically, wire `ops/backup-db.sh` (frequent) and `ops/backup-all.sh`
+them automatically, wire [`ops/backup-db.sh`](../scripts/ops/backup-db.sh) (frequent) and [`ops/backup-all.sh`](../scripts/ops/backup-all.sh)
 (infrequent) into Termux's `cron`/`at` or a Termux:Boot-launched timer. A scheduled
 backup daemon is a planned addition.
