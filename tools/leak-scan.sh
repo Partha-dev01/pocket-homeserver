@@ -48,19 +48,31 @@ report() {   # $1=label  $2=pattern  $3=hits
   printf '%s\n' "$3" | sed 's/^/   /'
 }
 
-# 1) Generic secret patterns (extended regex).
+# 1) Always-real secret patterns (private keys + provider tokens).
 generic_patterns=(
   'BEGIN [A-Z ]*PRIVATE KEY'
   'ghp_[A-Za-z0-9]{20,}'
   'github_pat_[A-Za-z0-9_]{20,}'
   'AKIA[0-9A-Z]{16}'
   'xox[baprs]-[A-Za-z0-9-]{10,}'
-  '(password|passwd|secret|token|api[_-]?key)[[:space:]]*[=:][[:space:]]*[^[:space:]"'\''#]+'
 )
 for pat in "${generic_patterns[@]}"; do
   hits="$(grep -nIE -- "$pat" "${files[@]}" 2>/dev/null || true)"
   [ -n "$hits" ] && report "generic" "$pat" "$hits"
 done
+
+# 1b) A password/secret/token assigned to a LITERAL (an embedded secret).
+# Quoted values are already excluded by the value class (it stops at a quote), so
+# `x = "literal"` does not match. We additionally drop values that are a code
+# expression — a function/method call such as `token = resp.get(...)` or
+# `access_token = secrets.token_urlsafe(32)` — because those read/derive the value
+# in source rather than hardcoding it. A literal like `TOKEN=abc123` is NOT a call
+# and is still reported.
+secret_assign='(password|passwd|secret|token|api[_-]?key)[[:space:]]*[=:][[:space:]]*[^[:space:]"'\''#]+'
+# benign: RHS is an identifier with optional attribute access, ending in a call '('.
+benign_call='[=:][[:space:]]*[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*\('
+sec_hits="$(grep -nIE -- "$secret_assign" "${files[@]}" 2>/dev/null | grep -vE -- "$benign_call" || true)"
+[ -n "$sec_hits" ] && report "generic" "$secret_assign" "$sec_hits"
 
 # 2) Public IPv4 addresses (loopback / private / link-local are not leaks).
 ip_pat='\b([0-9]{1,3}\.){3}[0-9]{1,3}\b'
