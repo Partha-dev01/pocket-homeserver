@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 #
-# 30-install-caddy.sh — install Caddy (the loopback HTTPS edge) into the Debian
-# userland and deploy the rendered Caddyfile.
+# 30-install-caddy.sh — install Caddy (the loopback HTTP edge; the Cloudflare
+# Tunnel terminates public TLS) into the Debian userland and deploy the rendered
+# Caddyfile.
 #
 # What it does:
 #   - apt-installs caddy inside the userland (with a Cloudsmith-repo fallback for

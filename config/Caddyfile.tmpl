@@ -2,9 +2,15 @@
 # Rendered to config/rendered/Caddyfile by scripts/render-config.sh, which
 # substitutes ${DOMAIN}, ${MATRIX_SERVER_NAME}, ${CADDY_BIND}, ${CADDY_PORT}.
 #
-# Caddy binds loopback only; the Cloudflare Tunnel forwards public traffic here.
-# App vhosts (bookmarks, RSS, ...) are appended by each app's install script so
-# that enabling an app does not require hand-editing this core file.
+# Edge model: Caddy binds a HIGH loopback port (${CADDY_PORT}) — an unprivileged
+# proot process on an unrooted phone cannot bind :443 — and serves PLAIN HTTP.
+# The Cloudflare Tunnel terminates public TLS and forwards to this loopback
+# listener, so there is no certificate to manage on-device. The explicit
+# `http://` scheme on each site address is REQUIRED: Caddy otherwise defaults to
+# HTTPS for any real domain name (even with `auto_https off`), which would try to
+# bind :443 and fail. App vhosts are dropped into /etc/caddy/apps/*.caddy by each
+# app's install script (imported at the end) so enabling an app never requires
+# hand-editing this core file.
 
 {
 	admin off
@@ -12,9 +18,8 @@
 }
 
 # ── Matrix homeserver + Element Web (shared origin) ─────────────────────────
-chat.${DOMAIN} {
+http://chat.${DOMAIN}:${CADDY_PORT} {
 	bind ${CADDY_BIND}
-	tls internal
 
 	header {
 		Strict-Transport-Security "max-age=31536000; includeSubDomains"

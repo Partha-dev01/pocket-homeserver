@@ -2,7 +2,8 @@
 #
 # start-stack.sh — bring the core stack up (or restart it), in dependency order:
 #   1. matrix       — the Matrix homeserver (continuwuity); everything depends on it
-#   2. caddy        — the loopback HTTPS edge on ${CADDY_BIND}:${CADDY_PORT}
+#   2. caddy        — the loopback HTTP edge on ${CADDY_BIND}:${CADDY_PORT}
+#                     (the Cloudflare Tunnel terminates public TLS)
 #   3. cloudflared  — the Cloudflare Tunnel that forwards public traffic to Caddy
 #
 # Each service runs INSIDE the Debian userland via `proot-distro login` and is
@@ -44,7 +45,7 @@ matrix_cmd=(
   -- env CONDUIT_CONFIG=/etc/conduwuit/conduwuit.toml /opt/conduwuit/conduwuit
 )
 
-# Caddy: serve the deployed Caddyfile (loopback HTTPS edge).
+# Caddy: serve the deployed Caddyfile (loopback HTTP edge; the tunnel does TLS).
 caddy_cmd=(
   proot-distro login debian
   -- caddy run --config /etc/caddy/Caddyfile --adapter caddyfile
