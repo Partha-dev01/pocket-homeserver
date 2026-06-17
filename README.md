@@ -34,6 +34,19 @@ admin panel, and a documented security review.
 - **Docs & findings** — architecture, the threat model and hardening applied,
   known issues, and a zero-to-running setup guide.
 
+## Quickstart
+
+Once the phone is prepared and you've cloned this repo into Termux (see the full
+walkthrough in [docs/SETUP.md](docs/SETUP.md)), it comes down to two commands:
+
+```bash
+./setup.sh            # guided wizard: answer a few questions, writes your .env
+./scripts/install.sh  # bring the whole stack up (the wizard can launch this too)
+```
+
+The wizard never echoes your secrets, writes `.env` with `0600` permissions, and
+can generate a Matrix registration token so you can create your first user.
+
 ## Why a phone?
 
 A retired phone is a low-power, battery-backed, always-on ARM64 computer with
@@ -76,7 +89,8 @@ tools/     repo tooling (e.g. the leak-scan pre-push guard)
 - [x] Web admin panel (health, controls, backups, danger zone)
 - [x] Backups & recovery — DB + rootfs snapshot scripts, retention, restore (a
   scheduled backup daemon is still to come)
-- [ ] Zero-to-running setup guide for a fresh phone (skeleton in place)
+- [x] Guided `setup.sh` wizard + zero-to-running setup guide (fresh-phone
+  end-to-end walkthrough still being hardened)
 - [ ] First tagged release
 
 ## Status, license, and contributing

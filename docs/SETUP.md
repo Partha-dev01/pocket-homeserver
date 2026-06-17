@@ -1,8 +1,8 @@
 # Setup guide
 
-> **Status: skeleton.** The ordered path below is stable, but exact commands and
-> script names are finalized as the install scripts land (Phase 2). Where a
-> concrete command isn't published yet, the step says so.
+> **Status: maturing.** The install scripts have landed, so the configuration
+> and bring-up commands below are concrete. A few phone-side preparation steps
+> vary by vendor and are described in general terms.
 
 This guide takes a spare Android phone from nothing to a running Matrix
 homeserver reachable at `https://chat.${DOMAIN}`. It is written for someone who
@@ -85,13 +85,25 @@ a folder on it (e.g. `/storage/XXXX-XXXX/pocket-homeserver`).
 
 ## 6. Configure `.env`
 
-Copy the template and fill it in:
+The easy path — run the guided wizard from the repo root:
+
+```bash
+./setup.sh
+```
+
+It asks a handful of questions (domain, storage path, tunnel token, admin login,
+which apps to enable), then writes a complete `.env` for you — with `0600`
+permissions, your secrets never echoed back, and an existing `.env` backed up
+first. It can offer to launch the installer when it finishes, and you can re-run
+it any time.
+
+Prefer to do it by hand? Copy the template and edit it instead:
 
 ```bash
 cp .env.example .env
 ```
 
-The values you must set before first start:
+Either way, the values you must set before first start:
 
 | Variable | What to put |
 |---|---|
@@ -105,10 +117,12 @@ defaults if unsure. `.env` is gitignored — your secrets stay local.
 
 ## 7. Install and start the stack
 
-Run the installer from the repo root:
+Run the installer from the repo root (the wizard in step 6 can also launch it
+for you):
 
 ```bash
-./scripts/install.sh        # placeholder name — finalized with Phase 2
+./scripts/install.sh --check   # preview the ordered plan, change nothing
+./scripts/install.sh           # run it
 ```
 
 This brings up, in order: the reverse proxy, the tunnel connector, the Matrix
@@ -117,11 +131,16 @@ under a supervisor that restarts it if it dies.
 
 ## 8. Create your admin user
 
-Registration is invite/token-gated, so you mint your own first account as admin.
+Registration is token-gated. If you let the wizard generate a registration token
+(step 6), it is already in your `.env`:
 
-> Exact command lands with Phase 2; conceptually: mint an invite token, then
-> create your account through Element Web using that token. The first user
-> becomes the server admin.
+```bash
+grep MATRIX_REGISTRATION_TOKEN .env
+```
+
+Open `https://chat.${DOMAIN}`, choose to create an account on your server, and
+supply that token when prompted. The first account you create is the server
+admin. You can mint or rotate the token later from the admin panel's danger zone.
 
 ## 9. Enable the apps you want
 
