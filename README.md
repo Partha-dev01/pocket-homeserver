@@ -62,6 +62,9 @@ a cheap, resilient, and genuinely practical way to self-host.
   operator checklist.
 - [docs/SETUP.md](docs/SETUP.md) — zero-to-running setup guide (skeleton; firming
   up as the scripts land).
+- [docs/APPS.md](docs/APPS.md) — the optional apps (bookmarks, file sharing, RSS,
+  notes, tasks, metasearch, dev tools, status): what each is, where its data
+  lives, and how to enable/upgrade it.
 - [docs/APP_AUTH.md](docs/APP_AUTH.md) — how the optional apps are protected:
   Cloudflare Access (default) and the optional Matrix-SSO gateway.
 - [docs/ADMIN.md](docs/ADMIN.md) — the web admin panel: health, controls, backups,
