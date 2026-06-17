@@ -71,7 +71,13 @@ done
 secret_assign='(password|passwd|secret|token|api[_-]?key)[[:space:]]*[=:][[:space:]]*[^[:space:]"'\''#]+'
 # benign: RHS is an identifier with optional attribute access, ending in a call '('.
 benign_call='[=:][[:space:]]*[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*\('
-sec_hits="$(grep -nIE -- "$secret_assign" "${files[@]}" 2>/dev/null | grep -vE -- "$benign_call" || true)"
+# benign: RHS is plainly NOT a hardcoded literal — a shell/template variable ($X,
+# ${X}), an escaped quote (\"...), markup (a <tag>, e.g. HTML like `password:</p>`),
+# or a doc placeholder (… / ...). A real embedded secret is a literal alphanumeric
+# value, which begins with none of these and is still reported.
+benign_value='[=:][[:space:]]*(\$|\\|<|…|\.\.\.)'
+sec_hits="$(grep -nIE -- "$secret_assign" "${files[@]}" 2>/dev/null \
+  | grep -vE -- "$benign_call" | grep -vE -- "$benign_value" || true)"
 [ -n "$sec_hits" ] && report "generic" "$secret_assign" "$sec_hits"
 
 # 2) Public IPv4 addresses (loopback / private / link-local are not leaks).

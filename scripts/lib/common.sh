@@ -122,6 +122,10 @@ supervise() {
   mkdir -p "$POCKET_STATE_DIR" "$POCKET_LOG_DIR"
   if _supervisor_alive "$pidfile" "$name"; then ok "already running: $name"; return 0; fi
   rm -f "$pidfile"
+  # Record the launch argv (one element per line) so a targeted restart can
+  # re-supervise this exact command without each caller having to re-specify it
+  # (used by scripts/ops/restart.sh). Best-effort; never fatal.
+  printf '%s\n' "$@" > "$POCKET_STATE_DIR/$name.cmd" 2>/dev/null || true
   # Prefer setsid so the supervisor leads its own process group; stopping it can
   # then take down the child too. Fall back to nohup where setsid is absent.
   local launcher=nohup
