@@ -96,6 +96,7 @@ ENABLE = {
     "honeypot": _flag("ENABLE_HONEYPOT"),
     "user-filter":  _flag("ENABLE_USER_FILTER"),
     "media-filter": _flag("ENABLE_MEDIA_FILTER"),
+    "cloud-bots":   _flag("ENABLE_CLOUD_BOTS"),
 }
 
 # Script allowlist — the ONLY scripts a click can run, relative to scripts/. No
@@ -655,6 +656,12 @@ def _build_health_procs():
         procs.append({"name": "user-filter", "pattern": "user-filter\\.py"})
     if ENABLE["media-filter"]:
         procs.append({"name": "media-filter", "pattern": "media-filter\\.py"})
+    if ENABLE["cloud-bots"]:
+        # One collective row for all cloud bots: per-bot identity lives only in the
+        # sourced 0600 env (off-argv), so the python child cmdline carries only the
+        # module path. Restart individual bots from the shell (ops/restart.sh
+        # cloud-bot-<name>) — their names are dynamic, so there is no static button.
+        procs.append({"name": "cloud-bots", "pattern": "cloud_chatbot\\.py"})
     return procs
 
 HEALTH_PROCS = _build_health_procs()

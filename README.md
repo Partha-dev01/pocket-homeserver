@@ -69,6 +69,9 @@ You drive the whole thing from **one interactive menu**:
 - **Optional one-shot Matrix bootstrap** — seed an admin account, a hub Space with
   rooms, and an admin-only announcements room, and mint single-use invite tokens.
   Idempotent, env-driven template, off by default. ([docs/BOOTSTRAP.md](docs/BOOTSTRAP.md))
+- **Optional cloud-LLM chat bots** — Matrix bots that answer `@`-mentions via any
+  OpenAI-compatible API (Groq's free tier, OpenRouter, …). No inbound listener,
+  fail-closed rooms, free-tier-safe rate limits, off by default. ([docs/CHATBOTS.md](docs/CHATBOTS.md))
 - **Secure by construction** — no inbound ports, pinned + `sha256`-verified
   downloads, secrets kept off the command line, and a documented threat model.
   ([docs/SECURITY.md](docs/SECURITY.md))
@@ -162,6 +165,7 @@ genuinely practical way to self-host.
 - [docs/BACKUPS.md](docs/BACKUPS.md) — snapshots, retention, encryption, restore.
 - [docs/RESTORE_AND_ROTATION.md](docs/RESTORE_AND_ROTATION.md) — the scripted restore and the credential-rotation scripts.
 - [docs/BOOTSTRAP.md](docs/BOOTSTRAP.md) — the optional one-shot Matrix bootstrap (admin, Space/rooms, invite tokens).
+- [docs/CHATBOTS.md](docs/CHATBOTS.md) — the optional Matrix chat bots (cloud-LLM, and the on-phone BYO model).
 - [docs/MATRIX_AUTH_GW.md](docs/MATRIX_AUTH_GW.md) — the optional single sign-on gateway in depth.
 
 ## Repository layout
@@ -193,6 +197,7 @@ tools/       repo tooling (e.g. the leak-scan pre-push guard)
 - [x] Optional privacy & media filters (hide accounts from search; fix media content-type)
 - [x] Scripted restore + credential rotation (dry-run restore; rotate tunnel/OIDC/admin-bot keys)
 - [x] Optional Matrix bootstrap (admin + hub Space/rooms + announcements + invite tokens)
+- [x] Optional cloud-LLM Matrix chat bots (OpenAI-compatible; Groq free tier)
 
 ## Status, license, and contributing
 

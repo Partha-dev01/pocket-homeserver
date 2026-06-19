@@ -176,6 +176,12 @@ say "Two small loopback proxies in front of Matrix (both off by default)."
 ask_yn ENABLE_USER_FILTER  "Hide chosen accounts from member search (user-filter)?"                n
 ask_yn ENABLE_MEDIA_FILTER "Fix untyped media so mobile clients show thumbnails (media-filter)?"   n
 
+# ── Optional cloud-LLM chat bots ──────────────────────────────────────────────
+printf '\n'; say "── Cloud-LLM Matrix chat bots (optional) ──────────"
+say "Matrix bots that answer @-mentions via an OpenAI-compatible API (e.g. Groq's free tier)."
+say "Configure each bot later in a 0600 file under \${DATA_DIR}/secrets/ — see docs/CHATBOTS.md."
+ask_yn ENABLE_CLOUD_BOTS "Enable cloud-LLM Matrix chat bots?" n
+
 # ── Write .env ───────────────────────────────────────────────────────────────
 # Quote free-form / secret values so the file sources cleanly; leave derived
 # values (${DOMAIN}, ${DATA_DIR}, $HOME) as references, exactly like the template.
@@ -268,6 +274,10 @@ ENABLE_MEDIA_FILTER=${ENABLE_MEDIA_FILTER}
 MEDIA_FILTER_PORT=8450
 MATRIX_LOOPBACK=http://127.0.0.1:8448
 
+# ─── Cloud-LLM Matrix chat bots (optional) ──────────────────────────────────
+# Per-bot secrets live in 0600 files under \${DATA_DIR}/secrets, never here.
+ENABLE_CLOUD_BOTS=${ENABLE_CLOUD_BOTS}
+
 # ─── Backups ────────────────────────────────────────────────────────────────
 BACKUP_DIR=\${DATA_DIR}/backups
 BACKUP_KEEP_DB=3
@@ -298,6 +308,7 @@ printf '\n'; ok "configuration summary (no secrets shown):"
   printf '  sso gateway   : %s\n'    "$ENABLE_AUTH_GATEWAY"
   printf '  bootstrap     : %s%s\n'  "$ENABLE_BOOTSTRAP" "$([ "$ENABLE_BOOTSTRAP" = "true" ] && echo " (admin=$ADMIN_MATRIX_USER)")"
   printf '  filters       : user=%s media=%s\n' "$ENABLE_USER_FILTER" "$ENABLE_MEDIA_FILTER"
+  printf '  cloud bots    : %s\n'    "$ENABLE_CLOUD_BOTS"
   printf '  registration  : %s\n'    "$([ -n "$MATRIX_REGISTRATION_TOKEN" ] && echo 'generated (in .env)' || echo 'none')"
   printf '  apps enabled  :%s\n'     "${apps:- (none)}"
 } >&2

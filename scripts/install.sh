@@ -54,6 +54,7 @@ core_steps=(
   "boot:steps/75-install-boot.sh"
   "honeypot:steps/77-install-honeypot.sh"
   "filters:steps/78-install-filters.sh"
+  "cloud-bots:steps/80-install-cloud-bots.sh"
 )
 
 # Optional apps, in install order, each gated by ENABLE_<APP>.

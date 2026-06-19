@@ -9,6 +9,16 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 
 ### Added
 
+- **Optional cloud-LLM Matrix chat bots** (`ENABLE_CLOUD_BOTS`, off by default) —
+  stdlib, Termux-native Matrix `/sync` bots that answer `@`-mentions via any
+  OpenAI-compatible endpoint (Groq's free tier, OpenRouter, a local server). No
+  inbound listener; loopback to the homeserver + one outbound HTTPS call per
+  reply. Run one or more bots, each configured by a `0600`
+  `${DATA_DIR}/secrets/cloud-bot-<name>.env` (the install step seeds a template);
+  the token + API key stay in that file and are sourced in-process so they never
+  reach argv. Fail-closed `ALLOWED_ROOMS`, per-bot RPM/RPD rate limits, a sync
+  watchdog, and reasoning-model spoilers. New `scripts/steps/80-install-cloud-bots.sh`;
+  see `docs/CHATBOTS.md`.
 - **Optional Shizuku network stats in the admin panel.** Android blocks
   `/proc/net/dev` for the Termux app domain, so the panel's network section is
   normally "restricted." If you run [Shizuku](https://shizuku.rikka.app/) and its
