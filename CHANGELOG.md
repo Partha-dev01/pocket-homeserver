@@ -5,7 +5,7 @@ All notable changes to pocket-homeserver are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.1.2] - 2026-06-19
 
 ### Added
 
@@ -29,6 +29,22 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
   files under `${DATA_DIR}/secrets` (blocking is triple-gated: mode file + opt-in
   marker + a CF token over-scope self-check). Optional offline geo/ASN enrichment
   via the DB-IP lite datasets. Documented in `docs/HONEYPOT.md`.
+- **Harmonized the optional Matrix-SSO `forward_auth` recipe** across all eight
+  app vhosts, so enabling the gateway is copy-paste-correct instead of a redirect
+  loop.
+
+### Fixed
+
+- Removed the dead `ENABLE_ELEMENT` flag. Element is part of the core stack
+  (always installed, baked into the core Caddyfile), but it was declared in
+  `.env.example` and prompted for by `setup.sh` as if optional while nothing
+  consumed the flag — so disabling it silently did nothing. The wizard no longer
+  implies Element is optional.
+- The admin panel now has a `freshrss-refresh` restart button and health-proc
+  entry, symmetric with `linkding-tasks`.
+- Documentation/comment accuracy: clarified that the honeypot watcher's `--reap`
+  rule-pruning is not auto-scheduled, and corrected two stale internal references
+  (the watcher's install-step name and `ops/restart.sh`'s known-services list).
 
 ## [0.1.1] - 2026-06-19
 
