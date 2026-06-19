@@ -56,8 +56,11 @@ You drive the whole thing from **one interactive menu**:
 - **Survives reboots and crashes** — a per-service supervisor respawns crashed
   services; a Termux:Boot launcher restarts the stack on boot; and a JobScheduler
   watchdog revives anything Android's low-memory killer takes down.
-- **Backups & recovery** — database and full-rootfs snapshots with retention,
-  optional `age` encryption, and a documented restore path. ([docs/BACKUPS.md](docs/BACKUPS.md))
+- **Backups, restore & rotation** — database and full-rootfs snapshots with
+  retention and optional `age` encryption; a **scripted, dry-run-by-default
+  restore**; and one-command rotation of the admin password, registration token,
+  tunnel token, OIDC signing key, and admin-bot token.
+  ([docs/BACKUPS.md](docs/BACKUPS.md), [docs/RESTORE_AND_ROTATION.md](docs/RESTORE_AND_ROTATION.md))
 - **A web admin panel** — health, stats, logs, per-service restarts, backups, and
   a guarded danger zone, reachable over the tunnel. ([docs/ADMIN.md](docs/ADMIN.md))
 - **Optional privacy & media filters** — hide chosen accounts from the member
@@ -154,6 +157,7 @@ genuinely practical way to self-host.
 - [docs/APP_AUTH.md](docs/APP_AUTH.md) — how apps are protected: Cloudflare Access (default) and the optional Matrix-SSO gateway.
 - [docs/ADMIN.md](docs/ADMIN.md) — the web admin panel.
 - [docs/BACKUPS.md](docs/BACKUPS.md) — snapshots, retention, encryption, restore.
+- [docs/RESTORE_AND_ROTATION.md](docs/RESTORE_AND_ROTATION.md) — the scripted restore and the credential-rotation scripts.
 - [docs/MATRIX_AUTH_GW.md](docs/MATRIX_AUTH_GW.md) — the optional single sign-on gateway in depth.
 
 ## Repository layout

@@ -9,6 +9,20 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 
 ### Added
 
+- **Scripted restore + credential rotation** (`scripts/ops/`). A real
+  `restore.sh` rebuilds the userland rootfs and the conduwuit DB from the
+  `backup-all.sh` / `backup-db.sh` snapshots — **dry-run by default** (prints the
+  plan; only acts on `--confirm=ERASE-AND-RESTORE`), verifies the `.sha256`
+  sidecars fail-closed, rejects zip-slip members, decrypts `.age` archives with
+  `BACKUP_AGE_IDENTITY`, and renames the old rootfs aside as a one-`mv` rollback.
+  Four new rotation scripts join the existing admin-password / registration-token
+  ones: `rotate-tunnel-token.sh` (Cloudflare Tunnel token, read off-argv + atomic
+  `0600` `.env` rewrite), `rotate-authgw-rs.sh` (two-phase, kid-overlap RS256 OIDC
+  signing-key rotation, gated `ENABLE_AUTH_GATEWAY`), `rotate-adminbot-token.sh`
+  (optional Matrix admin-bot token, gated `ENABLE_ADMINBOT`), and `rotate-all.sh`
+  (orchestrates them independently). All wired into `./pocket.sh` (a new *Rotate
+  credentials* menu + *Restore* in *Backups & restore*); see
+  `docs/RESTORE_AND_ROTATION.md`.
 - **Optional privacy & media filters** (`ENABLE_USER_FILTER` / `ENABLE_MEDIA_FILTER`,
   both off by default) — two small Termux-native loopback proxies in front of the
   Matrix homeserver. `user-filter` hides chosen MXIDs (listed in

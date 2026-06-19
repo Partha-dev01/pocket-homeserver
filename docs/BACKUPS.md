@@ -45,8 +45,30 @@ is then additionally encrypted to `<archive>.age` and the plaintext is removed.
 
 ## Restore
 
-A restore is a manual, deliberate operation (there is no one-click restore — that
-keeps a destructive path from being a single mis-click). The shape is:
+The fastest path is the scripted restore,
+[`scripts/ops/restore.sh`](../scripts/ops/restore.sh) (also in `./pocket.sh` →
+*Backups & restore*). It is **dry-run by default** — with no flags it only prints
+the plan — and acts only when you pass the explicit phrase, so a destructive path
+is never a single mis-click:
+
+```sh
+bash scripts/ops/restore.sh                          # preview the plan (safe)
+bash scripts/ops/restore.sh --confirm=ERASE-AND-RESTORE
+```
+
+It picks the latest rootfs + DB snapshot (override with `--rootfs=`/`--db=`),
+verifies the `.sha256` sidecars fail-closed, rejects zip-slip members, decrypts
+`.age` archives using `BACKUP_AGE_IDENTITY` from `.env`, renames the live rootfs
+aside as `debian.broken-<UTC>` (a one-`mv` rollback), extracts, and restarts the
+stack. See [RESTORE_AND_ROTATION.md](RESTORE_AND_ROTATION.md) for the full
+walkthrough (and the credential-rotation scripts).
+
+> The restore stops every supervised service first — including the admin panel if
+> it is supervised — so run it from a shell (SSH / `./pocket.sh`), not as an admin
+> panel job. It restores the rootfs + the conduwuit DB; app data and Matrix media
+> that live on the data volume are recovered by restoring the volume itself.
+
+If you prefer to do it by hand, the equivalent steps are:
 
 1. **Stop the stack** (admin panel → HARD panic, or `scripts/ops/panic-hard.sh`).
 2. **Verify integrity:** `sha256sum -c db-<UTC>.tar.zst.sha256` (and decrypt first

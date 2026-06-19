@@ -105,7 +105,12 @@ installs what it can and tells you what to add.
 Backups are produced by the [`scripts/ops/`](../scripts/ops/) scripts — run by
 hand or from the admin panel — snapshotting the Matrix database and the userland
 to the large volume with retention and optional encryption (see
-[BACKUPS.md](BACKUPS.md)). An optional scheduled backup daemon
+[BACKUPS.md](BACKUPS.md)). The same `ops/` family also covers recovery and
+credential hygiene: a dry-run-by-default `restore.sh` rebuilds the userland + DB
+from those snapshots, and a set of `rotate-*.sh` scripts rotate the admin
+password, registration token, Cloudflare Tunnel token, the auth-gateway RS256
+OIDC key, and the optional admin-bot token (see
+[RESTORE_AND_ROTATION.md](RESTORE_AND_ROTATION.md)). An optional scheduled backup daemon
 ([`scripts/ops/backup-daemon.sh`](../scripts/ops/backup-daemon.sh), gated on
 `ENABLE_BACKUP_DAEMON`) can run these automatically — the DB weekly and the full
 rootfs monthly (UTC) — supervised like any other service.

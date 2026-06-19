@@ -223,6 +223,11 @@ AUTHGW_COOKIE_DOMAIN=\${DOMAIN}
 AUTHGW_TTL=2592000
 AUTHGW_BRAND=\${DOMAIN}
 
+# ─── Optional Matrix admin bot ──────────────────────────────────────────────
+# The base install ships no bot; leave false unless you have added one. Only the
+# rotate-adminbot-token.sh / rotate-all.sh ops scripts read this.
+ENABLE_ADMINBOT=false
+
 # ─── Optional apps ──────────────────────────────────────────────────────────
 ENABLE_LINKDING=${EN_LINKDING}
 ENABLE_PINGVIN=${EN_PINGVIN}
@@ -245,6 +250,9 @@ BACKUP_DIR=\${DATA_DIR}/backups
 BACKUP_KEEP_DB=3
 BACKUP_KEEP_ROOTFS=4
 BACKUP_AGE_RECIPIENT=
+# age PRIVATE-key file path, needed only to RESTORE an encrypted backup (kept OFF
+# the backup volume). It is a path, not a secret value. Empty by default.
+BACKUP_AGE_IDENTITY=
 EOF
 mv -f "$tmp" "$ENV_OUT"
 chmod 600 "$ENV_OUT"
