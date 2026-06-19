@@ -8,8 +8,9 @@
 # ssh -L tunnel and recover. Discovered generically from the supervisor pidfiles,
 # so it stops whatever is actually running.
 #
-# Recover with:  bash scripts/start-stack.sh        (core: matrix + caddy + tunnel)
-#                then re-run the app install scripts you use, or scripts/install.sh
+# Recover with:  bash scripts/start-stack.sh   (restores the whole stack — core
+#                AND every installed app, re-supervised from their recorded
+#                launch commands)
 #
 # Generalized from a working deployment; review before running on a fresh phone.
 
@@ -38,6 +39,5 @@ done
 shopt -u nullglob
 
 ok "HARD PANIC done — only the admin panel survives (loopback)."
-say "Recover with:"
-say "  bash ${POCKET_ROOT}/scripts/start-stack.sh   (core stack)"
-say "  then your app install scripts, or: bash ${POCKET_ROOT}/scripts/install.sh"
+say "Recover the whole stack (core + every installed app) with:"
+say "  bash ${POCKET_ROOT}/scripts/start-stack.sh"

@@ -1,13 +1,23 @@
 #!/usr/bin/env bash
 #
-# start-stack.sh — bring the core stack up (or restart it), in dependency order:
+# start-stack.sh — bring the WHOLE stack up (or restart it).
+#
+# Core, started first in dependency order:
 #   1. matrix       — the Matrix homeserver (continuwuity); everything depends on it
 #   2. caddy        — the loopback HTTP edge on ${CADDY_BIND}:${CADDY_PORT}
 #                     (the Cloudflare Tunnel terminates public TLS)
 #   3. cloudflared  — the Cloudflare Tunnel that forwards public traffic to Caddy
 #
-# Each service runs INSIDE the Debian userland via `proot-distro login` and is
-# kept alive by the lib's supervisor (respawns on crash, identity-checked pidfile).
+# Then every installed app / extra service (the auth gateway, the admin panel, and
+# each enabled app) is brought up too, re-supervised from the launch command its
+# install step recorded in ${POCKET_STATE_DIR}/<name>.cmd. That makes this the ONE
+# command that restores the entire stack — after a reboot, or just on a re-run —
+# without duplicating any launch lines (it shares the recorded command with
+# scripts/ops/restart.sh, so it never drifts from the install scripts).
+#
+# Each service runs INSIDE the Debian userland via `proot-distro login` (the admin
+# panel runs Termux-native) and is kept alive by the lib's supervisor (respawns on
+# crash, identity-checked pidfile).
 #
 # Idempotent: `supervise` no-ops if a service is already running. Pass --restart to
 # stop then re-start every service (a brief ingress outage while cloudflared cycles).
@@ -88,20 +98,42 @@ supervise matrix      -- "${matrix_cmd[@]}"
 supervise caddy       -- "${caddy_cmd[@]}"
 supervise cloudflared -- "${cloudflared_cmd[@]}"
 
+# ── Bring up every installed app / extra service ─────────────────────────────
+# Re-supervise anything that recorded a launch command at install time
+# (${POCKET_STATE_DIR}/<name>.cmd — written by `supervise` in lib/common.sh),
+# skipping the core services we just handled. supervise() is idempotent, so this
+# is a no-op for anything already running and a respawn for anything that's down
+# (e.g. after a reboot). New installs add their .cmd, so they get picked up here
+# on the next bring-up automatically.
+say "== bringing up installed apps =="
+extras=0
+shopt -s nullglob
+for cmdfile in "${POCKET_STATE_DIR}"/*.cmd; do
+  name="$(basename "${cmdfile}" .cmd)"
+  case " matrix caddy cloudflared " in *" ${name} "*) continue ;; esac
+  mapfile -t _cmd < "${cmdfile}"
+  [ "${#_cmd[@]}" -gt 0 ] || { warn "empty launch command for '${name}' (${cmdfile}) — skipping"; continue; }
+  [ "${RESTART}" -eq 1 ] && unsupervise "${name}"
+  supervise "${name}" -- "${_cmd[@]}"
+  extras=1
+done
+shopt -u nullglob
+[ "${extras}" -eq 0 ] && say "(no apps installed yet — enable some in .env and run scripts/install.sh)"
+
 # ── Final status ─────────────────────────────────────────────────────────────
 echo
 say "== stack status =="
-status_line() {  # status_line NAME
-  local name="$1" pidfile="${POCKET_STATE_DIR}/$1.pid" pid state="DOWN"
-  if [ -f "${pidfile}" ]; then
-    pid="$(cat "${pidfile}" 2>/dev/null || true)"
-    [ -n "${pid}" ] && kill -0 "${pid}" 2>/dev/null && state="RUNNING (pid ${pid})"
+shopt -s nullglob
+for pidfile in "${POCKET_STATE_DIR}"/*.pid; do
+  name="$(basename "${pidfile}" .pid)"
+  pid="$(cat "${pidfile}" 2>/dev/null || true)"
+  if [ -n "${pid}" ] && kill -0 "${pid}" 2>/dev/null; then
+    printf '  %-16s : RUNNING (pid %s)\n' "${name}" "${pid}"
+  else
+    printf '  %-16s : DOWN\n' "${name}"
   fi
-  printf '  %-14s : %s\n' "${name}" "${state}"
-}
-status_line matrix
-status_line caddy
-status_line cloudflared
+done
+shopt -u nullglob
 
 echo
-ok "core stack start complete (logs under ${POCKET_LOG_DIR})"
+ok "stack start complete (logs under ${POCKET_LOG_DIR})"
