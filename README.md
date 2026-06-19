@@ -75,6 +75,9 @@ You drive the whole thing from **one interactive menu**:
 - **Optional on-phone LLM bot (advanced / BYO)** — run a model *on the device* with
   no cloud and no API key: bring your own llama.cpp build + GGUF, with an optional
   Gradio web UI. Off by default. ([docs/CHATBOTS.md](docs/CHATBOTS.md))
+- **Optional sticker picker** — the Maunium stickerpicker widget (fetched, AGPL) +
+  a native upload/Giphy backend + a DM-import bot, with signed per-user pack
+  writes. Off by default. ([docs/STICKERS.md](docs/STICKERS.md))
 - **Secure by construction** — no inbound ports, pinned + `sha256`-verified
   downloads, secrets kept off the command line, and a documented threat model.
   ([docs/SECURITY.md](docs/SECURITY.md))
@@ -169,6 +172,7 @@ genuinely practical way to self-host.
 - [docs/RESTORE_AND_ROTATION.md](docs/RESTORE_AND_ROTATION.md) — the scripted restore and the credential-rotation scripts.
 - [docs/BOOTSTRAP.md](docs/BOOTSTRAP.md) — the optional one-shot Matrix bootstrap (admin, Space/rooms, invite tokens).
 - [docs/CHATBOTS.md](docs/CHATBOTS.md) — the optional Matrix chat bots (cloud-LLM, and the on-phone BYO model).
+- [docs/STICKERS.md](docs/STICKERS.md) — the optional sticker picker (widget + backend + import bot).
 - [docs/MATRIX_AUTH_GW.md](docs/MATRIX_AUTH_GW.md) — the optional single sign-on gateway in depth.
 
 ## Repository layout
@@ -202,6 +206,7 @@ tools/       repo tooling (e.g. the leak-scan pre-push guard)
 - [x] Optional Matrix bootstrap (admin + hub Space/rooms + announcements + invite tokens)
 - [x] Optional cloud-LLM Matrix chat bots (OpenAI-compatible; Groq free tier)
 - [x] Optional on-phone LLM bot (advanced / BYO llama.cpp + GGUF; optional web UI)
+- [x] Optional sticker picker (Maunium widget + upload/Giphy backend + import bot)
 
 ## Status, license, and contributing
 

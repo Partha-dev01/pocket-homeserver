@@ -9,6 +9,16 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 
 ### Added
 
+- **Optional sticker picker** (`ENABLE_STICKERS`, off by default) — the
+  third-party Maunium stickerpicker widget (AGPL, **fetched at install, not
+  vendored**) on its own `stickers.${DOMAIN}` vhost, plus a small Termux-native
+  backend (`scripts/sticker/sticker-backend.py`, `127.0.0.1:8451`) that proxies
+  media uploads (Element widgets can't upload directly) and an optional Giphy
+  search, and an optional DM-import bot. Per-user pack writes are gated by a
+  **signed widget-URL identity** (`<mxid>|HMAC-SHA256`, keyed by a generated
+  `0600` secret), with a `log`→`enforce` rollout; the signing is byte-identical
+  across the backend, the importer, and the install-time openssl registration
+  (verified). New `scripts/steps/82-install-stickers.sh`; see `docs/STICKERS.md`.
 - **Optional on-phone LLM Matrix bot — exobot** (`ENABLE_EXOBOT`, off by default,
   advanced / BYO). Runs an LLM **on the device** (no cloud, no API key): you supply
   your own llama.cpp `llama-server` build (matching your phone's CPU) + a GGUF

@@ -99,6 +99,7 @@ ENABLE = {
     "cloud-bots":   _flag("ENABLE_CLOUD_BOTS"),
     "exobot":       _flag("ENABLE_EXOBOT"),
     "exobot-ui":    _flag("EXOBOT_UI"),
+    "stickers":     _flag("ENABLE_STICKERS"),
 }
 
 # Script allowlist — the ONLY scripts a click can run, relative to scripts/. No
@@ -673,6 +674,12 @@ def _build_health_procs():
         if ENABLE["exobot-ui"]:
             procs.append({"name": "exobot-ui", "pattern": "run-ui\\.sh"})
             procs.append({"name": "exobot-waker", "pattern": "exobot-waker\\.py"})
+    if ENABLE["stickers"]:
+        procs.append({"name": "sticker-backend", "pattern": "sticker-backend\\.py"})
+        # The DM-import bot only runs when its creds are set, so only health-check
+        # it then (else it would always read DOWN).
+        if os.environ.get("STICKER_BOT_TOKEN", "").strip():
+            procs.append({"name": "sticker-importer", "pattern": "importer-bot\\.py"})
     return procs
 
 HEALTH_PROCS = _build_health_procs()

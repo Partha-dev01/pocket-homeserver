@@ -199,6 +199,13 @@ if [ "$ENABLE_EXOBOT" = "true" ]; then
   [ "$EXOBOT_UI" = "true" ] && ask EXOBOT_UI_HOST_PUBLIC "Public hostname for the UI" "ai.$DOMAIN"
 fi
 
+# ── Optional sticker picker ───────────────────────────────────────────────────
+printf '\n'; say "── Sticker picker (optional) ──────────────────────"
+say "Maunium stickerpicker widget + backend + DM-import bot, on stickers.$DOMAIN."
+say "Needs a Matrix service-account token (created AFTER the stack is up) — you fill"
+say "STICKER_SERVICE_TOKEN (+ optional GIPHY_API_KEY / bot tokens) into .env then. See docs/STICKERS.md."
+ask_yn ENABLE_STICKERS "Enable the sticker picker?" n
+
 # ── Write .env ───────────────────────────────────────────────────────────────
 # Quote free-form / secret values so the file sources cleanly; leave derived
 # values (${DOMAIN}, ${DATA_DIR}, $HOME) as references, exactly like the template.
@@ -297,6 +304,21 @@ MATRIX_LOOPBACK=http://127.0.0.1:8448
 # Per-bot secrets live in 0600 files under \${DATA_DIR}/secrets, never here.
 ENABLE_CLOUD_BOTS=${ENABLE_CLOUD_BOTS}
 
+# ─── Sticker picker (optional) ──────────────────────────────────────────────
+# Fill STICKER_SERVICE_TOKEN (+ optional GIPHY_API_KEY / bot tokens) AFTER the
+# stack is up and you have created the accounts. See docs/STICKERS.md.
+ENABLE_STICKERS=${ENABLE_STICKERS}
+STICKERPICKER_REPO=https://github.com/maunium/stickerpicker.git
+STICKERPICKER_REF=master
+STICKER_BACKEND_PORT=8451
+STICKER_IDENTITY_MODE=log
+STICKER_SERVICE_TOKEN=
+GIPHY_API_KEY=
+STICKER_BOT_TOKEN=
+STICKER_BOT_MXID=
+STICKER_ADMIN_TOKEN=
+STICKER_ADMIN_MXID=
+
 # ─── On-phone LLM bot (exobot) — advanced / BYO ─────────────────────────────
 # The bot's Matrix token goes in \${DATA_DIR}/secrets/exobot.env (0600), not here.
 ENABLE_EXOBOT=${ENABLE_EXOBOT}
@@ -350,6 +372,7 @@ printf '\n'; ok "configuration summary (no secrets shown):"
   printf '  filters       : user=%s media=%s\n' "$ENABLE_USER_FILTER" "$ENABLE_MEDIA_FILTER"
   printf '  cloud bots    : %s\n'    "$ENABLE_CLOUD_BOTS"
   printf '  on-phone bot  : %s%s\n'  "$ENABLE_EXOBOT" "$([ "$ENABLE_EXOBOT" = "true" ] && echo " (ui=$EXOBOT_UI)")"
+  printf '  stickers      : %s\n'    "$ENABLE_STICKERS"
   printf '  registration  : %s\n'    "$([ -n "$MATRIX_REGISTRATION_TOKEN" ] && echo 'generated (in .env)' || echo 'none')"
   printf '  apps enabled  :%s\n'     "${apps:- (none)}"
 } >&2

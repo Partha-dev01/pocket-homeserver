@@ -163,6 +163,7 @@ stripped before the gate so they cannot be forged.
 | Cloud chat bots | optional Matrix `/sync` bots answering @-mentions via an OpenAI-compatible API; loopback to Matrix + one outbound LLM call | native, no listener | — |
 | On-phone LLM bot (exobot) | optional on-device bot; subprocess-manages a BYO `llama-server`; loopback to Matrix | native + `127.0.0.1:8081` (llama) | — |
 | exobot web UI (optional) | optional Gradio UI in the userland + a native lazy-start waker | `127.0.0.1:9114` / `:9116` | `ai.${DOMAIN}` |
+| Sticker picker (optional) | Maunium widget (fetched, AGPL) served by Caddy + a native upload/Giphy backend + import bot | `127.0.0.1:8451` | `stickers.${DOMAIN}` |
 | Supervisors | respawn crashed services | — | — |
 | Boot launcher + watchdog | restart on reboot + revive killed services | — | — |
 | Backup scripts | on-demand DB + userland snapshots | — | — |
