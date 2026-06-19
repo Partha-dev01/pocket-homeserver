@@ -88,6 +88,25 @@ audit-logged (timestamp + IP + user-agent) to `${DATA_DIR}/logs/admin-audit.log`
 - **Re-run the installer** any time (`bash scripts/steps/70-install-admin.sh`) — it
   is idempotent and preserves a password you rotated from the danger zone.
 
+## Network throughput via Shizuku (optional)
+
+Android (SELinux) denies the Termux app domain a few `/proc`/`/sys` files —
+notably `/proc/net/dev`. So on most phones the panel's **network interfaces**
+panel shows *“restricted — the OS blocks /proc/net/dev for this app.”* That is
+expected and harmless; everything else (uptime, load, CPU, memory, thermals) is
+read without it.
+
+If you want live per-interface RX/TX and throughput, install
+[Shizuku](https://shizuku.rikka.app/) and its `rish` shell-uid bridge at
+`~/.shizuku/rish`. The panel then reads `/proc/net/dev` as shell uid (2000) and
+labels the panel *“via Shizuku.”* This is **entirely optional and best-effort**:
+
+- Without Shizuku (the default) the bridge is a no-op — nothing changes, no error.
+- Shizuku's service **stops on every reboot** (a non-root limitation), so the
+  network panel reverts to “restricted” until you re-enable Shizuku. The panel
+  handles this gracefully (it never blocks on the bridge).
+- Nothing else in the stack depends on it; it only enriches one read-only panel.
+
 ## Design invariants (don't "fix" these)
 
 - **gunicorn runs a SINGLE worker, with NO `--preload`.** The brute-force lockout

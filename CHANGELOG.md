@@ -9,6 +9,13 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 
 ### Added
 
+- **Optional Shizuku network stats in the admin panel.** Android blocks
+  `/proc/net/dev` for the Termux app domain, so the panel's network section is
+  normally "restricted." If you run [Shizuku](https://shizuku.rikka.app/) and its
+  `rish` shell-uid bridge (`~/.shizuku/rish`), the panel now reads per-interface
+  RX/TX + live throughput as shell uid and labels it "via Shizuku." Entirely
+  optional and best-effort — without Shizuku (the default) it is a no-op, and it
+  degrades gracefully when Shizuku's service stops on reboot. See `docs/ADMIN.md`.
 - **Optional Matrix bootstrap** (`ENABLE_BOOTSTRAP`, off by default) — idempotent
   helpers (`scripts/bootstrap/*`, run by `scripts/steps/79-install-bootstrap.sh`
   after the stack is up) that seed a fresh server: register/log-in an admin

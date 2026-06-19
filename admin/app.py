@@ -511,17 +511,57 @@ def _sysinfo():
     except Exception:
         return None
 
-_NET_PREV = {}  # iface -> (rx_bytes, tx_bytes, monotonic_ts) — for throughput rate
+# ---------- optional privileged shell via Shizuku (rish) ----------
+# Android (SELinux) denies the app domain (Termux) some /proc & /sys files —
+# notably /proc/net/dev. If you run Shizuku and install its `rish` shell-uid
+# bridge at ~/.shizuku/rish, the panel can read those files as shell uid (2000).
+# This is OPTIONAL and entirely best-effort: without Shizuku (the default) every
+# call here returns None and the panel falls back / shows an honest note. The
+# Shizuku service also stops on reboot, so callers MUST handle None. See docs/ADMIN.md.
+RISH = os.path.expanduser("~/.shizuku/rish")
+_RISH_PRESENT = os.path.exists(RISH)
 
-def _gather_net():
-    """Per-iface RX/TX bytes + live throughput from /proc/net/dev. On Android the
-    app domain is often denied /proc/net/dev — returns None then, and the UI shows
-    an honest 'restricted' note instead of a misleading blank."""
+def rish(cmd, timeout=8):
+    """Run cmd as shell uid (2000) via the Shizuku rish bridge. Returns stdout, or
+    None when rish is missing / the Shizuku service is down / on any error."""
+    if not _RISH_PRESENT:
+        return None
+    try:
+        p = subprocess.run(["sh", RISH], input=cmd + "\n",
+                            capture_output=True, text=True, timeout=timeout)
+        if "Server is not running" in (p.stdout + p.stderr):
+            return None
+        return p.stdout or None
+    except Exception:
+        return None
+
+_NET_PREV = {}      # iface -> (rx_bytes, tx_bytes, monotonic_ts) — for throughput rate
+_NET_SOURCE = None  # "proc" | "rish" | None — how the last _gather_net() read net/dev
+
+def _read_net_dev():
+    """Return (raw /proc/net/dev text, source) where source is 'proc' or 'rish', or
+    (None, None). Tries a direct read first (works where the OS allows it), then
+    falls back to the OPTIONAL Shizuku rish bridge (shell uid) when the app domain
+    is denied. Without Shizuku the fallback is a no-op and this returns (None, None)."""
     try:
         with open("/proc/net/dev") as f:
             raw = f.read()
+        if raw:
+            return raw, "proc"
     except Exception:
-        return None
+        pass
+    raw = rish("cat /proc/net/dev", timeout=5)   # optional; None without Shizuku
+    if raw:
+        return raw, "rish"
+    return None, None
+
+def _gather_net():
+    """Per-iface RX/TX bytes + live throughput from /proc/net/dev — read directly, or
+    via the optional Shizuku (rish) bridge when the OS blocks it for the app domain.
+    Returns None when neither works (the UI then shows an honest 'restricted' note);
+    the source ('proc'/'rish'/None) is recorded in _NET_SOURCE for a status pill."""
+    global _NET_SOURCE
+    raw, _NET_SOURCE = _read_net_dev()
     if not raw:
         return None
     now = time.monotonic()
@@ -803,8 +843,10 @@ def gather_stats():
     except Exception:
         s["thermal"] = []; s["max_temp"] = 0
 
-    # network — /proc/net/dev may be blocked for the app domain (None then)
+    # network — /proc/net/dev, read directly or via the optional Shizuku (rish)
+    # bridge; None when blocked and Shizuku is unavailable. net_source drives a pill.
     s["net"] = _gather_net()
+    s["net_source"] = _NET_SOURCE
 
     # device
     try:
@@ -1416,16 +1458,18 @@ def dashboard():
 
     net = s.get("net")
     if net is None:
-        net_line = '<span class=small>restricted (the OS blocks /proc/net/dev for this app)</span>'
+        net_line = ('<span class=small>restricted — the OS blocks /proc/net/dev for this app. '
+                    'Install Shizuku + its rish bridge to read it (optional; see docs/ADMIN.md).</span>')
     elif net:
         def _nrate(n):
             if n.get("rate_rx") is None:
                 return ""
             return f' <span class=small>({human_bytes(n["rate_rx"])}/s↓ {human_bytes(n["rate_tx"])}/s↑)</span>'
+        _src = ' <span class=small>(via Shizuku)</span>' if s.get("net_source") == "rish" else ''
         net_line = "<br>".join(
             f"{e(n['iface'])}: ↓{human_bytes(n['rx'])} ↑{human_bytes(n['tx'])}{_nrate(n)}"
             for n in net[:3]
-        )
+        ) + _src
     else:
         net_line = '<span class=small>no active interfaces</span>'
 
@@ -1593,9 +1637,9 @@ def stats_page():
 </table></div>
 </div>
 <div class=box>
-<h2><span class=ico>\U0001F4E1</span> network interfaces</h2>
+<h2><span class=ico>\U0001F4E1</span> network interfaces{' <span class=small>(via Shizuku)</span>' if s.get('net_source') == 'rish' else ''}</h2>
 <div class=tablewrap><table><thead><tr><th>interface</th><th>rx</th><th>tx</th><th>rate</th></tr></thead>
-<tbody>{('<tr><td colspan=4 class=small>restricted — the OS blocks /proc/net/dev for this app</td></tr>' if s.get('net') is None else ''.join(f'<tr><td class=mono>{e(n["iface"])}</td><td>{human_bytes(n["rx"])}</td><td>{human_bytes(n["tx"])}</td><td class=small>{(human_bytes(n["rate_rx"])+"/s↓ "+human_bytes(n["rate_tx"])+"/s↑") if n.get("rate_rx") is not None else "—"}</td></tr>' for n in (s.get('net') or [])))}</tbody>
+<tbody>{('<tr><td colspan=4 class=small>restricted — the OS blocks /proc/net/dev for this app. Install Shizuku + its rish bridge to read it as shell uid (optional; see docs/ADMIN.md).</td></tr>' if s.get('net') is None else ''.join(f'<tr><td class=mono>{e(n["iface"])}</td><td>{human_bytes(n["rx"])}</td><td>{human_bytes(n["tx"])}</td><td class=small>{(human_bytes(n["rate_rx"])+"/s↓ "+human_bytes(n["rate_tx"])+"/s↑") if n.get("rate_rx") is not None else "—"}</td></tr>' for n in (s.get('net') or [])))}</tbody>
 </table></div>
 </div>
 """
