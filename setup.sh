@@ -159,6 +159,12 @@ ask_yn EN_SEARXNG  "Metasearch (search.$DOMAIN)?"             n
 ask_yn EN_ITTOOLS  "Developer tools (tools.$DOMAIN)?"          n
 ask_yn EN_GATUS    "Status page (status.$DOMAIN)?"            n
 
+# ── Privacy & media filters ───────────────────────────────────────────────────
+printf '\n'; say "── Privacy & media filters (optional) ─────────────"
+say "Two small loopback proxies in front of Matrix (both off by default)."
+ask_yn ENABLE_USER_FILTER  "Hide chosen accounts from member search (user-filter)?"                n
+ask_yn ENABLE_MEDIA_FILTER "Fix untyped media so mobile clients show thumbnails (media-filter)?"   n
+
 # ── Write .env ───────────────────────────────────────────────────────────────
 # Quote free-form / secret values so the file sources cleanly; leave derived
 # values (${DOMAIN}, ${DATA_DIR}, $HOME) as references, exactly like the template.
@@ -227,6 +233,13 @@ ENABLE_SEARXNG=${EN_SEARXNG}
 ENABLE_ITTOOLS=${EN_ITTOOLS}
 ENABLE_GATUS=${EN_GATUS}
 
+# ─── Privacy & media filters (optional) ─────────────────────────────────────
+ENABLE_USER_FILTER=${ENABLE_USER_FILTER}
+USER_FILTER_PORT=8449
+ENABLE_MEDIA_FILTER=${ENABLE_MEDIA_FILTER}
+MEDIA_FILTER_PORT=8450
+MATRIX_LOOPBACK=http://127.0.0.1:8448
+
 # ─── Backups ────────────────────────────────────────────────────────────────
 BACKUP_DIR=\${DATA_DIR}/backups
 BACKUP_KEEP_DB=3
@@ -252,6 +265,7 @@ printf '\n'; ok "configuration summary (no secrets shown):"
   printf '  admin panel   : %s (user: %s)\n' "$ENABLE_ADMIN" "$ADMIN_USER"
   printf '  reboot survive: %s\n'    "$ENABLE_BOOT"
   printf '  sso gateway   : %s\n'    "$ENABLE_AUTH_GATEWAY"
+  printf '  filters       : user=%s media=%s\n' "$ENABLE_USER_FILTER" "$ENABLE_MEDIA_FILTER"
   printf '  registration  : %s\n'    "$([ -n "$MATRIX_REGISTRATION_TOKEN" ] && echo 'generated (in .env)' || echo 'none')"
   printf '  apps enabled  :%s\n'     "${apps:- (none)}"
 } >&2

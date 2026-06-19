@@ -60,6 +60,9 @@ You drive the whole thing from **one interactive menu**:
   optional `age` encryption, and a documented restore path. ([docs/BACKUPS.md](docs/BACKUPS.md))
 - **A web admin panel** — health, stats, logs, per-service restarts, backups, and
   a guarded danger zone, reachable over the tunnel. ([docs/ADMIN.md](docs/ADMIN.md))
+- **Optional privacy & media filters** — hide chosen accounts from the member
+  search, and fix untyped media so mobile clients render thumbnails. Two small
+  loopback proxies, off by default, that fail open. ([docs/FILTERS.md](docs/FILTERS.md))
 - **Secure by construction** — no inbound ports, pinned + `sha256`-verified
   downloads, secrets kept off the command line, and a documented threat model.
   ([docs/SECURITY.md](docs/SECURITY.md))
@@ -179,6 +182,7 @@ tools/       repo tooling (e.g. the leak-scan pre-push guard)
 - [x] Reboot survival + self-heal watchdog as install steps (Termux:Boot + JobScheduler)
 - [x] A scheduled backup daemon (optional; weekly DB + monthly rootfs, auto-pruned)
 - [x] Optional honeypot / scanner-detection surface (alert-only; admin Security console)
+- [x] Optional privacy & media filters (hide accounts from search; fix media content-type)
 
 ## Status, license, and contributing
 

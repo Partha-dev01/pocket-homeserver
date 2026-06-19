@@ -94,6 +94,8 @@ ENABLE = {
     "gatus":    _flag("ENABLE_GATUS"),
     "backup-daemon": _flag("ENABLE_BACKUP_DAEMON"),
     "honeypot": _flag("ENABLE_HONEYPOT"),
+    "user-filter":  _flag("ENABLE_USER_FILTER"),
+    "media-filter": _flag("ENABLE_MEDIA_FILTER"),
 }
 
 # Script allowlist — the ONLY scripts a click can run, relative to scripts/. No
@@ -122,6 +124,8 @@ SCRIPTS_OK = {
     "restart-gatus":       {"argv": ["ops/restart.sh", "gatus"],           "kind": "restart"},
     "restart-backup-daemon": {"argv": ["ops/restart.sh", "backup-daemon"], "kind": "restart"},
     "restart-honeypot-watcher": {"argv": ["ops/restart.sh", "honeypot-watcher"], "kind": "restart"},
+    "restart-user-filter":  {"argv": ["ops/restart.sh", "user-filter"],  "kind": "restart"},
+    "restart-media-filter": {"argv": ["ops/restart.sh", "media-filter"], "kind": "restart"},
     # danger-tier (go through the two-page typed confirmation)
     "rotate-reg-token":  {"argv": ["ops/rotate-registration-token.sh"], "kind": "danger"},
     "rotate-admin-pass": {"argv": ["ops/rotate-admin-password.sh"],      "kind": "danger"},
@@ -607,6 +611,10 @@ def _build_health_procs():
         procs.append({"name": "backup-daemon", "pattern": "ops/backup-daemon.sh"})
     if ENABLE["honeypot"]:
         procs.append({"name": "honeypot-watcher", "pattern": "honeypot-watcher\\.py"})
+    if ENABLE["user-filter"]:
+        procs.append({"name": "user-filter", "pattern": "user-filter\\.py"})
+    if ENABLE["media-filter"]:
+        procs.append({"name": "media-filter", "pattern": "media-filter\\.py"})
     return procs
 
 HEALTH_PROCS = _build_health_procs()
@@ -1365,6 +1373,8 @@ def _restart_buttons():
     if ENABLE["memos"]:    btns.append(("restart-memos", "memos"))
     if ENABLE["vikunja"]:  btns.append(("restart-vikunja", "vikunja"))
     if ENABLE["gatus"]:    btns.append(("restart-gatus", "gatus"))
+    if ENABLE["user-filter"]:  btns.append(("restart-user-filter", "user-filter"))
+    if ENABLE["media-filter"]: btns.append(("restart-media-filter", "media-filter"))
     out = "".join(action_btn(k, l, "small") for k, l in btns)
     out += ' <a href="/danger" class="btn danger small">full-stack restart…</a>'
     return out

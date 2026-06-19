@@ -33,4 +33,34 @@ render() {   # render SRC DST
 
 render "$POCKET_ROOT/config/Caddyfile.tmpl"      "$out/Caddyfile"
 render "$POCKET_ROOT/config/conduwuit.toml.tmpl" "$out/conduwuit.toml"
+
+# ── Optional privacy/media filter routes (woven into the chat vhost) ──────────
+# The filters (scripts/filters/*) intercept SPECIFIC Matrix routes on the chat
+# vhost — they can't use the /etc/caddy/apps/*.caddy drop-in (Caddy refuses a
+# duplicate site address). Inject their reverse_proxy blocks into the rendered
+# Caddyfile ONLY when the filter is enabled: a disabled filter must never be
+# routed to a dead loopback port (that would 502 search/media for everyone). The
+# `# POCKET_FILTER_ROUTES` marker in Caddyfile.tmpl is where they go.
+filter_routes=""
+if [ "${ENABLE_USER_FILTER:-false}" = "true" ]; then
+  filter_routes+=$'\t# user-filter: route only user-directory search through the proxy.\n'
+  filter_routes+=$'\thandle /_matrix/client/*/user_directory/search {\n'
+  filter_routes+=$'\t\treverse_proxy 127.0.0.1:'"${USER_FILTER_PORT:-8449}"$'\n'
+  filter_routes+=$'\t}\n'
+fi
+if [ "${ENABLE_MEDIA_FILTER:-false}" = "true" ]; then
+  _mp="${MEDIA_FILTER_PORT:-8450}"
+  filter_routes+=$'\t# media-filter: route only media download/thumbnail/preview through the proxy.\n'
+  filter_routes+=$'\thandle /_matrix/media/v3/download/*   { reverse_proxy 127.0.0.1:'"${_mp}"$' }\n'
+  filter_routes+=$'\thandle /_matrix/media/v3/thumbnail/*  { reverse_proxy 127.0.0.1:'"${_mp}"$' }\n'
+  filter_routes+=$'\thandle /_matrix/media/v3/preview_url* { reverse_proxy 127.0.0.1:'"${_mp}"$' }\n'
+  filter_routes+=$'\thandle /_matrix/client/v1/media/*     { reverse_proxy 127.0.0.1:'"${_mp}"$' }\n'
+fi
+# Replace the marker line with the routes (or just drop it when none enabled).
+awk -v repl="$filter_routes" '
+  /# POCKET_FILTER_ROUTES/ { if (repl != "") printf "%s", repl; next }
+  { print }
+' "$out/Caddyfile" > "$out/Caddyfile.tmp" && mv -f "$out/Caddyfile.tmp" "$out/Caddyfile"
+if [ -n "$filter_routes" ]; then ok "wove privacy/media filter routes into the chat vhost"; fi
+
 say "config rendered into $out"

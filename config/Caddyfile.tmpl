@@ -65,6 +65,13 @@ http://chat.${DOMAIN}:${CADDY_PORT} {
 		respond `{"m.homeserver":{"base_url":"https://chat.${DOMAIN}"}}` 200
 	}
 
+	# Optional privacy/media filter routes are injected here by render-config.sh
+	# when ENABLE_USER_FILTER / ENABLE_MEDIA_FILTER are set, ahead of the catch-all
+	# below so the more-specific routes win. Nothing is injected in the default
+	# config, so the chat vhost is unchanged unless you enable a filter — a
+	# disabled filter is never routed to a dead loopback port. See docs/FILTERS.md.
+	# POCKET_FILTER_ROUTES
+
 	# Matrix Client-Server / federation API → homeserver on loopback.
 	handle /_matrix/* {
 		reverse_proxy 127.0.0.1:8448

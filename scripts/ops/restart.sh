@@ -9,8 +9,9 @@
 # and this script never drifts from the install scripts.
 #
 # Known services: matrix, caddy, cloudflared, auth-gw, adminweb, backup-daemon,
-# honeypot-watcher, and any enabled app (linkding, linkding-tasks, pingvin,
-# freshrss, freshrss-refresh, searxng, memos, vikunja, gatus). A service that has
+# honeypot-watcher, user-filter, media-filter, and any enabled app (linkding,
+# linkding-tasks, pingvin, freshrss, freshrss-refresh, searxng, memos, vikunja,
+# gatus). A service that has
 # never been started has no recorded command; this script then points you at the
 # step/app script that first brings it up.
 #
@@ -45,6 +46,8 @@ case "$svc" in
     die "'auth-gw' has no recorded launch command yet — run: bash ${POCKET_ROOT}/scripts/steps/60-install-auth-gw.sh (needs ENABLE_AUTH_GATEWAY=true)" ;;
   adminweb)
     die "'adminweb' has no recorded launch command yet — run: bash ${POCKET_ROOT}/scripts/steps/70-install-admin.sh" ;;
+  user-filter|media-filter)
+    die "'$svc' has no recorded launch command yet — run: bash ${POCKET_ROOT}/scripts/steps/78-install-filters.sh (needs ENABLE_USER_FILTER or ENABLE_MEDIA_FILTER=true)" ;;
   *)
     die "'$svc' has no recorded launch command yet — run its install script (scripts/apps/${svc%-*}.sh) or scripts/install.sh first" ;;
 esac

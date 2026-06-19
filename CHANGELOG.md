@@ -5,6 +5,22 @@ All notable changes to pocket-homeserver are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Optional privacy & media filters** (`ENABLE_USER_FILTER` / `ENABLE_MEDIA_FILTER`,
+  both off by default) — two small Termux-native loopback proxies in front of the
+  Matrix homeserver. `user-filter` hides chosen MXIDs (listed in
+  `${DATA_DIR}/secrets/private-users.txt`, re-read live) from the user-directory
+  search; `media-filter` sets a `Content-Type` from magic bytes on media the
+  homeserver leaves untyped, so native mobile clients render thumbnails / link
+  previews. Both fail open, bind loopback only, and are supervised like the rest
+  of the stack. `render-config.sh` weaves the matching Caddy routes into the chat
+  vhost **only** when a filter is enabled (a disabled filter is never routed to a
+  dead port). New install step `scripts/steps/78-install-filters.sh`; see
+  `docs/FILTERS.md`.
+
 ## [0.1.2] - 2026-06-19
 
 ### Added
