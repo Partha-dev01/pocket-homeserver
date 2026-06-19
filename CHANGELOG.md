@@ -9,6 +9,17 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 
 ### Added
 
+- **Optional operator admin bot** (`ENABLE_ADMINBOT`, off by default) — a
+  Termux-native Matrix bot (`scripts/adminbot/bot.py`) that lets **only you**
+  drive the stack from a private admin-ops room: `!status`, `!users`,
+  `!invite-token`, `!private-list/add/remove`, `!backup-now`, and a confirm-gated
+  `!restart-stack`. It obeys exactly one operator MXID (exact match, fail-closed),
+  maps each command to a fixed `scripts/ops/*` argv (`subprocess`, no `shell=True`,
+  path asserted under `scripts/`), and keeps its token/room/MXID in a `0600`
+  `adminbot.env` sourced off-argv. The web admin panel gains a small **admin-bot
+  widget** — buttons that POST one allowlisted, read-only `!command` to the ops
+  room (destructive ops are excluded). No inbound listener. New
+  `scripts/steps/83-install-adminbot.sh`; see `docs/ADMINBOT.md`.
 - **Optional sticker picker** (`ENABLE_STICKERS`, off by default) — the
   third-party Maunium stickerpicker widget (AGPL, **fetched at install, not
   vendored**) on its own `stickers.${DOMAIN}` vhost, plus a small Termux-native

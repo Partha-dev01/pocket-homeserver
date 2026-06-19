@@ -67,6 +67,12 @@ BACKUP_DIR  = _env("BACKUP_DIR")       or os.path.join(DATA_DIR, "backups")
 PASSWORD_FILE       = os.path.join(SECRETS, "adminweb-password.hash")
 SESSION_SECRET_FILE = os.path.join(SECRETS, "adminweb-session.bin")
 AUDIT_LOG           = os.path.join(LOGS, "admin-audit.log")
+# Optional admin-bot quick-command widget (the /bot/send route). admin-credentials.env
+# holds the operator's ADMIN_TOKEN (written by bootstrap/create-admin.sh); adminbot.env
+# holds the bot's ADMIN_ROOM (the private admin-ops room).
+ADMIN_CRED_FILE     = os.path.join(SECRETS, "admin-credentials.env")
+ADMINBOT_CRED_FILE  = os.path.join(SECRETS, "adminbot.env")
+MATRIX_HS_API       = "http://127.0.0.1:8448"   # same loopback homeserver as gather_health()
 
 BIND_HOST   = "127.0.0.1"
 BIND_PORT   = int(_env("ADMINWEB_PORT", "9000") or "9000")
@@ -100,6 +106,7 @@ ENABLE = {
     "exobot":       _flag("ENABLE_EXOBOT"),
     "exobot-ui":    _flag("EXOBOT_UI"),
     "stickers":     _flag("ENABLE_STICKERS"),
+    "adminbot":     _flag("ENABLE_ADMINBOT"),
 }
 
 # Script allowlist — the ONLY scripts a click can run, relative to scripts/. No
@@ -680,6 +687,8 @@ def _build_health_procs():
         # it then (else it would always read DOWN).
         if os.environ.get("STICKER_BOT_TOKEN", "").strip():
             procs.append({"name": "sticker-importer", "pattern": "importer-bot\\.py"})
+    if ENABLE["adminbot"]:
+        procs.append({"name": "adminbot", "pattern": "adminbot/bot\\.py"})
     return procs
 
 HEALTH_PROCS = _build_health_procs()
@@ -1454,6 +1463,24 @@ def dashboard():
     svc_html = "<br>".join(_service_row(x) for x in s["services"])
     restart_buttons = _restart_buttons()
 
+    # Optional admin-bot quick-command widget — each button POSTs one allowlisted
+    # read-only !command to the admin-ops room (the bot replies in Element).
+    bot_widget = ""
+    if ENABLE.get("adminbot"):
+        _bbtns = "".join(
+            '<form method=post action="/bot/send" style="display:inline">'
+            f'<input type=hidden name=_csrf value="{e(new_csrf())}">'
+            f'<input type=hidden name=cmd value="!{c}">'
+            f'<button class="small" type=submit>!{c}</button></form> '
+            for c in ("status", "users", "private-list", "invite-token", "whoami")
+        )
+        bot_widget = (
+            "<hr><h3>admin bot</h3>"
+            f"<p>{_bbtns}</p>"
+            "<p class=small>Sends a read-only command to the admin-ops room; "
+            "open Element to see the bot's reply. Destructive ops run in Element.</p>"
+        )
+
     mem_pct = s.get("mem_pct", 0)
     mem_line = (
         f'{human_bytes(s.get("mem_used",0))} / {human_bytes(s.get("mem_total",0))} '
@@ -1525,6 +1552,7 @@ def dashboard():
 <h3>quick restart</h3>
 <p>{restart_buttons}</p>
 <p class=small>Each service auto-restarts on crash; buttons are for manual intervention.</p>
+{bot_widget}
 </div>
 
 <div class=col>
@@ -1669,6 +1697,71 @@ def stats_page():
 </div>
 """
     return render(f"stats — {BRAND} admin", body)
+
+
+# ---------- admin-bot quick-command widget ----------
+# Posts a SAFE, read-only `!command` to the private admin-ops room as the operator
+# (their ADMIN_TOKEN from admin-credentials.env) so the supervised adminbot — whose
+# handle() gate only obeys ADMIN_MXID — picks it up and replies in Element. The
+# panel never shows the reply; it just queues the command. Destructive commands are
+# DELIBERATELY excluded from the allowlist (issue those in Element so the bot's
+# in-band confirm gate + audit trail apply).
+_BOT_SEND_ALLOWLIST = {
+    "status",        # ops/status.sh output (read-only)
+    "users",         # list users sharing a room with the operator (read-only)
+    "private-list",  # list hidden users (read-only)
+    "invite-token",  # reveal current registration token (operator-only room; audited)
+    "whoami",        # bot identity (read-only)
+    "help",          # command list (read-only)
+}
+
+
+@app.route("/bot/send", methods=["POST"])
+@login_required
+def bot_send():
+    if not csrf_ok():
+        abort(403)
+    cmd = (request.form.get("cmd") or "").strip()
+    # Shape gate: a single short `!word`-ish command, no shell metacharacters. The
+    # strict allowlist below is the real authority; this just rejects garbage early.
+    if not cmd.startswith("!") or len(cmd) > 120 or not re.fullmatch(r"![\w\-:@. ]+", cmd):
+        log_audit("bot-send", cmd=cmd, ok=False, reason="malformed")
+        flash_msg("malformed command", "err")
+        return redirect(url_for("dashboard"))
+    # Only SAFE (read-only / trivially undoable) commands. Anything else must be
+    # issued from Element directly (audit trail + the bot's confirm gate).
+    cmd_root = cmd[1:].split()[0] if len(cmd) > 1 else ""
+    if cmd_root not in _BOT_SEND_ALLOWLIST:
+        log_audit("bot-send", cmd=cmd, ok=False, reason="not-in-allowlist")
+        flash_msg(f"command !{cmd_root} not allowed via the panel — use Element + the bot directly", "err")
+        return redirect(url_for("dashboard"))
+    # Send as the OPERATOR (their ADMIN_TOKEN) into the admin-ops room so the bot's
+    # ADMIN_MXID gate accepts it. Both come from 0600 secrets files; the token is
+    # used only in the Authorization header (never logged / flashed).
+    admin = _load_env(ADMIN_CRED_FILE)
+    bot   = _load_env(ADMINBOT_CRED_FILE)
+    tok  = admin.get("ADMIN_TOKEN")
+    room = bot.get("ADMIN_ROOM")
+    if not tok or not room:
+        log_audit("bot-send", cmd=cmd, ok=False, reason="creds-missing")
+        flash_msg("can't send — operator token or admin-ops room missing", "err")
+        return redirect(url_for("dashboard"))
+    import urllib.parse as up, urllib.request as ur
+    txn = str(time.time_ns())
+    body = json.dumps({"msgtype": "m.text", "body": cmd}).encode()
+    url = (f"{MATRIX_HS_API}/_matrix/client/v3/rooms/{up.quote(room)}"
+           f"/send/m.room.message/{txn}")
+    req = ur.Request(url, method="PUT", data=body,
+                     headers={"Authorization": f"Bearer {tok}",
+                              "Content-Type": "application/json"})
+    try:
+        ur.urlopen(req, timeout=10).read()
+        log_audit("bot-send", cmd=cmd, ok=True)
+        flash_msg(f"sent {cmd} to the admin-ops room — open Element to see the bot reply", "ok")
+    except Exception as ex:
+        log_audit("bot-send", cmd=cmd, ok=False, reason=str(ex))
+        flash_msg(f"send failed: {ex}", "err")
+    return redirect(url_for("dashboard"))
 
 
 # ---------- simple action dispatch (quick-click) ----------

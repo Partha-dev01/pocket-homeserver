@@ -206,6 +206,13 @@ say "Needs a Matrix service-account token (created AFTER the stack is up) — yo
 say "STICKER_SERVICE_TOKEN (+ optional GIPHY_API_KEY / bot tokens) into .env then. See docs/STICKERS.md."
 ask_yn ENABLE_STICKERS "Enable the sticker picker?" n
 
+# ── Optional operator admin bot ───────────────────────────────────────────────
+printf '\n'; say "── Operator admin bot (optional) ──────────────────"
+say "A Matrix bot that lets ONLY you drive the stack from a private admin-ops room"
+say "(!status, !users, !invite-token, !restart-stack…). Its token + room go in a 0600"
+say "secrets file (created AFTER the stack is up) — not .env. See docs/ADMINBOT.md."
+ask_yn ENABLE_ADMINBOT "Enable the operator admin bot?" n
+
 # ── Write .env ───────────────────────────────────────────────────────────────
 # Quote free-form / secret values so the file sources cleanly; leave derived
 # values (${DOMAIN}, ${DATA_DIR}, $HOME) as references, exactly like the template.
@@ -269,7 +276,7 @@ AUTHGW_BRAND=\${DOMAIN}
 # ─── Optional Matrix admin bot ──────────────────────────────────────────────
 # The base install ships no bot; leave false unless you have added one. Only the
 # rotate-adminbot-token.sh / rotate-all.sh ops scripts read this.
-ENABLE_ADMINBOT=false
+ENABLE_ADMINBOT=${ENABLE_ADMINBOT}
 
 # ─── Matrix bootstrap (optional, idempotent; off by default) ────────────────
 # Runs AFTER the stack is up; needs registration opened first. See docs/BOOTSTRAP.md.
@@ -373,6 +380,7 @@ printf '\n'; ok "configuration summary (no secrets shown):"
   printf '  cloud bots    : %s\n'    "$ENABLE_CLOUD_BOTS"
   printf '  on-phone bot  : %s%s\n'  "$ENABLE_EXOBOT" "$([ "$ENABLE_EXOBOT" = "true" ] && echo " (ui=$EXOBOT_UI)")"
   printf '  stickers      : %s\n'    "$ENABLE_STICKERS"
+  printf '  admin bot     : %s\n'    "$ENABLE_ADMINBOT"
   printf '  registration  : %s\n'    "$([ -n "$MATRIX_REGISTRATION_TOKEN" ] && echo 'generated (in .env)' || echo 'none')"
   printf '  apps enabled  :%s\n'     "${apps:- (none)}"
 } >&2

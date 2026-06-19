@@ -57,6 +57,7 @@ core_steps=(
   "cloud-bots:steps/80-install-cloud-bots.sh"
   "exobot:steps/81-install-exobot.sh"
   "stickers:steps/82-install-stickers.sh"
+  "adminbot:steps/83-install-adminbot.sh"
 )
 
 # Optional apps, in install order, each gated by ENABLE_<APP>.
