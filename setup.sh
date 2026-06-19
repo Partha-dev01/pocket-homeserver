@@ -120,6 +120,12 @@ while :; do
 done
 ask_yn ENABLE_ADMIN "Enable the web admin panel?" y
 
+# ── Reboot survival ──────────────────────────────────────────────────────────
+printf '\n'; say "── Reboot survival ────────────────────────────────"
+say "Auto-start the stack on boot + a watchdog that revives killed services."
+say "(Needs the Termux:Boot and Termux:API addon apps; setup is fail-soft if absent.)"
+ask_yn ENABLE_BOOT "Install reboot survival + the self-heal watchdog?" y
+
 # ── Matrix homeserver ────────────────────────────────────────────────────────
 printf '\n'; say "── Matrix homeserver ──────────────────────────────"
 ask_yn _gentok "Generate a registration token now (lets you create your first user)?" y
@@ -200,6 +206,9 @@ CF_ACCESS_MODE=log
 CF_ACCESS_TEAM_DOMAIN=
 CF_ACCESS_AUD=
 
+# ─── Reboot survival ────────────────────────────────────────────────────────
+ENABLE_BOOT=${ENABLE_BOOT}
+
 # ─── Optional Matrix-SSO auth gateway (advanced) ────────────────────────────
 ENABLE_AUTH_GATEWAY=${ENABLE_AUTH_GATEWAY}
 AUTHGW_PORT=9095
@@ -242,6 +251,7 @@ printf '\n'; ok "configuration summary (no secrets shown):"
   printf '  timezone      : %s\n'    "$TZ"
   printf '  data dir      : %s\n'    "$DATA_DIR"
   printf '  admin panel   : %s (user: %s)\n' "$ENABLE_ADMIN" "$ADMIN_USER"
+  printf '  reboot survive: %s\n'    "$ENABLE_BOOT"
   printf '  sso gateway   : %s\n'    "$ENABLE_AUTH_GATEWAY"
   printf '  registration  : %s\n'    "$([ -n "$MATRIX_REGISTRATION_TOKEN" ] && echo 'generated (in .env)' || echo 'none')"
   printf '  apps enabled  :%s\n'     "${apps:- (none)}"

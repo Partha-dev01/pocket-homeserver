@@ -51,6 +51,7 @@ core_steps=(
   "element:steps/50-install-element.sh"
   "auth-gateway:steps/60-install-auth-gw.sh"
   "admin:steps/70-install-admin.sh"
+  "boot:steps/75-install-boot.sh"
 )
 
 # Optional apps, in install order, each gated by ENABLE_<APP>.
