@@ -5,6 +5,27 @@ All notable changes to pocket-homeserver are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Interactive control panel (`./pocket.sh`)** — a single menu-driven TUI that
+  drives the whole lifecycle: configure, install / bring up, status, per-service
+  restart, backups, logs, and the panic stop. No flags to remember; each item
+  just runs the underlying script. Dependency-free (works in Termux and over SSH).
+- **Resumable, status-aware installs** — `scripts/install.sh` now records each
+  completed step and skips it on the next run, so re-runs are fast and an
+  interrupted install resumes where it stopped. New `--status` (what's installed +
+  what's running), `--force` (redo everything), and `--reset` (clear the markers).
+  Step markers use filesystem-safe names (the data volume is often exFAT).
+
+### Changed
+
+- **`scripts/start-stack.sh` now brings the whole stack up**, not just the core:
+  it re-supervises every installed app/service from the launch command recorded at
+  install time, so one command (or a plain re-run of the installer) restores
+  everything after a reboot. Recovery from a hard panic is correspondingly simpler.
+
 ## [0.1.0] - 2026-06-17
 
 First public pre-release. pocket-homeserver turns a spare, unrooted Android phone

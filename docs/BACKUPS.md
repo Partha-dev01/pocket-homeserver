@@ -57,7 +57,8 @@ keeps a destructive path from being a single mis-click). The shape is:
 4. **Full rootfs restore:** extract `rootfs-<UTC>.tar.zst` over
    `$PREFIX/var/lib/proot-distro/installed-rootfs/debian` (back up the current one
    first). Use this only for whole-userland recovery.
-5. **Start the stack:** `scripts/start-stack.sh` (then your app scripts).
+5. **Start the stack:** `scripts/start-stack.sh` — it brings the whole stack back
+   up (core plus every installed app, from their recorded launch commands).
 
 ## Scheduling (optional)
 

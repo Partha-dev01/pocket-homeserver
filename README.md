@@ -4,82 +4,127 @@
 > homeserver plus a suite of self-hosted web apps — with **no root, no public IP,
 > and no monthly hosting bill**.
 
-`pocket-homeserver` is an open playbook and toolkit for running genuine server
-workloads on an ordinary, unrooted Android phone. Software runs in Termux on top
-of a proot Debian userland; ingress is handled by a Cloudflare Tunnel, so the
-whole thing works from behind CGNAT or mobile data — no port-forwarding, no
-exposed IP, no static address required.
+`pocket-homeserver` is an open toolkit and playbook for running genuine server
+workloads on an ordinary, unrooted Android phone. Everything runs in Termux on a
+proot Debian userland; a Cloudflare Tunnel handles ingress, so it works from
+behind CGNAT or mobile data with no port-forwarding, no exposed IP, and no static
+address. It is productized from a real, hardened deployment that ran a Matrix
+homeserver for ~20 users — alongside a stack of supporting apps — on a single
+mid-range phone for months.
 
-It is distilled from a real, hardened deployment that has run a Matrix homeserver
-for ~20 users alongside 20+ supporting services on a single mid-range phone for
-months: automated backups, self-healing supervision that survives reboots, a web
-admin panel, and a documented security review.
-
-> **Status: v0.1.0 — pre-release.** Productized from that working deployment; all
-> the pieces below have landed. Interfaces may still change before 1.0, and the
-> fresh-phone, zero-to-running walkthrough is still being hardened — expect some
-> rough edges, and see the [changelog](CHANGELOG.md).
-
-## What it aims to provide
-
-- **The stack** — a Matrix homeserver (continuwuity / conduwuit) behind Caddy,
-  plus eight optional self-hosted apps (bookmarks, file sharing, RSS, notes,
-  tasks, metasearch, a developer toolbox, and a status page) — all bound to
-  loopback behind a single Cloudflare Tunnel.
-- **Idempotent install scripts** — numbered, re-runnable, predictable bring-up;
-  one "start everything" entrypoint; reboot survival via Termux:Boot.
-- **A web admin panel** — health, service controls, and break-glass actions,
-  reachable from the phone or over an authenticated tunnel.
-- **Backups & recovery** — scheduled database / rootfs snapshots, retention, and a
-  tested restore path.
-- **Docs & findings** — architecture, the threat model and hardening applied,
-  known issues, and a zero-to-running setup guide.
+> **Status: v0.1.0 — pre-release.** All the pieces below have landed. Interfaces
+> may still change before 1.0, and the fresh-phone, zero-to-running walkthrough is
+> still being hardened — expect some rough edges. See the [changelog](CHANGELOG.md).
 
 ## Quickstart
 
-Once the phone is prepared and you've cloned this repo into Termux (see the full
-walkthrough in [docs/SETUP.md](docs/SETUP.md)), it comes down to two commands:
+Prepare the phone and clone this repo into Termux (the full walkthrough is in
+[docs/SETUP.md](docs/SETUP.md)), then run one command:
 
 ```bash
-./setup.sh            # guided wizard: answer a few questions, writes your .env
-./scripts/install.sh  # bring the whole stack up (the wizard can launch this too)
+./pocket.sh
 ```
 
-The wizard never echoes your secrets, writes `.env` with `0600` permissions, and
-can generate a Matrix registration token so you can create your first user.
+That opens an interactive menu that drives the whole thing — configure, install,
+check status, restart a service, take backups, read logs, and stop the stack.
+First run, pick **Configure** (it writes your `.env`), then **Install**. That's it.
+
+Prefer the command line? The menu just runs these, and you can too:
+
+```bash
+./setup.sh            # guided wizard → writes a complete, 0600 .env
+./scripts/install.sh  # bring the whole stack up (resumable + idempotent)
+```
+
+The wizard never echoes your secrets, and it can generate a Matrix registration
+token so you can create your first user.
+
+## The control panel (`./pocket.sh`)
+
+A plain text menu — no extra packages, works over SSH and in Termux as-is. Each
+item runs a script you could run by hand, so nothing is hidden:
+
+| Menu item | What it does | Underlying command |
+|---|---|---|
+| **Configure / reconfigure** | guided setup, writes `.env` | `./setup.sh` |
+| **Install / bring up the stack** | install + start everything (resumes) | `scripts/install.sh` |
+| **Re-run everything (force)** | redo every install step | `scripts/install.sh --force` |
+| **Status** | what's installed and what's running | `scripts/install.sh --status` |
+| **Restart a service** | restart one service | `scripts/ops/restart.sh <svc>` |
+| **Backups** | DB / full snapshots, retention, listing | `scripts/ops/backup-*.sh` |
+| **View logs** | tail any service log | — |
+| **Stop / panic** | cut public access, or stop everything | `scripts/ops/panic-*.sh` |
+
+## Run it again, any time
+
+The installer **remembers what's already done.** Each step that finishes is
+recorded with a marker on your data volume, so:
+
+- **Re-runs are quick** — completed steps are skipped (config rendering and the
+  stack bring-up always run, so things actually come up).
+- **An interrupted install resumes** exactly where it stopped.
+- **One command restores everything** — `scripts/install.sh` (or the menu's
+  *Install*) re-supervises the core stack and every installed app, so after a
+  reboot you just run it again and the whole stack comes back.
+- `scripts/install.sh --status` shows it all; `--force` redoes everything;
+  `--reset` forgets the markers. Changed your domain or an app's settings in
+  `.env`? Re-run with **force** so the install steps pick it up.
+
+## What you get
+
+- **A Matrix homeserver** (continuwuity / conduwuit) behind Caddy, with the
+  Element web client — federation and open registration off by default.
+- **Eight optional apps**, each on its own subdomain, all loopback-bound behind
+  the single tunnel: bookmarks (Linkding), file sharing (Pingvin Share), RSS
+  (FreshRSS), notes (Memos), tasks (Vikunja), metasearch (SearXNG), a developer
+  toolbox (IT-Tools), and a status page (Gatus). See [docs/APPS.md](docs/APPS.md).
+- **A web admin panel** — health, stats, logs, per-service restarts, backups, and
+  a guarded danger zone, reachable over the tunnel. See [docs/ADMIN.md](docs/ADMIN.md).
+- **Backups & recovery** — database and full-rootfs snapshot scripts with
+  retention, optional `age` encryption, and a documented restore path. See
+  [docs/BACKUPS.md](docs/BACKUPS.md).
+- **A process supervisor** that respawns crashed services (identity-checked
+  pidfiles), and **pinned + `sha256`-verified** downloads throughout.
+
+## How it works
+
+```
+ internet → Cloudflare edge → (mutually-authenticated tunnel) → cloudflared
+          → Caddy (loopback HTTP edge) → Matrix / the apps (all on 127.0.0.1)
+```
+
+The phone never opens an inbound port; it only dials out to Cloudflare, which
+terminates public TLS and forwards to a local Caddy that fronts every service on
+loopback. Full detail in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Why a phone?
 
 A retired phone is a low-power, battery-backed, always-on ARM64 computer with
-storage and (optionally) a SIM for connectivity. Paired with a Cloudflare Tunnel
-for ingress, it can serve real HTTPS traffic from anywhere without a static IP —
-a cheap, resilient, and genuinely practical way to self-host.
+storage and (optionally) a SIM. Paired with a Cloudflare Tunnel, it serves real
+HTTPS traffic from anywhere without a static IP — a cheap, resilient, genuinely
+practical way to self-host.
 
 ## Documentation
 
-- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — how it all fits together: layers,
-  request flow, components, storage.
-- [docs/SECURITY.md](docs/SECURITY.md) — threat model, layered defenses, and an
-  operator checklist.
-- [docs/SETUP.md](docs/SETUP.md) — zero-to-running setup guide (skeleton; firming
-  up as the scripts land).
-- [docs/APPS.md](docs/APPS.md) — the optional apps (bookmarks, file sharing, RSS,
-  notes, tasks, metasearch, dev tools, status): what each is, where its data
-  lives, and how to enable/upgrade it.
-- [docs/APP_AUTH.md](docs/APP_AUTH.md) — how the optional apps are protected:
-  Cloudflare Access (default) and the optional Matrix-SSO gateway.
-- [docs/ADMIN.md](docs/ADMIN.md) — the web admin panel: health, controls, backups,
-  and the guarded danger zone.
-- [docs/BACKUPS.md](docs/BACKUPS.md) — snapshot scripts, retention, encryption, and
-  the restore path.
+- [docs/SETUP.md](docs/SETUP.md) — zero-to-running setup guide.
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — layers, request flow, components, storage.
+- [docs/SECURITY.md](docs/SECURITY.md) — threat model, layered defenses, operator checklist.
+- [docs/APPS.md](docs/APPS.md) — the optional apps: what each is, where its data lives, how to enable/upgrade.
+- [docs/APP_AUTH.md](docs/APP_AUTH.md) — how apps are protected: Cloudflare Access (default) and the optional Matrix-SSO gateway.
+- [docs/ADMIN.md](docs/ADMIN.md) — the web admin panel.
+- [docs/BACKUPS.md](docs/BACKUPS.md) — snapshots, retention, encryption, restore.
+- [docs/MATRIX_AUTH_GW.md](docs/MATRIX_AUTH_GW.md) — the optional single sign-on gateway in depth.
 
-## Target layout
+## Repository layout
 
 ```
-docs/      architecture, security model, setup guides, findings
-scripts/   idempotent install, service, and backup scripts
-admin/     the web admin panel
-tools/     repo tooling (e.g. the leak-scan pre-push guard)
+pocket.sh    the interactive control panel (start here)
+setup.sh     the guided config wizard (writes .env)
+.env.example the single config file, documented
+scripts/     idempotent install, service, and ops scripts
+admin/       the web admin panel
+docs/        architecture, security, setup, and per-subsystem guides
+tools/       repo tooling (e.g. the leak-scan pre-push guard)
 ```
 
 ## Roadmap
@@ -87,22 +132,21 @@ tools/     repo tooling (e.g. the leak-scan pre-push guard)
 - [x] Architecture & security documentation
 - [x] Config-driven script framework (library, `.env`, renderer, orchestrator)
 - [x] Core stack install + bring-up (userland, cloudflared, Caddy, Matrix, Element)
-- [x] Optional-app install scripts (bookmarks, RSS, notes, tasks, file sharing,
-  metasearch, dev tools, status) + the app-auth model (Cloudflare Access)
+- [x] Optional-app install scripts + the app-auth model (Cloudflare Access)
 - [x] Optional Matrix-SSO auth gateway (advanced, single sign-on)
 - [x] Web admin panel (health, controls, backups, danger zone)
-- [x] Backups & recovery — DB + rootfs snapshot scripts, retention, restore (a
-  scheduled backup daemon is still to come)
-- [x] Guided `setup.sh` wizard + zero-to-running setup guide (fresh-phone
-  end-to-end walkthrough still being hardened)
+- [x] Backups & recovery — DB + rootfs snapshots, retention, restore
+- [x] Guided `setup.sh` wizard + zero-to-running setup guide
+- [x] Interactive control panel (`pocket.sh`) + resumable, status-aware installs
 - [x] First tagged release (v0.1.0)
-- [ ] Reboot-survival + watchdog self-heal as install steps — a Termux:Boot
-  launcher and a `JobScheduler` watchdog (manual boot setup is documented for now)
+- [ ] Reboot-survival as an install step — a Termux:Boot launcher and a
+  `JobScheduler` watchdog (manual boot setup is documented for now)
+- [ ] A scheduled backup daemon (snapshots run on demand / from the panel today)
 
 ## Status, license, and contributing
 
 Pre-release (v0.1.0) and under active construction — expect breaking changes.
-Licensed under the [MIT License](LICENSE). Issues, bug reports, and discussion
-are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md). Because the repo is public,
-every change is scanned for secrets and deployment-specific data by
+Licensed under the [MIT License](LICENSE). Issues, bug reports, and discussion are
+welcome — see [CONTRIBUTING.md](CONTRIBUTING.md). Because the repo is public, every
+change is scanned for secrets and deployment-specific data by
 [`tools/leak-scan.sh`](tools/leak-scan.sh) before it lands.

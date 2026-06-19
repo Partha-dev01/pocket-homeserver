@@ -33,6 +33,12 @@ verify. In order:
 9. Enable the apps you want
 10. Verify
 
+> **The easy way.** From step 6 onward you can do everything from one interactive
+> menu: run `./pocket.sh` and pick **Configure**, then **Install**. The same menu
+> later handles status, restarts, backups, logs, and stopping the stack. The
+> numbered steps below explain what each menu item does under the hood — read them
+> once, then drive it from the menu.
+
 ## 1. Prepare the phone
 
 The phone must keep running the stack in the background indefinitely, so disable
@@ -88,10 +94,11 @@ a folder on it (e.g. `/storage/XXXX-XXXX/pocket-homeserver`).
 
 ## 6. Configure `.env`
 
-The easy path — run the guided wizard from the repo root:
+The easy path — run the interactive menu from the repo root and choose
+**Configure** (or run the wizard directly):
 
 ```bash
-./setup.sh
+./pocket.sh     # menu → Configure   (or:  ./setup.sh)
 ```
 
 It asks a handful of questions (domain, storage path, tunnel token, admin login,
@@ -120,8 +127,8 @@ defaults if unsure. `.env` is gitignored — your secrets stay local.
 
 ## 7. Install and start the stack
 
-Run the installer from the repo root (the wizard in step 6 can also launch it
-for you):
+From the menu, choose **Install / bring up the stack** — or run the installer
+directly (the wizard in step 6 can also launch it for you):
 
 ```bash
 ./scripts/install.sh --check   # preview the ordered plan, change nothing
@@ -131,6 +138,13 @@ for you):
 This brings up, in order: the reverse proxy, the tunnel connector, the Matrix
 homeserver, the auth gateway, the admin panel, and any apps you enabled — each
 under a supervisor that restarts it if it dies.
+
+The installer **remembers what's already done**: each completed step is recorded
+on your data volume and skipped next time, so re-runs are fast and an interrupted
+install resumes where it left off. Run it again any time — it's the same command
+that brings the whole stack back up after a reboot. `./scripts/install.sh
+--status` shows what's installed and running; `--force` redoes everything (use it
+after you change `.env`); `--reset` forgets the markers.
 
 ## 8. Create your admin user
 
@@ -179,8 +193,10 @@ chmod +x ~/.termux/boot/00-pocket-homeserver.sh
 
 Adjust the path if you cloned elsewhere, and open the **Termux:Boot** app once
 after installing it so Android lets it run at boot. `install.sh` is idempotent, so
-on boot it simply re-launches whatever isn't already up; for a core-only restart
-you can call [`scripts/start-stack.sh`](../scripts/start-stack.sh) instead.
+on boot it simply re-launches whatever isn't already up. You can also bring the
+whole stack up directly with [`scripts/start-stack.sh`](../scripts/start-stack.sh)
+— it re-supervises the core services and every installed app from the launch
+commands recorded at install time.
 
 A periodic **watchdog** (to recover services Android's low-memory killer takes
 down) and a packaged version of the launcher above are the next items on the
