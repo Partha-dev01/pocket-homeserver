@@ -60,9 +60,36 @@ keeps a destructive path from being a single mis-click). The shape is:
 5. **Start the stack:** `scripts/start-stack.sh` — it brings the whole stack back
    up (core plus every installed app, from their recorded launch commands).
 
-## Scheduling (optional)
+## Scheduled backups (the daemon)
 
-These scripts are intended to be invoked from the admin panel or by hand. To run
-them automatically, wire [`ops/backup-db.sh`](../scripts/ops/backup-db.sh) (frequent) and [`ops/backup-all.sh`](../scripts/ops/backup-all.sh)
-(infrequent) into Termux's `cron`/`at` or a Termux:Boot-launched timer. A scheduled
-backup daemon is a planned addition.
+Set `ENABLE_BACKUP_DAEMON=true` in `.env` (then run `./pocket.sh` → Install/Re-run,
+or `scripts/start-stack.sh`) and pocket-homeserver supervises a small loop that
+snapshots automatically — no cron needed. It wakes **once a day** at hour
+`BACKUP_DAEMON_HOUR` (UTC, default `4`) and runs whatever is due:
+
+| When (UTC) | Runs |
+|---|---|
+| **Every Sunday** | [`ops/backup-db.sh`](../scripts/ops/backup-db.sh) — the Matrix DB (your primary user data; cheap, keeps a tight recovery window) |
+| **The 1st of each month** | [`ops/backup-db.sh`](../scripts/ops/backup-db.sh) **and** [`ops/backup-all.sh`](../scripts/ops/backup-all.sh) — DB plus the heavy full rootfs |
+| **Any other day** | nothing — it wakes, logs, and sleeps again |
+
+[`ops/rotate-backups.sh`](../scripts/ops/rotate-backups.sh) runs at the end of every wake, so retention stays
+applied. The daemon (and every backup it forks) runs at idle CPU + best-effort
+idle IO priority, so a heavy monthly rootfs tar never starves your live services.
+
+It is a normal supervised service: it is started by `scripts/start-stack.sh` when
+the flag is on (and re-supervised on every bring-up / after a reboot), shows up in
+`./pocket.sh` → Status and the admin panel's health list, and can be restarted with
+`scripts/ops/restart.sh backup-daemon`.
+
+**Optional heartbeat.** Set `BACKUP_DAEMON_HC_URL` to a ping URL (e.g. a
+[healthchecks.io](https://healthchecks.io) check). The daemon pings it after a
+successful DB backup, or `<url>/fail` when the backup failed, so you get alerted if
+the phone goes dark or a snapshot breaks. Empty (the default) = no ping.
+
+**To stop it:** set `ENABLE_BACKUP_DAEMON=false` and re-run `start-stack.sh`
+(it then skips + leaves it stopped), or stop it immediately from `./pocket.sh` →
+Backups → *Stop the scheduled daemon* (which calls `unsupervise backup-daemon`).
+
+Prefer to drive backups yourself? Leave the flag off and run the scripts on demand
+from the admin panel, `./pocket.sh`, or by hand any time.

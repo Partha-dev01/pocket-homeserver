@@ -92,6 +92,7 @@ ENABLE = {
     "searxng":  _flag("ENABLE_SEARXNG"),
     "ittools":  _flag("ENABLE_ITTOOLS"),
     "gatus":    _flag("ENABLE_GATUS"),
+    "backup-daemon": _flag("ENABLE_BACKUP_DAEMON"),
 }
 
 # Script allowlist — the ONLY scripts a click can run, relative to scripts/. No
@@ -117,6 +118,7 @@ SCRIPTS_OK = {
     "restart-memos":       {"argv": ["ops/restart.sh", "memos"],           "kind": "restart"},
     "restart-vikunja":     {"argv": ["ops/restart.sh", "vikunja"],         "kind": "restart"},
     "restart-gatus":       {"argv": ["ops/restart.sh", "gatus"],           "kind": "restart"},
+    "restart-backup-daemon": {"argv": ["ops/restart.sh", "backup-daemon"], "kind": "restart"},
     # danger-tier (go through the two-page typed confirmation)
     "rotate-reg-token":  {"argv": ["ops/rotate-registration-token.sh"], "kind": "danger"},
     "rotate-admin-pass": {"argv": ["ops/rotate-admin-password.sh"],      "kind": "danger"},
@@ -597,6 +599,8 @@ def _build_health_procs():
         procs.append({"name": "vikunja", "pattern": "/opt/vikunja/run.sh"})
     if ENABLE["gatus"]:
         procs.append({"name": "gatus", "pattern": "/opt/gatus"})
+    if ENABLE["backup-daemon"]:
+        procs.append({"name": "backup-daemon", "pattern": "ops/backup-daemon.sh"})
     return procs
 
 HEALTH_PROCS = _build_health_procs()

@@ -177,7 +177,7 @@ tools/       repo tooling (e.g. the leak-scan pre-push guard)
 - [x] Guided `setup.sh` wizard + zero-to-running setup guide
 - [x] Interactive control panel (`pocket.sh`) + resumable, status-aware installs
 - [x] Reboot survival + self-heal watchdog as install steps (Termux:Boot + JobScheduler)
-- [ ] A scheduled backup daemon (snapshots run on demand / from the panel today)
+- [x] A scheduled backup daemon (optional; weekly DB + monthly rootfs, auto-pruned)
 - [ ] An optional honeypot / decoy surface (concept documented today)
 
 ## Status, license, and contributing

@@ -105,7 +105,10 @@ installs what it can and tells you what to add.
 Backups are produced by the [`scripts/ops/`](../scripts/ops/) scripts — run by
 hand or from the admin panel — snapshotting the Matrix database and the userland
 to the large volume with retention and optional encryption (see
-[BACKUPS.md](BACKUPS.md)). A scheduled backup daemon is still to come.
+[BACKUPS.md](BACKUPS.md)). An optional scheduled backup daemon
+([`scripts/ops/backup-daemon.sh`](../scripts/ops/backup-daemon.sh), gated on
+`ENABLE_BACKUP_DAEMON`) can run these automatically — the DB weekly and the full
+rootfs monthly (UTC) — supervised like any other service.
 
 ## Request flow
 

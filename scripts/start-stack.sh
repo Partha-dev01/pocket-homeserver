@@ -86,6 +86,7 @@ if [ "${RESTART}" -eq 1 ]; then
   unsupervise cloudflared
   unsupervise caddy
   unsupervise matrix
+  unsupervise backup-daemon
 fi
 
 # ── Start in dependency order (supervise no-ops if already running) ──────────
@@ -97,6 +98,15 @@ say "== starting core stack =="
 supervise matrix      -- "${matrix_cmd[@]}"
 supervise caddy       -- "${caddy_cmd[@]}"
 supervise cloudflared -- "${cloudflared_cmd[@]}"
+
+# ── Scheduled backup daemon (opt-in; flag-gated, NOT .cmd-driven) ─────────────
+# Controlled by ENABLE_BACKUP_DAEMON, not by a lingering .cmd, so it is supervised
+# here explicitly and skipped by the *.cmd glob below. Started after core (a
+# snapshot stops/starts the homeserver, so core should be up first).
+if [ "${ENABLE_BACKUP_DAEMON:-false}" = "true" ]; then
+  say "== starting scheduled backup daemon =="
+  supervise backup-daemon -- bash "${POCKET_ROOT}/scripts/ops/backup-daemon.sh"
+fi
 
 # ── Bring up every installed app / extra service ─────────────────────────────
 # Re-supervise anything that recorded a launch command at install time
@@ -110,7 +120,7 @@ extras=0
 shopt -s nullglob
 for cmdfile in "${POCKET_STATE_DIR}"/*.cmd; do
   name="$(basename "${cmdfile}" .cmd)"
-  case " matrix caddy cloudflared " in *" ${name} "*) continue ;; esac
+  case " matrix caddy cloudflared backup-daemon " in *" ${name} "*) continue ;; esac
   mapfile -t _cmd < "${cmdfile}"
   [ "${#_cmd[@]}" -gt 0 ] || { warn "empty launch command for '${name}' (${cmdfile}) — skipping"; continue; }
   [ "${RESTART}" -eq 1 ] && unsupervise "${name}"

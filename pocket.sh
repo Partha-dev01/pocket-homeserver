@@ -106,6 +106,8 @@ backups_menu() {
     printf '   2) Back up the whole userland      (slow, ~1 GB)\n'
     printf '   3) Apply retention now             (prune old snapshots)\n'
     printf '   4) List existing backups\n'
+    printf '   5) Start the scheduled daemon      %s\n' "$(svc_state backup-daemon)"
+    printf '   6) Stop the scheduled daemon\n'
     printf '    b) back\n\n'
     local c=""; read -r -p "  Choose: " c || c=""
     case "$c" in
@@ -116,6 +118,13 @@ backups_menu() {
       4) if [ -n "${BACKUP_DIR:-}" ] && [ -d "${BACKUP_DIR}" ]; then
            run_action bash -c 'ls -lhR "$1" 2>/dev/null || echo "(no backups yet)"' _ "${BACKUP_DIR}"
          else warn "no backup dir yet (set DATA_DIR and run a backup)"; pause; fi ;;
+      5) if [ "$(svc_state backup-daemon)" != "DOWN" ]; then warn "backup-daemon already running"; pause
+         else
+           say "starting backup-daemon (set ENABLE_BACKUP_DAEMON=true in .env to keep it across reboots)"
+           run_action bash -c '. "$1/scripts/lib/common.sh"; load_env; supervise backup-daemon -- bash "$1/scripts/ops/backup-daemon.sh"' _ "$POCKET_ROOT"
+         fi ;;
+      6) confirm "Stop the scheduled backup daemon?" && \
+           run_action bash -c '. "$1/scripts/lib/common.sh"; load_env; unsupervise backup-daemon' _ "$POCKET_ROOT" ;;
       b|B|"") return ;;
       *) warn "not a valid choice: $c"; pause ;;
     esac

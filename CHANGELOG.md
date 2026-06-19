@@ -5,6 +5,17 @@ All notable changes to pocket-homeserver are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Scheduled backup daemon** (`scripts/ops/backup-daemon.sh`, opt-in via
+  `ENABLE_BACKUP_DAEMON`): a supervised daily-wake loop that snapshots the Matrix
+  DB weekly (Sunday, UTC) and the full rootfs monthly (the 1st, UTC), applies
+  retention, and can ping an optional heartbeat URL (`BACKUP_DAEMON_HC_URL`).
+  Wired into `start-stack.sh`, `./pocket.sh`, the admin panel health list, and
+  `docs/BACKUPS.md`.
+
 ## [0.1.1] - 2026-06-19
 
 ### Added
