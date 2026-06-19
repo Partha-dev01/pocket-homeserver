@@ -115,6 +115,7 @@ SCRIPTS_OK = {
     "restart-linkding-tasks":{"argv": ["ops/restart.sh", "linkding-tasks"], "kind": "restart"},
     "restart-pingvin":     {"argv": ["ops/restart.sh", "pingvin"],         "kind": "restart"},
     "restart-freshrss":    {"argv": ["ops/restart.sh", "freshrss"],        "kind": "restart"},
+    "restart-freshrss-refresh":{"argv": ["ops/restart.sh", "freshrss-refresh"], "kind": "restart"},
     "restart-searxng":     {"argv": ["ops/restart.sh", "searxng"],         "kind": "restart"},
     "restart-memos":       {"argv": ["ops/restart.sh", "memos"],           "kind": "restart"},
     "restart-vikunja":     {"argv": ["ops/restart.sh", "vikunja"],         "kind": "restart"},
@@ -593,6 +594,7 @@ def _build_health_procs():
         procs.append({"name": "pingvin", "pattern": "dist/src/main"})
     if ENABLE["freshrss"]:
         procs.append({"name": "freshrss", "pattern": "freshrss/php-fpm.conf"})
+        procs.append({"name": "freshrss-refresh", "pattern": "run-refresh\\.sh"})
     if ENABLE["searxng"]:
         procs.append({"name": "searxng", "pattern": "searxng/uwsgi.ini"})
     if ENABLE["memos"]:
@@ -1357,7 +1359,8 @@ def _restart_buttons():
     if ENABLE["linkding"]: btns += [("restart-linkding", "linkding"),
                                     ("restart-linkding-tasks", "linkding-tasks")]
     if ENABLE["pingvin"]:  btns.append(("restart-pingvin", "pingvin"))
-    if ENABLE["freshrss"]: btns.append(("restart-freshrss", "freshrss"))
+    if ENABLE["freshrss"]: btns += [("restart-freshrss", "freshrss"),
+                                     ("restart-freshrss-refresh", "freshrss-refresh")]
     if ENABLE["searxng"]:  btns.append(("restart-searxng", "searxng"))
     if ENABLE["memos"]:    btns.append(("restart-memos", "memos"))
     if ENABLE["vikunja"]:  btns.append(("restart-vikunja", "vikunja"))

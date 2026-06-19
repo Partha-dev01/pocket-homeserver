@@ -186,8 +186,12 @@ bash scripts/ops/restart.sh honeypot-watcher
   / CGNAT address would take collateral).
 
 Both add exactly **one** rule per source IP, tagged `honeypot-auto` in its notes,
-on *your own* account edge. Auto-created rules can be set to auto-expire so the
-edge ruleset does not grow without bound.
+on *your own* account edge. To keep the edge ruleset from growing without bound,
+the watcher ships a `--reap` mode that prunes aged `honeypot-auto` rules — but
+pocket-homeserver does **not** schedule it for you. Run `python3
+scripts/honeypot/honeypot-watcher.py --reap` periodically (e.g. from your own
+cron / `termux-job-scheduler`), or just remove rules on demand with the console's
+**unblock** action.
 
 ## Unblocking / undo
 

@@ -48,7 +48,7 @@ Modes:
 stdlib only (native Termux python3; NOT in the proot — it tails the host-side
 Caddy log and optionally calls the CF API + the loopback Matrix API). Everything
 operator-specific (paths, domain, decoy hosts, alert target) comes from the
-environment; the install step (scripts/steps/73-honeypot.sh) wires it.
+environment; the install step (scripts/steps/77-install-honeypot.sh) wires it.
 """
 import sys, os, re, json, time, gzip, glob, html, ipaddress, calendar
 import urllib.request, urllib.parse, urllib.error

@@ -8,10 +8,11 @@
 # lib/common.sh), so there is ONE source of truth for each service's launch line
 # and this script never drifts from the install scripts.
 #
-# Known services: matrix, caddy, cloudflared, auth-gw, adminweb, and any enabled
-# app (linkding, linkding-tasks, pingvin, pingvin-fe, freshrss, searxng, memos,
-# vikunja, gatus). A service that has never been started has no recorded command;
-# this script then points you at the step/app script that first brings it up.
+# Known services: matrix, caddy, cloudflared, auth-gw, adminweb, backup-daemon,
+# honeypot-watcher, and any enabled app (linkding, linkding-tasks, pingvin,
+# freshrss, freshrss-refresh, searxng, memos, vikunja, gatus). A service that has
+# never been started has no recorded command; this script then points you at the
+# step/app script that first brings it up.
 #
 # Generalized from a working deployment; review before running on a fresh phone.
 

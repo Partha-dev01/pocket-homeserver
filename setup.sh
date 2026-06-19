@@ -149,7 +149,7 @@ fi
 
 # ── Optional apps ────────────────────────────────────────────────────────────
 printf '\n'; say "── Optional apps (each on its own subdomain) ──────"
-ask_yn EN_ELEMENT  "Element web chat client (chat.$DOMAIN)?"   y
+say "  (Element — the Matrix web client — is part of the core stack on chat.$DOMAIN; always installed.)"
 ask_yn EN_LINKDING "Bookmarks (links.$DOMAIN)?"                n
 ask_yn EN_PINGVIN  "File sharing (share.$DOMAIN)?"             n
 ask_yn EN_FRESHRSS "RSS reader (rss.$DOMAIN)?"                 n
@@ -218,7 +218,6 @@ AUTHGW_TTL=2592000
 AUTHGW_BRAND=\${DOMAIN}
 
 # ─── Optional apps ──────────────────────────────────────────────────────────
-ENABLE_ELEMENT=${EN_ELEMENT}
 ENABLE_LINKDING=${EN_LINKDING}
 ENABLE_PINGVIN=${EN_PINGVIN}
 ENABLE_FRESHRSS=${EN_FRESHRSS}
@@ -240,7 +239,7 @@ ok "wrote $ENV_OUT (0600)"
 
 # ── Summary (no secrets) + hand-off ──────────────────────────────────────────
 apps=""
-for kv in element:$EN_ELEMENT linkding:$EN_LINKDING pingvin:$EN_PINGVIN \
+for kv in linkding:$EN_LINKDING pingvin:$EN_PINGVIN \
           freshrss:$EN_FRESHRSS memos:$EN_MEMOS vikunja:$EN_VIKUNJA \
           searxng:$EN_SEARXNG ittools:$EN_ITTOOLS gatus:$EN_GATUS; do
   [ "${kv#*:}" = "true" ] && apps="$apps ${kv%%:*}"
