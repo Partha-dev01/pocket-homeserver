@@ -307,8 +307,17 @@ http://${PV_HOST}:${CADDY_PORT} {
 	# OPTIONAL Matrix-SSO gateway add-on (single sign-on across apps). Disabled by
 	# default — the default front door is Pingvin's own login + Cloudflare Access at
 	# the edge. To enable, run the optional Matrix-auth gateway, flip the oidc-* keys
-	# in config.yaml, and uncomment this block (see docs/APP_AUTH.md). It must
-	# precede the catch-all so unauthenticated requests are redirected to login.
+	# in config.yaml, and uncomment this block (see docs/APP_AUTH.md). The three
+	# parts MUST sit before the /api/* and catch-all handles below: the /authgw/*
+	# handler keeps the login form reachable (else the 302-to-login loops), the
+	# request_header strips any client-forged Remote-User before the gate, and
+	# forward_auth then gates everything else.
+	# handle /authgw/* {
+	# 	reverse_proxy 127.0.0.1:9095 {
+	# 		header_up X-Real-IP {client_ip}
+	# 	}
+	# }
+	# request_header -Remote-User
 	# forward_auth 127.0.0.1:9095 {
 	# 	uri /authgw/verify
 	# 	copy_headers Remote-User

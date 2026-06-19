@@ -187,22 +187,24 @@ http://tools.${DOMAIN}:${CADDY_PORT} {
 
 	# ── OPTIONAL: Matrix-SSO gateway add-on (default is Cloudflare Access) ──
 	# Uncomment to require a Matrix-SSO session cookie for the whole site. The
-	# /authgw/* handler MUST come first so the login page itself stays reachable.
+	# three parts MUST precede the file_server below: the /authgw/* handler keeps
+	# the login form reachable (else the 302-to-login loops), the request_header
+	# strips any client-forged Remote-User before the gate, and forward_auth then
+	# gates everything else. See docs/APP_AUTH.md.
 	#
 	# handle /authgw/* {
-	# 	reverse_proxy 127.0.0.1:9095
-	# }
-	# handle {
-	# 	forward_auth 127.0.0.1:9095 {
-	# 		uri /authgw/verify
-	# 		copy_headers Remote-User
+	# 	reverse_proxy 127.0.0.1:9095 {
+	# 		header_up X-Real-IP {client_ip}
 	# 	}
-	# 	root * ${SERVE_ROOT}
-	# 	file_server
+	# }
+	# request_header -Remote-User
+	# forward_auth 127.0.0.1:9095 {
+	# 	uri /authgw/verify
+	# 	copy_headers Remote-User
 	# }
 
 	# Static SPA — every tool is pure client-side JS, so the whole site is a
-	# plain file_server. (Comment this out if you enable the gateway above.)
+	# plain file_server.
 	root * ${SERVE_ROOT}
 	file_server
 }

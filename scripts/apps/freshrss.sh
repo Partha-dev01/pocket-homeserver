@@ -320,10 +320,19 @@ http://${FR_HOST}:${CADDY_PORT} {
 	# OPTIONAL Matrix-SSO gateway add-on (single sign-on across apps). Disabled by
 	# default — the default front door is FreshRSS's native login + Cloudflare
 	# Access at the edge. To enable, run the optional Matrix-auth gateway and
-	# uncomment this block (see docs/APP_AUTH.md); it must precede php_fastcgi so
-	# unauthenticated requests are redirected to login first. (With this enabled
-	# you would also switch FreshRSS to auth_type=http_auth + trusted_sources
-	# loopback and pass Remote-User into the FastCGI env — see docs/APP_AUTH.md.)
+	# uncomment this block (see docs/APP_AUTH.md); the three parts MUST precede
+	# php_fastcgi below. The /authgw/* handler keeps the login form reachable (else
+	# the 302-to-login loops), the request_header strips any client-forged
+	# Remote-User before the gate, and forward_auth then gates everything else.
+	# (With this enabled you would also switch FreshRSS to auth_type=http_auth +
+	# trusted_sources loopback and pass Remote-User into the FastCGI env — see
+	# docs/APP_AUTH.md.)
+	# handle /authgw/* {
+	# 	reverse_proxy 127.0.0.1:9095 {
+	# 		header_up X-Real-IP {client_ip}
+	# 	}
+	# }
+	# request_header -Remote-User
 	# forward_auth 127.0.0.1:9095 {
 	# 	uri /authgw/verify
 	# 	copy_headers Remote-User

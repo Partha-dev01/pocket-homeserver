@@ -333,26 +333,25 @@ http://${SX_HOST}:${CADDY_PORT} {
 
 	# ── OPTIONAL: Matrix-SSO gateway add-on (default is Cloudflare Access) ──
 	# Uncomment to require a Matrix-SSO session cookie for the whole site. The
-	# /authgw/* handler MUST come first so the login page itself stays reachable;
-	# the forward_auth then gates everything else (non-2xx → the gateway's 302 to
-	# the login form). See docs/APP_AUTH.md.
+	# three parts MUST precede the catch-all reverse_proxy below: the /authgw/*
+	# handler keeps the login form reachable (else the 302-to-login loops), the
+	# request_header strips any client-forged Remote-User before the gate, and
+	# forward_auth then gates everything else (non-2xx → the gateway's 302 to the
+	# login form). See docs/APP_AUTH.md.
 	#
 	# handle /authgw/* {
-	# 	reverse_proxy 127.0.0.1:9095
+	# 	reverse_proxy 127.0.0.1:9095 {
+	# 		header_up X-Real-IP {client_ip}
+	# 	}
 	# }
-	# handle {
-	# 	forward_auth 127.0.0.1:9095 {
-	# 		uri /authgw/verify
-	# 		copy_headers Remote-User
-	# 	}
-	# 	reverse_proxy 127.0.0.1:${SX_PORT} {
-	# 		header_up Host {http.request.host}
-	# 		header_up X-Forwarded-Proto https
-	# 	}
+	# request_header -Remote-User
+	# forward_auth 127.0.0.1:9095 {
+	# 	uri /authgw/verify
+	# 	copy_headers Remote-User
 	# }
 
 	# Default: plain proxy to uWSGI. The Cloudflare Access policy at the edge is
-	# the front door. (Comment this out if you enable the gateway block above.)
+	# the front door.
 	reverse_proxy 127.0.0.1:${SX_PORT} {
 		header_up Host {http.request.host}
 		header_up X-Forwarded-Proto https

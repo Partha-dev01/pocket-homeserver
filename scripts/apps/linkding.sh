@@ -325,8 +325,17 @@ http://${LD_HOST}:${CADDY_PORT} {
 	# OPTIONAL Matrix-SSO gateway add-on (single sign-on across apps). Disabled by
 	# default — the default front door is Linkding's native login + Cloudflare
 	# Access at the edge. To enable, run the optional Matrix-auth gateway and
-	# uncomment this block (see docs/APP_AUTH.md). It must precede the catch-all
-	# reverse_proxy so unauthenticated requests are redirected to login first.
+	# uncomment this block (see docs/APP_AUTH.md). The three parts MUST sit before
+	# the catch-all handle (after the public /health block above): the /authgw/*
+	# handler keeps the login form reachable (else the 302-to-login loops), the
+	# request_header strips any client-forged Remote-User before the gate, and
+	# forward_auth then gates everything else.
+	# handle /authgw/* {
+	# 	reverse_proxy 127.0.0.1:9095 {
+	# 		header_up X-Real-IP {client_ip}
+	# 	}
+	# }
+	# request_header -Remote-User
 	# forward_auth 127.0.0.1:9095 {
 	# 	uri /authgw/verify
 	# 	copy_headers Remote-User

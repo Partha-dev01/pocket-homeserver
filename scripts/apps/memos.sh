@@ -129,8 +129,18 @@ http://notes.${DOMAIN}:${CADDY_PORT} {
 	# OPTIONAL Matrix-SSO gateway add-on (advanced; see docs/APP_AUTH.md).
 	# By default this stays COMMENTED OUT: the hostname is gated by Cloudflare
 	# Access at the edge and Memos keeps its own native login. To front Memos
-	# with the Matrix-SSO gateway instead, run that add-on and uncomment:
+	# with the Matrix-SSO gateway instead, run that add-on and uncomment the three
+	# parts below — they MUST precede the catch-all reverse_proxy. The /authgw/*
+	# handler keeps the login form reachable (else the 302-to-login loops), the
+	# request_header strips any client-forged Remote-User before the gate, and
+	# forward_auth then gates everything else:
 	#
+	# handle /authgw/* {
+	# 	reverse_proxy 127.0.0.1:9095 {
+	# 		header_up X-Real-IP {client_ip}
+	# 	}
+	# }
+	# request_header -Remote-User
 	# forward_auth 127.0.0.1:9095 {
 	# 	uri /authgw/verify
 	# 	copy_headers Remote-User

@@ -248,8 +248,16 @@ http://${VK_HOST}:${CADDY_PORT} {
 	# OPTIONAL Matrix-SSO gateway add-on (single sign-on across apps). Disabled by
 	# default — the default front door is Cloudflare Access at the edge. To enable,
 	# run the optional Matrix-auth gateway and uncomment this block (see
-	# docs/APP_AUTH.md). It must precede the reverse_proxy so unauthenticated
-	# requests are redirected to login before reaching Vikunja.
+	# docs/APP_AUTH.md). The three parts MUST precede the reverse_proxy below: the
+	# /authgw/* handler keeps the login form reachable (else the 302-to-login
+	# loops), the request_header strips any client-forged Remote-User before the
+	# gate, and forward_auth then gates everything else.
+	# handle /authgw/* {
+	# 	reverse_proxy 127.0.0.1:9095 {
+	# 		header_up X-Real-IP {client_ip}
+	# 	}
+	# }
+	# request_header -Remote-User
 	# forward_auth 127.0.0.1:9095 {
 	# 	uri /authgw/verify
 	# 	copy_headers Remote-User
