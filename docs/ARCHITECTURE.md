@@ -161,6 +161,8 @@ stripped before the gate so they cannot be forged.
 | Privacy/media filters | optional proxies in front of Matrix (search privacy; media content-type) | `127.0.0.1:8449` / `:8450` | — |
 | Matrix bootstrap | optional one-shot seeding (admin + Space/rooms + announcements + invite tokens); Termux-native, loopback CS/admin API | native, no listener | — |
 | Cloud chat bots | optional Matrix `/sync` bots answering @-mentions via an OpenAI-compatible API; loopback to Matrix + one outbound LLM call | native, no listener | — |
+| On-phone LLM bot (exobot) | optional on-device bot; subprocess-manages a BYO `llama-server`; loopback to Matrix | native + `127.0.0.1:8081` (llama) | — |
+| exobot web UI (optional) | optional Gradio UI in the userland + a native lazy-start waker | `127.0.0.1:9114` / `:9116` | `ai.${DOMAIN}` |
 | Supervisors | respawn crashed services | — | — |
 | Boot launcher + watchdog | restart on reboot + revive killed services | — | — |
 | Backup scripts | on-demand DB + userland snapshots | — | — |

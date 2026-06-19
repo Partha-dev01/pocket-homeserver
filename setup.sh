@@ -182,12 +182,31 @@ say "Matrix bots that answer @-mentions via an OpenAI-compatible API (e.g. Groq'
 say "Configure each bot later in a 0600 file under \${DATA_DIR}/secrets/ — see docs/CHATBOTS.md."
 ask_yn ENABLE_CLOUD_BOTS "Enable cloud-LLM Matrix chat bots?" n
 
+# ── Optional on-phone LLM bot (exobot — advanced / BYO) ───────────────────────
+printf '\n'; say "── On-phone LLM bot (exobot) — advanced / BYO ─────"
+say "Runs an LLM ON the phone (no cloud, no API key). You supply your OWN llama.cpp"
+say "build + a GGUF model. The bot's Matrix token goes in a 0600 secrets file (NOT"
+say ".env), off-argv — see docs/CHATBOTS.md."
+ask_yn ENABLE_EXOBOT "Enable the on-phone LLM bot (advanced)?" n
+EXOBOT_LOCALPART="exobot"; LLAMA_SERVER_BIN=""; MODEL_PATH=""
+EXOBOT_ALLOWED_ROOMS=""; EXOBOT_UI="false"; EXOBOT_UI_HOST_PUBLIC="ai.$DOMAIN"
+if [ "$ENABLE_EXOBOT" = "true" ]; then
+  ask EXOBOT_LOCALPART     "Bot account localpart"                                  "exobot"
+  ask LLAMA_SERVER_BIN     "Path to your llama-server binary (inside the userland)"
+  ask MODEL_PATH           "Path to your GGUF model (inside the userland)"
+  ask EXOBOT_ALLOWED_ROOMS "Allowed Matrix room IDs (comma-separated; blank = none)"
+  ask_yn EXOBOT_UI         "Also enable the optional Gradio web UI?" n
+  [ "$EXOBOT_UI" = "true" ] && ask EXOBOT_UI_HOST_PUBLIC "Public hostname for the UI" "ai.$DOMAIN"
+fi
+
 # ── Write .env ───────────────────────────────────────────────────────────────
 # Quote free-form / secret values so the file sources cleanly; leave derived
 # values (${DOMAIN}, ${DATA_DIR}, $HOME) as references, exactly like the template.
 Q_DOMAIN=$(envq "$DOMAIN");        Q_TZ=$(envq "$TZ");            Q_DATA=$(envq "$DATA_DIR")
 Q_TUN=$(envq "$CF_TUNNEL_TOKEN");  Q_AUSER=$(envq "$ADMIN_USER"); Q_APASS=$(envq "$ADMIN_PASSWORD")
 Q_REGTOK=$(envq "$MATRIX_REGISTRATION_TOKEN"); Q_GWADM=$(envq "$AUTHGW_ADMINS")
+Q_XLOCAL=$(envq "$EXOBOT_LOCALPART"); Q_XBIN=$(envq "$LLAMA_SERVER_BIN"); Q_XMODEL=$(envq "$MODEL_PATH")
+Q_XROOMS=$(envq "$EXOBOT_ALLOWED_ROOMS"); Q_XUIHOST=$(envq "$EXOBOT_UI_HOST_PUBLIC")
 
 umask 077
 tmp="$ENV_OUT.tmp.$$"
@@ -278,6 +297,27 @@ MATRIX_LOOPBACK=http://127.0.0.1:8448
 # Per-bot secrets live in 0600 files under \${DATA_DIR}/secrets, never here.
 ENABLE_CLOUD_BOTS=${ENABLE_CLOUD_BOTS}
 
+# ─── On-phone LLM bot (exobot) — advanced / BYO ─────────────────────────────
+# The bot's Matrix token goes in \${DATA_DIR}/secrets/exobot.env (0600), not here.
+ENABLE_EXOBOT=${ENABLE_EXOBOT}
+EXOBOT_LOCALPART=${Q_XLOCAL}
+LLAMA_SERVER_BIN=${Q_XBIN}
+MODEL_PATH=${Q_XMODEL}
+EXOBOT_PROOT_DISTRO=debian
+LLAMA_SERVER_PORT=8081
+LLAMA_KEEP_WARM=true
+EXOBOT_IDLE_TIMEOUT_S=600
+EXOBOT_ALLOWED_ROOMS=${Q_XROOMS}
+INTERJECT_ENABLED=false
+SEED_ENABLED=false
+REVIVE_ENABLED=false
+CROSSBOT_ENABLED=false
+EXOBOT_UI=${EXOBOT_UI}
+EXOBOT_UI_PORT=9114
+EXOBOT_WAKER_PORT=9116
+EXOBOT_UI_TITLE="Self-hosted AI"
+EXOBOT_UI_HOST_PUBLIC=${Q_XUIHOST}
+
 # ─── Backups ────────────────────────────────────────────────────────────────
 BACKUP_DIR=\${DATA_DIR}/backups
 BACKUP_KEEP_DB=3
@@ -309,6 +349,7 @@ printf '\n'; ok "configuration summary (no secrets shown):"
   printf '  bootstrap     : %s%s\n'  "$ENABLE_BOOTSTRAP" "$([ "$ENABLE_BOOTSTRAP" = "true" ] && echo " (admin=$ADMIN_MATRIX_USER)")"
   printf '  filters       : user=%s media=%s\n' "$ENABLE_USER_FILTER" "$ENABLE_MEDIA_FILTER"
   printf '  cloud bots    : %s\n'    "$ENABLE_CLOUD_BOTS"
+  printf '  on-phone bot  : %s%s\n'  "$ENABLE_EXOBOT" "$([ "$ENABLE_EXOBOT" = "true" ] && echo " (ui=$EXOBOT_UI)")"
   printf '  registration  : %s\n'    "$([ -n "$MATRIX_REGISTRATION_TOKEN" ] && echo 'generated (in .env)' || echo 'none')"
   printf '  apps enabled  :%s\n'     "${apps:- (none)}"
 } >&2

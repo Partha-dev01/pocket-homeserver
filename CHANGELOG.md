@@ -9,6 +9,17 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 
 ### Added
 
+- **Optional on-phone LLM Matrix bot — exobot** (`ENABLE_EXOBOT`, off by default,
+  advanced / BYO). Runs an LLM **on the device** (no cloud, no API key): you supply
+  your own llama.cpp `llama-server` build (matching your phone's CPU) + a GGUF
+  model, and the bot lazy-loads / idle-unloads it. Fail-closed `EXOBOT_ALLOWED_ROOMS`,
+  five interaction modes, and four opt-in engagement daemons (all off). An optional
+  Gradio web UI (`EXOBOT_UI`, double-opt-in) is served at `ai.${DOMAIN}` behind a
+  lazy-start waker and **must** be protected by Cloudflare Access / the SSO gateway.
+  The bot's access token lives in a `0600` `${DATA_DIR}/secrets/exobot.env` sourced
+  in-process (never on argv); the installer fail-louds on the BYO binary/model and
+  fail-closes until the token is set. New `scripts/steps/81-install-exobot.sh`; see
+  `docs/CHATBOTS.md`.
 - **Optional cloud-LLM Matrix chat bots** (`ENABLE_CLOUD_BOTS`, off by default) —
   stdlib, Termux-native Matrix `/sync` bots that answer `@`-mentions via any
   OpenAI-compatible endpoint (Groq's free tier, OpenRouter, a local server). No

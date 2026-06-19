@@ -72,6 +72,9 @@ You drive the whole thing from **one interactive menu**:
 - **Optional cloud-LLM chat bots** — Matrix bots that answer `@`-mentions via any
   OpenAI-compatible API (Groq's free tier, OpenRouter, …). No inbound listener,
   fail-closed rooms, free-tier-safe rate limits, off by default. ([docs/CHATBOTS.md](docs/CHATBOTS.md))
+- **Optional on-phone LLM bot (advanced / BYO)** — run a model *on the device* with
+  no cloud and no API key: bring your own llama.cpp build + GGUF, with an optional
+  Gradio web UI. Off by default. ([docs/CHATBOTS.md](docs/CHATBOTS.md))
 - **Secure by construction** — no inbound ports, pinned + `sha256`-verified
   downloads, secrets kept off the command line, and a documented threat model.
   ([docs/SECURITY.md](docs/SECURITY.md))
@@ -198,6 +201,7 @@ tools/       repo tooling (e.g. the leak-scan pre-push guard)
 - [x] Scripted restore + credential rotation (dry-run restore; rotate tunnel/OIDC/admin-bot keys)
 - [x] Optional Matrix bootstrap (admin + hub Space/rooms + announcements + invite tokens)
 - [x] Optional cloud-LLM Matrix chat bots (OpenAI-compatible; Groq free tier)
+- [x] Optional on-phone LLM bot (advanced / BYO llama.cpp + GGUF; optional web UI)
 
 ## Status, license, and contributing
 

@@ -6,9 +6,9 @@ This page covers the **cloud bots** — a small, faithful template you point at 
 hosted provider (Groq's free tier, OpenRouter, …) or any local LLM server that
 speaks the OpenAI API.
 
-> An on-phone / local-model bot (run the model on the device itself) will be
-> documented in a separate section of this file; this page covers the cloud
-> bots only.
+> Prefer to run the **model on the phone itself** (no cloud, no API key)? See
+> [On-phone LLM (advanced / BYO)](#on-phone-llm-exobot--advanced--byo) at the end
+> of this page. The cloud bots below are the simpler option.
 
 They are **off by default**. Enable them with `ENABLE_CLOUD_BOTS=true` in `.env`,
 then configure one bot per `0600` env file (below).
@@ -143,5 +143,96 @@ the answer and the chain of thought is one tap away. Bump `LLM_MAX_TOKENS` (e.g.
   single bot from its recorded launch command; `scripts/start-stack.sh` brings
   up every configured bot on a fresh boot.
 - Logs: `${POCKET_LOG_DIR}/cloud-bot-<name>.log`.
+
+---
+
+## On-phone LLM (exobot) — advanced / BYO
+
+`exobot` runs an LLM **on the device itself** — no cloud, no API key, no data
+leaving the phone. It is **advanced and bring-your-own**: pocket-homeserver ships
+**no model and no binary**. You supply both, because the right build depends on
+your phone's exact CPU. It is **off by default** (`ENABLE_EXOBOT`).
+
+The bot subprocess-manages a [llama.cpp](https://github.com/ggml-org/llama.cpp)
+`llama-server`, lazy-loading the model on the first mention and idle-unloading it
+to save RAM (or keeping it warm). It talks to the homeserver on loopback and binds
+nothing inbound.
+
+### What you must supply (BYO)
+
+1. **`llama-server`** — build llama.cpp for **your phone's CPU**. Build it inside
+   the proot userland (the default) so the aarch64-glibc binary runs there, and
+   use the correct `-march`/flags for your SoC — a binary built for ISA extensions
+   your CPU lacks will `SIGILL` on first use. Point `LLAMA_SERVER_BIN` at it.
+2. **A GGUF model** — small + quantized works best on a phone (e.g. a 0.5–3B model
+   at Q4). Point `MODEL_PATH` at it.
+
+With the default `EXOBOT_PROOT_DISTRO=debian`, both paths are interpreted **inside
+the userland**. Set `EXOBOT_PROOT_DISTRO=` (empty) if you built a Termux-native
+binary and want host paths. The installer **fail-louds** if either is unset/missing.
+
+### Register the bot account + mint its token (OFF-ARGV)
+
+`exobot` needs its own Matrix account's access token in
+`${DATA_DIR}/secrets/exobot.env` as `EXOBOT_TOKEN=`. Register a dedicated account
+(don't reuse a human one) — e.g. with an invite token from
+`scripts/bootstrap/mint-invite-token.sh` — then mint the token **without putting
+the password on a command line**:
+
+```sh
+read -rsp 'exobot password: ' PW; echo
+TOKEN=$(PW="$PW" jq -n --arg u exobot \
+          '{type:"m.login.password",identifier:{type:"m.id.user",user:$u},password:$ENV.PW}' \
+        | curl -sS -X POST http://127.0.0.1:8448/_matrix/client/v3/login \
+            -H 'Content-Type: application/json' --data-binary @- \
+        | jq -r '.access_token'); unset PW
+umask 077
+printf 'EXOBOT_TOKEN=%s\n' "$TOKEN" > "${DATA_DIR}/secrets/exobot.env"
+chmod 600 "${DATA_DIR}/secrets/exobot.env"; unset TOKEN
+```
+
+The password reaches `jq` via its environment (`$ENV.PW`) and the request body via
+`curl` stdin — neither it nor the token ever appears on a command line. The
+installer refuses to start the bot while `EXOBOT_TOKEN` is still the placeholder.
+
+### Enabling it
+
+```sh
+# in .env
+ENABLE_EXOBOT=true
+EXOBOT_LOCALPART=exobot
+LLAMA_SERVER_BIN=/root/llama.cpp/build/bin/llama-server   # inside the userland
+MODEL_PATH=/root/models/your-model.gguf                   # inside the userland
+EXOBOT_ALLOWED_ROOMS=!yourroom:your-server                # fail-closed if empty
+```
+
+Then add the token (above) and run the installer (`./pocket.sh` → Install, or
+`bash scripts/install.sh --force`). Invite `@exobot:<server>` to a room listed in
+`EXOBOT_ALLOWED_ROOMS` and tag it: `@exobot help`.
+
+Like the cloud bots, `EXOBOT_ALLOWED_ROOMS` is **fail-closed** — empty means the
+bot operates nowhere and rejects every invite. The optional engagement daemons
+(`INTERJECT_ENABLED`, `SEED_ENABLED`, `REVIVE_ENABLED`, `CROSSBOT_ENABLED`) are all
+**off by default**.
+
+### Optional web UI (`EXOBOT_UI`)
+
+A [Gradio](https://www.gradio.app/) chat UI in front of the same model, served at
+`ai.${DOMAIN}` (override with `EXOBOT_UI_HOST_PUBLIC`). It is **off by default and
+double-opt-in** (`EXOBOT_UI=true`). The install step installs `gradio` inside the
+userland (`pip --break-system-packages`), writes a `/etc/caddy/apps/exobot-ui.caddy`
+vhost, and runs a tiny **lazy-start waker** that brings the (heavier) UI up on
+demand and idle-stops it. The UI has **no login of its own** — you **must** protect
+`ai.${DOMAIN}` with a Cloudflare Access policy at the edge (the default) or the
+optional Matrix-SSO gateway (see [APP_AUTH.md](APP_AUTH.md)). The installer prints
+the manual Cloudflare Tunnel hostname + Access steps.
+
+### Secrets and safety
+
+- `EXOBOT_TOKEN` lives **only** in `${DATA_DIR}/secrets/exobot.env` (`0600`),
+  sourced in-process by the launcher — never in `.env`, never on argv.
+- The model and all inference run **on the device**; nothing is sent to a third
+  party (unlike the cloud bots).
+- `EXOBOT_ALLOWED_ROOMS` is fail-closed; the bot never logs the access token.
 
 Generalized from a working deployment; review before running.

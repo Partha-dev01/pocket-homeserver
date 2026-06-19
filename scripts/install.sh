@@ -55,6 +55,7 @@ core_steps=(
   "honeypot:steps/77-install-honeypot.sh"
   "filters:steps/78-install-filters.sh"
   "cloud-bots:steps/80-install-cloud-bots.sh"
+  "exobot:steps/81-install-exobot.sh"
 )
 
 # Optional apps, in install order, each gated by ENABLE_<APP>.

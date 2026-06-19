@@ -97,6 +97,8 @@ ENABLE = {
     "user-filter":  _flag("ENABLE_USER_FILTER"),
     "media-filter": _flag("ENABLE_MEDIA_FILTER"),
     "cloud-bots":   _flag("ENABLE_CLOUD_BOTS"),
+    "exobot":       _flag("ENABLE_EXOBOT"),
+    "exobot-ui":    _flag("EXOBOT_UI"),
 }
 
 # Script allowlist — the ONLY scripts a click can run, relative to scripts/. No
@@ -662,6 +664,15 @@ def _build_health_procs():
         # module path. Restart individual bots from the shell (ops/restart.sh
         # cloud-bot-<name>) — their names are dynamic, so there is no static button.
         procs.append({"name": "cloud-bots", "pattern": "cloud_chatbot\\.py"})
+    if ENABLE["exobot"]:
+        # The bot launcher exec's `python3 .../exobot.py` (host-native). The
+        # optional UI is supervised as `proot-distro ... bash .../run-ui.sh` and
+        # its lazy-start waker as `python3 .../exobot-waker.py`. Restart from the
+        # shell (ops/restart.sh exobot|exobot-ui|exobot-waker).
+        procs.append({"name": "exobot", "pattern": "exobot\\.py"})
+        if ENABLE["exobot-ui"]:
+            procs.append({"name": "exobot-ui", "pattern": "run-ui\\.sh"})
+            procs.append({"name": "exobot-waker", "pattern": "exobot-waker\\.py"})
     return procs
 
 HEALTH_PROCS = _build_health_procs()
