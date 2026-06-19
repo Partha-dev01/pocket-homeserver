@@ -152,6 +152,7 @@ stripped before the gate so they cannot be forged.
 | Metasearch | optional app | loopback | `search.${DOMAIN}` |
 | Developer tools | optional app | loopback | `tools.${DOMAIN}` |
 | Status page | optional app | loopback | `status.${DOMAIN}` |
+| Honeypot watcher | optional scanner-detection (tails the Caddy log; alert-only) | native, no listener | — |
 | Supervisors | respawn crashed services | — | — |
 | Boot launcher + watchdog | restart on reboot + revive killed services | — | — |
 | Backup scripts | on-demand DB + userland snapshots | — | — |

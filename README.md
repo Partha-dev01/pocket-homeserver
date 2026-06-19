@@ -178,7 +178,7 @@ tools/       repo tooling (e.g. the leak-scan pre-push guard)
 - [x] Interactive control panel (`pocket.sh`) + resumable, status-aware installs
 - [x] Reboot survival + self-heal watchdog as install steps (Termux:Boot + JobScheduler)
 - [x] A scheduled backup daemon (optional; weekly DB + monthly rootfs, auto-pruned)
-- [ ] An optional honeypot / decoy surface (concept documented today)
+- [x] Optional honeypot / scanner-detection surface (alert-only; admin Security console)
 
 ## Status, license, and contributing
 

@@ -93,6 +93,7 @@ ENABLE = {
     "ittools":  _flag("ENABLE_ITTOOLS"),
     "gatus":    _flag("ENABLE_GATUS"),
     "backup-daemon": _flag("ENABLE_BACKUP_DAEMON"),
+    "honeypot": _flag("ENABLE_HONEYPOT"),
 }
 
 # Script allowlist — the ONLY scripts a click can run, relative to scripts/. No
@@ -119,6 +120,7 @@ SCRIPTS_OK = {
     "restart-vikunja":     {"argv": ["ops/restart.sh", "vikunja"],         "kind": "restart"},
     "restart-gatus":       {"argv": ["ops/restart.sh", "gatus"],           "kind": "restart"},
     "restart-backup-daemon": {"argv": ["ops/restart.sh", "backup-daemon"], "kind": "restart"},
+    "restart-honeypot-watcher": {"argv": ["ops/restart.sh", "honeypot-watcher"], "kind": "restart"},
     # danger-tier (go through the two-page typed confirmation)
     "rotate-reg-token":  {"argv": ["ops/rotate-registration-token.sh"], "kind": "danger"},
     "rotate-admin-pass": {"argv": ["ops/rotate-admin-password.sh"],      "kind": "danger"},
@@ -601,6 +603,8 @@ def _build_health_procs():
         procs.append({"name": "gatus", "pattern": "/opt/gatus"})
     if ENABLE["backup-daemon"]:
         procs.append({"name": "backup-daemon", "pattern": "ops/backup-daemon.sh"})
+    if ENABLE["honeypot"]:
+        procs.append({"name": "honeypot-watcher", "pattern": "honeypot-watcher\\.py"})
     return procs
 
 HEALTH_PROCS = _build_health_procs()
@@ -1079,11 +1083,13 @@ def render(title, body_html, hide_nav=False):
     actions = ""
     if not hide_nav and session.get("auth"):
         cur = request.path
-        items = (
+        items = [
             ("/", "dashboard"), ("/health", "health"), ("/stats", "stats"),
             ("/backups", "backups"), ("/tokens", "tokens"), ("/logs", "logs"),
             ("/danger", "danger"),
-        )
+        ]
+        if ENABLE["honeypot"]:
+            items.append(("/honeypot", "security"))
         links = ""
         for href, label in items:
             on = " class=active" if (cur == href if href == "/" else cur.startswith(href)) else ""
@@ -2099,6 +2105,1152 @@ def _quick_metrics():
     except Exception:
         pass
     return q
+
+
+# ============================================================================
+# Security / honeypot console (optional — shown only when ENABLE['honeypot']).
+#
+# The watcher (scripts/honeypot/honeypot-watcher.py, supervised by
+# steps/77-install-honeypot.sh) tails the core Caddy access log and writes a JSONL
+# ledger of high-confidence scanner probes. These routes render that ledger plus a
+# per-IP drill-down, passive enrichment, and a confirm-gated, DEFENSIVE write
+# console (Cloudflare IP Access Rules on the operator's OWN edge + the local
+# safelist). Everything degrades gracefully when the optional modules
+# (cf_actions.py / honeypot_db.py) are not deployed, so the panel never breaks.
+#
+# SAFETY BOUNDARY (designed-in):
+#   * Write actions touch ONLY the operator's OWN Cloudflare IP-Access-Rules
+#     (challenge/block/unblock a single source IP) and the local safelist — the
+#     exact mechanism + blast radius the watcher itself uses. No traffic is ever
+#     sent toward the source host.
+#   * Enrichment is PASSIVE: registry RDAP (queries the RIR, not the source), a
+#     single reverse-DNS PTR, offline geo from our own logs, and outbound *links*
+#     to third-party threat-intel sites.
+#   * CF edge actions go through the shared cf_actions module (re-asserts the
+#     token scope + the 'honeypot-auto' note prefix before any delete) behind the
+#     same three-input confirm flow as /danger (typed phrase + 'yes' + password).
+# ============================================================================
+HP_SCRIPTS_DIR = os.environ.get("HP_SCRIPTS_DIR",
+                                os.path.join(POCKET_ROOT, "scripts", "honeypot"))
+HP_LEDGER = os.path.join(LOGS, "honeypot.log")
+HP_MODE_FILE = os.path.join(SECRETS, "honeypot.mode")
+HP_IP_STATE = os.path.join(STATE, "honeypot-ip-state.json")
+HP_CF_ENV = os.path.join(SECRETS, "cf-honeypot.env")
+HP_SAFELIST = os.path.join(SECRETS, "honeypot-safelist.txt")
+HP_GEO_DIR = os.path.join(HP_SCRIPTS_DIR, "geo")
+
+_hp_mods = {}
+_hp_lock = threading.Lock()
+_hp_last_ingest = [0.0]
+
+
+def _hp_load(name):
+    """Lazily import scripts/honeypot/<name>.py from HP_SCRIPTS_DIR (cached, incl.
+    negative cache). Returns the module or None — never raises to the handler."""
+    if name in _hp_mods:
+        return _hp_mods[name]
+    mod = None
+    try:
+        import importlib.util
+        path = os.path.join(HP_SCRIPTS_DIR, f"{name}.py")
+        spec = importlib.util.spec_from_file_location(f"hp_{name}", path)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+    except Exception as ex:
+        sys.stderr.write(f"adminweb: honeypot module {name} unavailable: {ex}\n")
+        mod = None
+    _hp_mods[name] = mod
+    return mod
+
+
+def _hp_conn():
+    """Open the honeypot DB and incrementally ingest the ledger (throttled across
+    the gthread pool). Returns (db_module, connection) or (None, None). The caller
+    MUST close the connection. The DB is an OPTIONAL accelerator — the /honeypot
+    overview reads the JSONL ledger directly and works without it."""
+    hdb = _hp_load("honeypot_db")
+    if hdb is None:
+        return None, None
+    try:
+        conn = hdb.connect()
+    except Exception as ex:
+        sys.stderr.write(f"adminweb: honeypot DB open failed: {ex}\n")
+        return None, None
+    try:
+        with _hp_lock:
+            if time.time() - _hp_last_ingest[0] > 2.0:
+                hdb.ingest(conn)
+                _hp_last_ingest[0] = time.time()
+    except Exception as ex:
+        sys.stderr.write(f"adminweb: honeypot ingest failed: {ex}\n")
+    return hdb, conn
+
+
+def _hp_unavailable(msg="honeypot DB module not deployed"):
+    body = (f'<div class=box><h2><span class=ico>🍯</span> honeypot</h2>'
+            f'<p class=small>{e(msg)}. The <a href="/honeypot">ledger view</a> '
+            f'still works. Deploy <code>cf_actions.py</code> + '
+            f'<code>honeypot_db.py</code> to <code>{e(HP_SCRIPTS_DIR)}</code> and '
+            f'reload.</p></div>')
+    return render("security — honeypot", body)
+
+
+def _hp_action_pill(act):
+    a = str(act or "").strip().lower()
+    if not a or a in ("-", "none"):
+        return '<span class=small>—</span>'
+    if "block" in a:
+        return f'<span class="pill down" title="{e(str(act))}">block</span>'
+    if "challenge" in a:
+        return f'<span class="pill warn" title="{e(str(act))}">challenge</span>'
+    if "alert" in a:
+        return '<span class=pill>alerted</span>'
+    return f'<span class="pill" title="{e(str(act))}">{e(str(act)[:18])}</span>'
+
+
+def e2(s):
+    """html-escape that also trims very long tokens for inline summaries."""
+    return e(str(s)[:120])
+
+
+@app.route("/honeypot")
+@login_required
+def honeypot_page():
+    """Read-only Security overview: the honeypot ledger tail + counts + facets.
+    The watcher tails Caddy access logs and ledgers/(optionally) Matrix-alerts
+    high-confidence scanner probes. Alert-only by default."""
+    import time as _t
+    try:
+        mode = open(HP_MODE_FILE).read().strip() or "alert"
+    except OSError:
+        mode = "alert (default)"
+    counts, hosts, ips = {}, {}, {}
+    countries, asns = {}, {}
+    hosting_hits = geo_known = 0
+    buckets = {"24h": 0, "7d": 0, "30d": 0}
+    actioned_ledger = {}
+    blocked = total = 0
+    rows = []
+    now = _t.time()
+    cut = {k: _t.strftime("%Y-%m-%dT%H:%M:%SZ", _t.gmtime(now - s))
+           for k, s in (("24h", 86400), ("7d", 604800), ("30d", 2592000))}
+    try:
+        with open(HP_LEDGER) as f:
+            lines = f.readlines()
+        total = len(lines)
+        for ln in lines:
+            try:
+                r = json.loads(ln)
+            except Exception:
+                continue
+            counts[r.get("hit_rule", "?")] = counts.get(r.get("hit_rule", "?"), 0) + 1
+            hosts[r.get("host", "?")] = hosts.get(r.get("host", "?"), 0) + 1
+            ips[r.get("ip", "?")] = ips.get(r.get("ip", "?"), 0) + 1
+            ts = str(r.get("ts", ""))
+            for k in buckets:
+                if ts >= cut[k]:
+                    buckets[k] += 1
+            act = str(r.get("action", ""))
+            if act.startswith("cf-"):
+                blocked += 1
+                actioned_ledger[str(r.get("ip", "?"))] = act
+            c, a = r.get("country"), r.get("asn")
+            if c or a:
+                geo_known += 1
+                if c:
+                    countries[c] = countries.get(c, 0) + 1
+                if a:
+                    lab = f"{a} {r.get('as_org', '')}".strip()
+                    asns[lab] = asns.get(lab, 0) + 1
+                if r.get("hosting"):
+                    hosting_hits += 1
+        for ln in reversed(lines[-150:]):
+            try:
+                rows.append(json.loads(ln))
+            except Exception:
+                continue
+    except OSError:
+        pass
+
+    try:
+        st = json.load(open(HP_IP_STATE))
+        if not isinstance(st, dict):
+            st = {}
+    except Exception:
+        st = {}
+    offenders = sorted(st.items(),
+                       key=lambda kv: -int(kv[1].get("total_hits", 0) or 0))[:10]
+
+    proc_up, _ = _proc_alive("honeypot-watcher\\.py")
+
+    def _facet(title, d, n=6):
+        items = sorted(d.items(), key=lambda x: -x[1])[:n]
+        if not items:
+            return ""
+        mx = items[0][1] or 1
+        rws = ""
+        for k, v in items:
+            w = round(100 * v / mx)
+            rws += (f'<div class=frow><span class=fn>{e(str(k))}</span>'
+                    f'<span class=fc>{v}</span>'
+                    f'<span class=fb><span style="width:{w}%"></span></span></div>')
+        return f'<div class=facet><h3>{e(title)}</h3>{rws}</div>'
+
+    def _action_pill(act):
+        a = str(act or "").strip()
+        if not a or a in ("-", "none"):
+            return '<span class=small>—</span>'
+        low = a.lower()
+        if "alert" in low:
+            return '<span class=pill>alerted</span>'
+        if "block" in low:
+            return f'<span class="pill down" title="{e(a)}">block</span>'
+        if "challenge" in low:
+            return f'<span class="pill warn" title="{e(a)}">challenge</span>'
+        return f'<span class="pill" title="{e(a)}">{e(a[:18])}</span>'
+
+    if rows:
+        trs = ""
+        for r in rows:
+            geo = ""
+            if r.get("country") or r.get("asn"):
+                geo = e(str(r.get("country", "")))
+                if r.get("hosting"):
+                    geo += " ⚠DC"
+            trs += (
+                "<tr>"
+                f"<td class=small>{e(str(r.get('ts','')))}</td>"
+                f"<td class=mono>{e(str(r.get('ip','')))}</td>"
+                f"<td class=small>{geo}</td>"
+                f"<td>{e(str(r.get('host','')))}</td>"
+                f"<td class='mono path' title=\"{e(str(r.get('uri','')))}\">{e(str(r.get('uri',''))[:72])}</td>"
+                f"<td>{e(str(r.get('hit_rule','')))}</td>"
+                f"<td>{e(str(r.get('status','')))}</td>"
+                f"<td>{_action_pill(r.get('action',''))}</td>"
+                "</tr>"
+            )
+        table = (
+            '<div class=tablewrap><table><thead><tr>'
+            "<th>ts (UTC)</th><th>ip</th><th>geo</th><th>host</th><th>path</th>"
+            "<th>rule</th><th>code</th><th>action</th></tr></thead>"
+            f"<tbody>{trs}</tbody></table></div>"
+        )
+    else:
+        table = "<p class=small>No scanner hits recorded yet — the ledger is empty (Cloudflare's WAF/Bot-Fight filters most probes before they reach the tunnel).</p>"
+
+    if geo_known:
+        pct = round(100 * hosting_hits / geo_known) if geo_known else 0
+        geo_facets = _facet("top countries", countries) + _facet("top ASNs", asns)
+        geo_note = (f'<p class=small style="margin-top:.7rem">{hosting_hits}/{geo_known} '
+                    f'geo-known hits (<b>{pct}%</b>) from hosting/datacenter ASNs.</p>')
+    else:
+        geo_facets = ""
+        geo_note = ('<p class=small style="margin-top:.7rem">Geo/ASN enrichment inactive '
+                    f'(offline DB-IP dataset not deployed to <code>{e(HP_GEO_DIR)}</code>).</p>')
+
+    facets_html = (_facet("by rule", counts) + _facet("by host", hosts)
+                   + _facet("top IPs", ips) + geo_facets)
+
+    act_ips = {ip: ent.get("actioned") for ip, ent in st.items() if ent.get("actioned")}
+    for ip, a in actioned_ledger.items():
+        act_ips.setdefault(ip, a)
+    if act_ips:
+        items = list(act_ips.items())
+        CAP = 23
+        cells = "".join(
+            f'<span class=ipchip><a class=ip href="/honeypot/ip/{e(ip)}">{e(ip)}</a> {_action_pill(a)}</span>'
+            for ip, a in items[:CAP])
+        if len(items) > CAP:
+            cells += f'<span class="ipchip more">+{len(items) - CAP} more</span>'
+        actioned_html = '<div class=chips>' + cells + '</div>'
+    else:
+        actioned_html = "<p class=small>No IPs currently challenged/blocked.</p>"
+
+    if offenders:
+        orows = ""
+        for ip, ent in offenders:
+            orows += (
+                "<tr>"
+                f"<td class=mono><a href=\"/honeypot/ip/{e(ip)}\">{e(ip)}</a></td>"
+                f"<td>{e(str(ent.get('total_hits','')))}</td>"
+                f"<td class=small>{e(','.join(ent.get('rules', []) or []))}</td>"
+                f"<td>{_action_pill(ent.get('actioned',''))}</td>"
+                f"<td class=small>{e(str(ent.get('first_seen','')))}</td>"
+                "</tr>"
+            )
+        offenders_html = ('<h3>repeat offenders · top 10 by lifetime hits</h3>'
+                          '<div class=tablewrap><table><thead><tr><th>ip</th><th>hits</th>'
+                          '<th>rules</th><th>actioned</th><th>first seen</th></tr></thead>'
+                          f'<tbody>{orows}</tbody></table></div>')
+    else:
+        offenders_html = ""
+
+    status_pill = ('<span class="pill ok">● RUNNING</span>' if proc_up
+                   else '<span class="pill down">stopped</span>')
+    body = f"""
+<div class=box>
+<h2><span class=ico>🍯</span> honeypot — scanner detection &amp; deception
+ {status_pill} <span class="pill warn">mode: {e(mode)}</span></h2>
+<div class=statgrid style="margin-top:.7rem">
+  <div class="stat accent"><div class=lbl>ledger hits</div><div class=val>{total}</div></div>
+  <div class=stat><div class=lbl>CF-actioned</div><div class=val>{blocked}</div></div>
+  <div class="stat accent"><div class=lbl>last 24h</div><div class=val>{buckets['24h']}</div></div>
+  <div class=stat><div class=lbl>7d · 30d</div><div class=val>{buckets['7d']} <small>· {buckets['30d']}</small></div></div>
+</div>
+<p class=small style="margin-top:.7rem">Tails the Caddy access log for high-confidence scanner probes using the
+real client IP, writes the JSONL ledger <code>{e(HP_LEDGER)}</code>, optionally posts a Matrix
+alert, and (challenge/block mode) adds a Cloudflare IP Access Rule with auto-expiry. Loopback + all
+Cloudflare ranges + <code>{e(HP_SAFELIST)}</code> are safelisted.
+ {action_btn("restart-honeypot-watcher", "restart watcher", "small")}</p>
+</div>
+
+<div class=box>
+<h2><span class=ico>🔎</span> breakdown</h2>
+<div class=facets>{facets_html}</div>
+{geo_note}
+</div>
+
+<div class=box>
+<h2><span class=ico>🛡️</span> currently actioned <span class=badge>{len(act_ips)} IPs</span></h2>
+{actioned_html}
+{offenders_html}
+</div>
+
+<div class=box>
+<h2><span class=ico>🛰️</span> recent hits <span class=badge>newest first · last 150</span>
+ <a href="/honeypot/hits" style="font-size:.8rem;font-weight:400">browse &amp; filter all →</a></h2>
+{table}
+<p class=small style="margin-top:.5rem"><b>Tiers</b> via <code>{e(HP_MODE_FILE)}</code>
+(alert → challenge → block; hot-reloaded). Edge blocking is triple-gated and off by default.
+See docs/HONEYPOT.md.</p>
+</div>
+"""
+    return render("security — honeypot", body)
+
+
+# ---------- honeypot SQLite cache: browse/filter hits + per-IP drill-down -----
+# The /honeypot view above reads the JSONL ledger directly and ALWAYS works. The
+# routes below add server-side filter/sort/paginate + per-IP drill-down backed by
+# a small SQLite cache (scripts/honeypot/honeypot_db.py) that the panel — the SOLE
+# writer (one gunicorn worker) — ingests incrementally from the same ledger.
+# Cloudflare reads go through the shared scripts/honeypot/cf_actions.py. Each
+# read-only route is a GET (login_required; no state change → no CSRF needed);
+# IPs are validated via ipaddress before use and all output is html-escaped. The
+# modules load lazily + gracefully so a deploy without them degrades to the legacy
+# ledger view instead of breaking the panel.
+@app.route("/honeypot/hits")
+@login_required
+def honeypot_hits():
+    from urllib.parse import urlencode
+    hdb, conn = _hp_conn()
+    if conn is None:
+        return _hp_unavailable()
+    try:
+        args = request.args
+        q = (args.get("q") or "").strip()[:120]
+        rule = (args.get("rule") or "").strip()[:64]
+        host = (args.get("host") or "").strip()[:128]
+        country = (args.get("country") or "").strip()[:8]
+        action = "actioned" if args.get("action") == "actioned" else None
+        sort = args.get("sort") or "ts"
+        desc = (args.get("dir") or "desc") != "asc"
+        try:
+            page = max(1, int(args.get("page") or 1))
+        except ValueError:
+            page = 1
+        PER = 100
+        rows, total = hdb.query_hits(conn, q=q or None, rule=rule or None,
+                                     host=host or None, country=country or None,
+                                     action=action, order=sort, desc=desc,
+                                     limit=PER, offset=(page - 1) * PER)
+        pages = max(1, (total + PER - 1) // PER)
+
+        def qs(**over):
+            cur = {}
+            for k in ("q", "rule", "host", "country", "action", "sort", "dir"):
+                v = args.get(k)
+                if v:
+                    cur[k] = v
+            for k, v in over.items():
+                if v in (None, ""):
+                    cur.pop(k, None)
+                else:
+                    cur[k] = v
+            return "?" + urlencode(cur) if cur else ""
+
+        active = []
+        for label, key, val in (("search", "q", q), ("rule", "rule", rule),
+                                ("host", "host", host), ("country", "country", country)):
+            if val:
+                active.append(f'{e(label)}=<b>{e(val)}</b> '
+                              f'<a href="{qs(**{key: "", "page": ""})}">✕</a>')
+        if action:
+            active.append(f'<b>cf-actioned only</b> <a href="{qs(action="", page="")}">✕</a>')
+        filt = (" · ".join(active)) if active else "no filters"
+
+        def chips(col, key):
+            out = ""
+            for val, n in hdb.distinct_values(conn, col, 12):
+                out += (f'<a class=ipchip href="{qs(**{key: val, "page": ""})}">'
+                        f'<span class=ip>{e(str(val))}</span> '
+                        f'<span class=badge>{n}</span></a>')
+            return out or '<span class=small>none yet</span>'
+
+        trs = ""
+        for r in rows:
+            geo = e(str(r["country"] or ""))
+            if r["hosting"]:
+                geo += " ⚠DC"
+            ipv = str(r["ip"] or "")
+            trs += (
+                "<tr>"
+                f"<td class=small>{e(str(r['ts'] or ''))}</td>"
+                f"<td class=mono><a href=\"/honeypot/ip/{e(ipv)}\">{e(ipv)}</a></td>"
+                f"<td class=small>{geo}</td>"
+                f"<td>{e(str(r['host'] or ''))}</td>"
+                f"<td class='mono path' title=\"{e(str(r['uri'] or ''))}\">{e(str(r['uri'] or '')[:72])}</td>"
+                f"<td>{e(str(r['hit_rule'] or ''))}</td>"
+                f"<td>{e(str(r['status'] or ''))}</td>"
+                f"<td>{_hp_action_pill(r['action'])}</td>"
+                "</tr>")
+        table = ('<div class=tablewrap><table><thead><tr>'
+                 '<th>ts (UTC)</th><th>ip</th><th>geo</th><th>host</th><th>path</th>'
+                 '<th>rule</th><th>code</th><th>action</th></tr></thead>'
+                 f'<tbody>{trs}</tbody></table></div>') if rows else \
+                '<p class=small>No hits match these filters.</p>'
+
+        prev_l = (f'<a href="{qs(page=page-1)}">‹ prev</a>' if page > 1 else
+                  '<span class=small>‹ prev</span>')
+        next_l = (f'<a href="{qs(page=page+1)}">next ›</a>' if page < pages else
+                  '<span class=small>next ›</span>')
+
+        body = f"""
+<div class=box>
+<h2><span class=ico>🍯</span> honeypot hits <span class=badge>{total} match</span>
+ <a href="/honeypot" style="font-size:.8rem;font-weight:400">‹ back to overview</a></h2>
+<form method=get action="/honeypot/hits" style="margin:.6rem 0">
+  <input name=q value="{e(q)}" placeholder="search ip / path / host / UA / rule"
+         style="padding:.4rem .6rem;min-width:18rem">
+  <button type=submit>search</button>
+  {'<a href="/honeypot/hits" style="margin-left:.6rem;font-size:.85rem">reset</a>' if (active or q) else ''}
+</form>
+<p class=small>filters: {filt}</p>
+<p class=small style="margin-top:.5rem"><b>quick filter · rules</b></p>
+<div class=chips>{chips("hit_rule","rule")}</div>
+<p class=small style="margin-top:.5rem"><b>quick filter · hosts</b></p>
+<div class=chips>{chips("host","host")}</div>
+</div>
+
+<div class=box>
+{table}
+<p class=small style="margin-top:.6rem">{prev_l} &nbsp; page <b>{page}</b> / {pages} &nbsp; {next_l}
+ &nbsp;·&nbsp; sort:
+ <a href="{qs(sort='ts', dir='desc', page='')}">newest</a> ·
+ <a href="{qs(sort='ts', dir='asc', page='')}">oldest</a> ·
+ <a href="{qs(sort='ip', dir='asc', page='')}">ip</a> ·
+ <a href="{qs(sort='rule', dir='asc', page='')}">rule</a>
+ &nbsp;·&nbsp; <a href="{qs(action='actioned', page='')}">cf-actioned only</a></p>
+</div>
+"""
+        return render("honeypot — hits", body)
+    finally:
+        conn.close()
+
+
+@app.route("/honeypot/ip/<ip>")
+@login_required
+def honeypot_ip(ip):
+    import ipaddress
+    try:
+        ipn = str(ipaddress.ip_address(ip))
+    except ValueError:
+        abort(404)
+    hdb, conn = _hp_conn()
+    if conn is None:
+        return _hp_unavailable()
+    try:
+        summ = hdb.ip_summary(conn, ipn)
+        rows, total = hdb.ip_hits(conn, ipn, limit=300)
+
+        # Overlay the live ip-state JSON for the freshest actioned/action_ts (this is
+        # what --reap reads); the DB-derived value is the fallback.
+        live_actioned = live_action_ts = ""
+        try:
+            st = json.load(open(HP_IP_STATE))
+            ent = st.get(ipn) if isinstance(st, dict) else None
+            if ent:
+                live_actioned = ent.get("actioned") or ""
+                live_action_ts = ent.get("action_ts") or ""
+        except Exception:
+            pass
+        actioned = live_actioned or (summ.get("actioned") if summ else "") or ""
+        action_ts = live_action_ts or (summ.get("action_ts") if summ else "") or ""
+
+        # Optional LIVE Cloudflare rule state (read-only) — opt-in via ?cf=1 so a CF
+        # API call isn't made on every page view. Best-effort; never breaks the page.
+        cf_html = (f'<a href="/honeypot/ip/{e(ipn)}?cf=1">check live Cloudflare '
+                   f'rule state →</a>')
+        if request.args.get("cf") == "1":
+            cf = _hp_load("cf_actions")
+            if cf is None:
+                cf_html = '<span class=small>cf_actions module not deployed.</span>'
+            else:
+                cf.CF_ENV = HP_CF_ENV
+                try:
+                    cfg = cf._load_cf_env()
+                    tok, acct = cfg.get("CF_API_TOKEN"), cfg.get("CF_ACCOUNT_ID")
+                    if not (tok and acct):
+                        cf_html = ('<span class=small>no cf-honeypot.env — edge '
+                                   'blocking not provisioned.</span>')
+                    else:
+                        mine = [r for r in cf.cf_list_rules(tok, acct)
+                                if r.get("ip") == ipn]
+                        if mine:
+                            cf_html = "".join(
+                                f'<span class=ipchip><span class=ip>rule '
+                                f'{e(str(r["id"])[:12])}</span> '
+                                f'<span class=badge title="{e(r.get("notes",""))}">'
+                                f'honeypot-auto</span></span>' for r in mine)
+                        else:
+                            cf_html = ('<span class=small>no honeypot-auto CF rule '
+                                       'currently targets this IP.</span>')
+                except Exception as ex:
+                    cf_html = f'<span class=small>CF lookup failed: {e(str(ex))}</span>'
+
+        if summ is None and not rows:
+            body = (f'<div class=box><h2><span class=ico>🔎</span> '
+                    f'<span class=mono>{e(ipn)}</span></h2>'
+                    f'<p class=small>No honeypot hits recorded for this IP. '
+                    f'<a href="/honeypot/hits">‹ back to hits</a></p></div>')
+            return render(f"honeypot — {ipn}", body)
+
+        rules = ", ".join(summ.get("rules", [])) if summ else ""
+        geo = ""
+        if summ and (summ.get("country") or summ.get("asn")):
+            geo = e(str(summ.get("country") or ""))
+            if summ.get("asn"):
+                geo += f" · {e(str(summ.get('asn')))} {e(str(summ.get('as_org') or ''))}"
+            if summ.get("hosting"):
+                geo += " · ⚠ hosting/DC"
+
+        trs = ""
+        for r in rows:
+            trs += ("<tr>"
+                    f"<td class=small>{e(str(r['ts'] or ''))}</td>"
+                    f"<td>{e(str(r['host'] or ''))}</td>"
+                    f"<td class='mono path' title=\"{e(str(r['uri'] or ''))}\">{e(str(r['uri'] or '')[:80])}</td>"
+                    f"<td>{e(str(r['method'] or ''))}</td>"
+                    f"<td>{e(str(r['hit_rule'] or ''))}</td>"
+                    f"<td>{e(str(r['status'] or ''))}</td>"
+                    f"<td>{_hp_action_pill(r['action'])}</td>"
+                    "</tr>")
+        table = ('<div class=tablewrap><table><thead><tr>'
+                 '<th>ts (UTC)</th><th>host</th><th>path</th><th>method</th>'
+                 '<th>rule</th><th>code</th><th>action</th></tr></thead>'
+                 f'<tbody>{trs}</tbody></table></div>')
+
+        total_hits = (summ.get("total_hits", total) if summ else total)
+        nrules = (len(summ.get("rules", [])) if summ else 0)
+        first_seen = e(str(summ.get("first_seen", "") if summ else ""))
+        last_seen = e(str(summ.get("last_seen", "") if summ else ""))
+
+        # ---- operator actions (defensive, confirm-gated) ----
+        def _act_btn(act, label, cls):
+            klass = f"btn {cls}".strip()
+            return (f'<a class="{klass}" href="/honeypot/act/{act}/{e(ipn)}" '
+                    f'style="margin:.15rem .4rem .15rem 0">{label}</a>')
+        safel = " <span class=pill>safelisted</span>" if (summ and summ.get("safelisted")) else ""
+        cur_note = e(str(summ.get("note") or "") if summ else "")
+        cur_esc = e(str(summ.get("escalation") or "") if summ else "")
+        actions_box = f"""
+<div class=box>
+<h2><span class=ico>🛡️</span> operator actions
+ <span class=small style="font-weight:400">defensive · your own edge{safel}</span></h2>
+<p class=small>Each action opens a confirm flow (typed phrase + <code>yes</code> +
+password) and is written to the audit log. No traffic is ever sent to this host.</p>
+<div style="margin:.5rem 0">
+  {_act_btn('challenge', '⚠ challenge', 'warn')}
+  {_act_btn('block', '⛔ block', 'danger')}
+  {_act_btn('unblock', '✓ unblock', '')}
+  {_act_btn('safelist', '★ safelist', '')}
+</div>
+<form method=post action="/honeypot/annotate/{e(ipn)}" style="margin-top:.6rem">
+  <input type=hidden name=_csrf value="{e(new_csrf())}">
+  <p class=small style="margin-bottom:.2rem"><b>note</b></p>
+  <input name=note value="{cur_note}" placeholder="free-text note"
+         style="min-width:22rem;padding:.4rem .6rem" maxlength=500>
+  <p class=small style="margin:.4rem 0 .2rem"><b>escalation</b></p>
+  <input name=escalation value="{cur_esc}"
+         placeholder="e.g. watch / reported / blocked-upstream"
+         style="min-width:16rem;padding:.4rem .6rem" maxlength=64>
+  <button type=submit style="margin-left:.4rem">save annotation</button>
+</form>
+</div>"""
+
+        # ---- enrichment (passive identification + threat-intel deep-links) ----
+        ti = (
+            f'<a class=btn href="https://www.abuseipdb.com/check/{e(ipn)}" target=_blank rel=noopener>AbuseIPDB ↗</a> '
+            f'<a class=btn href="https://www.shodan.io/host/{e(ipn)}" target=_blank rel=noopener>Shodan ↗</a> '
+            f'<a class=btn href="https://viz.greynoise.io/ip/{e(ipn)}" target=_blank rel=noopener>GreyNoise ↗</a> '
+            f'<a class=btn href="https://www.virustotal.com/gui/ip-address/{e(ipn)}" target=_blank rel=noopener>VirusTotal ↗</a>')
+        enrich_box = f"""
+<div class=box>
+<h2><span class=ico>🔬</span> enrichment
+ <span class=small style="font-weight:400">passive only</span></h2>
+<p class=small><b>registry (RDAP):</b>
+ <a href="/honeypot/rdap/{e(ipn)}">look up network owner + abuse contact →</a></p>
+<p class=small style="margin-top:.35rem"><b>abuse report:</b>
+ <a href="/honeypot/abuse-report/{e(ipn)}">generate a pre-filled draft →</a></p>
+<p class=small style="margin-top:.35rem"><b>reverse DNS + geo:</b>
+ <a href="/honeypot/lookup/{e(ipn)}">passive lookup →</a></p>
+<p class=small style="margin-top:.5rem"><b>threat-intel:</b> {ti}</p>
+<p class=small style="margin-top:.4rem">External links open third-party sites in a
+new tab. No automated query is sent from this server to those services or to the
+source host.</p>
+</div>"""
+        body = f"""
+<div class=box>
+<h2><span class=ico>🔎</span> <span class=mono>{e(ipn)}</span> {_hp_action_pill(actioned)}
+ <a href="/honeypot/hits" style="font-size:.8rem;font-weight:400">‹ all hits</a></h2>
+<div class=statgrid style="margin-top:.7rem">
+  <div class="stat accent"><div class=lbl>total hits</div><div class=val>{total_hits}</div></div>
+  <div class=stat><div class=lbl>distinct rules</div><div class=val>{nrules}</div></div>
+  <div class=stat><div class=lbl>first seen</div><div class=val style="font-size:.8rem">{first_seen or '—'}</div></div>
+  <div class=stat><div class=lbl>last seen</div><div class=val style="font-size:.8rem">{last_seen or '—'}</div></div>
+</div>
+<p class=small style="margin-top:.7rem"><b>rules:</b> {e(rules) or '—'}</p>
+<p class=small><b>geo/ASN:</b> {geo or 'not enriched'}</p>
+<p class=small><b>edge action:</b> {_hp_action_pill(actioned)} {('since ' + e(action_ts)) if action_ts else ''}
+ &nbsp;·&nbsp; <a href="/honeypot/lookup/{e(ipn)}">passive lookup (rDNS + geo) →</a></p>
+<p class=small><b>note:</b> {e(str(summ.get('note') or '')) if summ and summ.get('note') else '—'}
+ &nbsp;·&nbsp; <b>escalation:</b> {e(str(summ.get('escalation') or '')) if summ and summ.get('escalation') else '—'}</p>
+<p class=small><b>Cloudflare:</b> {cf_html}</p>
+</div>
+{actions_box}
+{enrich_box}
+<div class=box>
+<h2><span class=ico>🛰️</span> hits <span class=badge>{total} · newest first</span></h2>
+{table}
+</div>
+"""
+        return render(f"honeypot — {ipn}", body)
+    finally:
+        conn.close()
+
+
+@app.route("/honeypot/lookup/<ip>")
+@login_required
+def honeypot_lookup(ip):
+    import ipaddress
+    import socket
+    import concurrent.futures as _f
+    try:
+        ipn = str(ipaddress.ip_address(ip))
+    except ValueError:
+        abort(404)
+    # Passive reverse-DNS PTR with a hard 3s cap (a single lookup; NO active probe).
+    ptr = ""
+    try:
+        with _f.ThreadPoolExecutor(max_workers=1) as ex_:
+            ptr = ex_.submit(lambda: socket.gethostbyaddr(ipn)[0]).result(timeout=3)
+    except Exception:
+        ptr = ""
+    # Offline geo from the DB (already-collected; no network call).
+    geo_line, nhits = "not enriched", 0
+    hdb, conn = _hp_conn()
+    summ = None
+    if conn is not None:
+        try:
+            summ = hdb.ip_summary(conn, ipn)
+        finally:
+            conn.close()
+    if summ:
+        nhits = summ.get("total_hits", 0) or 0
+        if summ.get("country") or summ.get("asn"):
+            geo_line = e(str(summ.get("country") or ""))
+            if summ.get("asn"):
+                geo_line += f" · {e(str(summ.get('asn')))} {e(str(summ.get('as_org') or ''))}"
+            if summ.get("hosting"):
+                geo_line += " · ⚠ hosting/DC"
+    body = f"""
+<div class=box>
+<h2><span class=ico>🛰️</span> passive lookup · <span class=mono>{e(ipn)}</span>
+ <a href="/honeypot/ip/{e(ipn)}" style="font-size:.8rem;font-weight:400">‹ back</a></h2>
+<p class=small style="margin-top:.5rem">Passive identification only — a single reverse-DNS PTR
+and the offline geo already collected in our own logs. No active scanning, probing, or
+connect-back to the source.</p>
+<p class=small style="margin-top:.6rem"><b>reverse DNS (PTR):</b>
+ <span class=mono>{e(ptr) if ptr else 'no PTR record'}</span></p>
+<p class=small><b>offline geo / ASN:</b> {geo_line}</p>
+<p class=small><b>hits in ledger:</b> {nhits}</p>
+</div>
+"""
+    return render(f"honeypot — lookup {ipn}", body)
+
+
+# ============================================================================
+# Honeypot write-action console + passive enrichment.
+#
+# SAFETY BOUNDARY (designed-in):
+#   * Write actions touch ONLY the operator's OWN Cloudflare IP-Access-Rules
+#     (challenge/block/unblock a single source IP) and the local safelist — the
+#     exact mechanism + blast radius the watcher already uses to auto-block. No
+#     traffic is ever sent toward the source host.
+#   * Enrichment is PASSIVE: registry RDAP (queries the RIR, not the source), a
+#     single reverse-DNS PTR, offline geo from our own logs, and outbound *links*
+#     to third-party threat-intel sites.
+#   * CF edge actions go through the shared cf_actions module (re-asserts token
+#     scope + the 'honeypot-auto' note prefix before any delete) behind the same
+#     three-input confirm flow as /danger (typed phrase + 'yes' + password).
+# ============================================================================
+_HP_ACTIONS = {
+    "challenge": {
+        "title": "Challenge IP at Cloudflare", "phrase": "challenge",
+        "verb": "apply a managed-challenge to", "reversible": True,
+        "impact": [
+            "Adds ONE Cloudflare IP Access Rule (mode = managed_challenge) for this "
+            "single source IP, on your own account edge.",
+            "Requests from this IP get an interstitial challenge — real humans can "
+            "still pass, automated scanners fail. CGNAT-safe.",
+            "Reversible: use the 'unblock' action to remove the rule.",
+            "No traffic is sent to the source — this only changes how YOUR edge "
+            "treats requests coming FROM it.",
+        ],
+    },
+    "block": {
+        "title": "Block IP at Cloudflare", "phrase": "block this ip",
+        "verb": "hard-block", "reversible": True,
+        "impact": [
+            "Adds ONE Cloudflare IP Access Rule (mode = block) for this single "
+            "source IP, on your own account edge.",
+            "ALL requests from this IP are refused at the edge — harder than a "
+            "challenge; a shared/CGNAT address would take collateral.",
+            "Reversible: use the 'unblock' action to remove the rule.",
+            "No traffic is sent to the source.",
+        ],
+    },
+    "unblock": {
+        "title": "Unblock IP at Cloudflare", "phrase": "unblock",
+        "verb": "remove the honeypot edge rule(s) for", "reversible": True,
+        "impact": [
+            "Deletes every honeypot-auto IP Access Rule that targets this IP "
+            "(challenge or block).",
+            "Only rules the honeypot itself created (notes prefixed "
+            "'honeypot-auto') are touched — your manual Cloudflare rules are never "
+            "affected.",
+            "Afterwards, requests from this IP are treated normally again.",
+        ],
+    },
+    "safelist": {
+        "title": "Safelist IP", "phrase": "safelist",
+        "verb": "permanently allow", "reversible": True,
+        "impact": [
+            "Appends this IP to the honeypot safelist — the watcher will NEVER "
+            "alert on or auto-block it again.",
+            "Use only for known-good operator / egress addresses. Reversible by "
+            "editing honeypot-safelist.txt.",
+            "Does NOT remove an existing Cloudflare rule — run 'unblock' separately "
+            "if one is currently active for this IP.",
+        ],
+    },
+}
+
+
+def _hp_cf():
+    """Load cf_actions, point it at the honeypot env, and return
+    (module, token, account, reason). On any problem → (None, None, None, reason).
+    No CF request is made here — only local env parse."""
+    cf = _hp_load("cf_actions")
+    if cf is None:
+        return None, None, None, "cf_actions.py not deployed"
+    cf.CF_ENV = HP_CF_ENV
+    try:
+        cfg = cf._load_cf_env()
+    except Exception as ex:
+        return None, None, None, f"cf-honeypot.env unreadable ({ex})"
+    tok, acct = cfg.get("CF_API_TOKEN"), cfg.get("CF_ACCOUNT_ID")
+    if not (tok and acct):
+        return None, None, None, ("cf-honeypot.env missing token/account — edge "
+                                  "blocking not provisioned")
+    return cf, tok, acct, "ok"
+
+
+def _safelist_add(ip, actor):
+    """Idempotently append `ip` to the honeypot safelist (one IP/CIDR per line; the
+    watcher strips inline '#' comments). Returns True if newly added, False if it
+    was already present."""
+    path = HP_SAFELIST
+    existing = set()
+    try:
+        for ln in open(path):
+            tok = ln.split("#", 1)[0].strip()
+            if tok:
+                existing.add(tok)
+    except OSError:
+        pass
+    if ip in existing:
+        return False
+    ts = time.strftime("%FT%TZ", time.gmtime())
+    with open(path, "a") as f:
+        f.write(f"{ip}  # safelisted via adminweb {ts} by {actor}\n")
+    try:
+        os.chmod(path, 0o600)
+    except OSError:
+        pass
+    return True
+
+
+def _hp_execute(action, ip, actor):
+    """Perform one confirmed write-action. Returns (ok, summary_text, detail_dict).
+    Persists ip_state + an audit row in the DB and never sends traffic to `ip`."""
+    detail = {"action": action, "ip": ip}
+
+    if action == "safelist":
+        added = _safelist_add(ip, actor)
+        hdb, conn = _hp_conn()
+        if conn is not None:
+            try:
+                hdb.update_ip_state(conn, ip, safelisted=1)
+                hdb.record_action(conn, actor, "safelist", ip,
+                                  detail={"added": added}, result="ok")
+            finally:
+                conn.close()
+        msg = (f"{ip} added to the honeypot safelist — it will no longer be alerted "
+               f"on or auto-blocked." if added else
+               f"{ip} was already on the safelist (no change).")
+        return True, msg, detail
+
+    # ---- Cloudflare edge actions (challenge / block / unblock) ----
+    cf, tok, acct, why = _hp_cf()
+    if cf is None:
+        return False, f"Cloudflare edge unavailable: {why}", detail
+    ok_scope, reason = cf.cf_token_scope_ok(tok, acct)
+    if not ok_scope:
+        detail["scope"] = reason
+        return False, f"refusing CF write — token scope self-check failed: {reason}", detail
+
+    if action in ("challenge", "block"):
+        tag = cf.cf_block(ip, action)   # 'cf-managed_challenge:<rid>' | 'cf-block:<rid>' | 'cf-<m>:dup' | 'cf-error'
+        detail["result_tag"] = tag
+        ok = tag.startswith("cf-") and tag != "cf-error"
+        cf_mode, rid = "", ""
+        if tag.startswith("cf-") and ":" in tag:
+            cf_mode, rid = tag[3:].split(":", 1)
+        if rid == "dup":
+            rid = ""
+        if ok:
+            hdb, conn = _hp_conn()
+            if conn is not None:
+                try:
+                    hdb.update_ip_state(
+                        conn, ip, actioned=action,
+                        action_ts=time.strftime("%FT%TZ", time.gmtime()),
+                        cf_mode=cf_mode, cf_rule_id=rid, cf_actor=actor)
+                    hdb.record_action(conn, actor, action, ip, detail=detail, result=tag)
+                finally:
+                    conn.close()
+            verb = "managed-challenge" if action == "challenge" else "block"
+            return True, f"Cloudflare {verb} applied to {ip} ({e2(tag)}).", detail
+        return False, f"Cloudflare action failed ({e2(tag)}) — see the admin log.", detail
+
+    if action == "unblock":
+        deleted, failed = cf.cf_unblock(tok, acct, ip)
+        detail["deleted"], detail["failed"] = deleted, failed
+        hdb, conn = _hp_conn()
+        if conn is not None:
+            try:
+                hdb.update_ip_state(conn, ip, actioned="", cf_rule_id="", cf_mode="")
+                hdb.record_action(conn, actor, "unblock", ip, detail=detail,
+                                  result=f"deleted={deleted} failed={len(failed)}")
+            finally:
+                conn.close()
+        if failed:
+            return False, (f"removed {deleted} rule(s) for {ip}, but "
+                           f"{len(failed)} delete(s) failed: {', '.join(failed)}"), detail
+        if deleted == 0:
+            return True, f"no honeypot-auto Cloudflare rule currently targets {ip}.", detail
+        return True, f"removed {deleted} honeypot-auto Cloudflare rule(s) for {ip}.", detail
+
+    return False, "unknown action", detail
+
+
+@app.route("/honeypot/act/<action>/<ip>", methods=["GET", "POST"])
+@login_required
+def honeypot_act(action, ip):
+    import ipaddress
+    meta = _HP_ACTIONS.get(action)
+    if not meta:
+        abort(404)
+    try:
+        ipn = str(ipaddress.ip_address(ip))
+    except ValueError:
+        abort(404)
+
+    if request.method == "POST":
+        if not csrf_ok():
+            abort(403)
+        typed_phrase = request.form.get("phrase", "").strip().lower()
+        typed_yes = request.form.get("yes", "").strip().lower()
+        pw = request.form.get("password", "")
+        if typed_phrase != meta["phrase"]:
+            log_audit("hp-confirm", act=action, ip=ipn, ok=False, reason="phrase-mismatch")
+            flash_msg(f"confirmation phrase mismatch — type exactly: {meta['phrase']}", "err")
+            return redirect(url_for("honeypot_act", action=action, ip=ipn, stage=2))
+        if typed_yes != "yes":
+            log_audit("hp-confirm", act=action, ip=ipn, ok=False, reason="yes-not-typed")
+            flash_msg("you must literally type 'yes' to confirm", "err")
+            return redirect(url_for("honeypot_act", action=action, ip=ipn, stage=2))
+        if not pw or not verify_password(pw):
+            log_audit("hp-confirm", act=action, ip=ipn, ok=False, reason="bad-password")
+            flash_msg("password incorrect — re-auth required", "err")
+            return redirect(url_for("honeypot_act", action=action, ip=ipn, stage=2))
+        actor = session.get("user", "admin")
+        log_audit("hp-action-go", act=action, ip=ipn)
+        ok, summary, detail = _hp_execute(action, ipn, actor)
+        log_audit("hp-action-end", act=action, ip=ipn, ok=ok, result=summary[:200])
+        icon = "✅" if ok else "❌"
+        body = f"""
+<div class=box>
+<h2>{icon} {e(meta['title'])} · <span class=mono>{e(ipn)}</span></h2>
+<p>{e(summary)}</p>
+<p class=small style="margin-top:.9rem">
+ <a href="/honeypot/ip/{e(ipn)}">‹ back to {e(ipn)}</a> &nbsp;·&nbsp;
+ <a href="/honeypot">security overview</a></p>
+</div>"""
+        return render(f"{action} {ipn} — security", body)
+
+    impact_html = "\n".join(f"<li>{e(x)}</li>" for x in meta["impact"])
+    stage = request.args.get("stage", "1")
+    if stage == "1":
+        body = f"""
+<div class="box danger-zone">
+<h2>⚠ {e(meta['title'])} — review &nbsp;<span class=mono>{e(ipn)}</span></h2>
+<div class=warn-box>
+<strong>What this does:</strong>
+<ul>{impact_html}</ul>
+<p><strong>Safety boundary:</strong> a DEFENSIVE action on your own Cloudflare
+edge / safelist. No traffic is ever sent to the source host.</p>
+</div>
+<p class=small style="margin-top:1rem">To proceed, click Continue. The next page
+asks for a typed phrase, the literal word <code>yes</code>, and your admin password.</p>
+<form method=get action="{url_for('honeypot_act', action=action, ip=ipn)}">
+<input type=hidden name=stage value="2">
+<button type=submit class=danger>Continue →</button>
+<a href="/honeypot/ip/{e(ipn)}" class="btn small">cancel</a>
+</form>
+</div>"""
+        return render(f"confirm — {meta['title']}", body)
+
+    body = f"""
+<div class="box danger-zone">
+<h2>⚠ {e(meta['title'])} — final confirm &nbsp;<span class=mono>{e(ipn)}</span></h2>
+<div class=warn-box>
+<p class=small><a href="{url_for('honeypot_act', action=action, ip=ipn)}">← back to impact summary</a></p>
+<p>Three inputs. All required. None can be auto-completed.</p>
+</div>
+<form method=post>
+<input type=hidden name=_csrf value="{e(new_csrf())}">
+<p>1. Type exactly <code>{e(meta['phrase'])}</code>:</p>
+<input name=phrase type=text autocomplete=off required placeholder="{e(meta['phrase'])}">
+<p>2. Type literally <code>yes</code>:</p>
+<input name=yes type=text autocomplete=off required placeholder="yes" pattern="[Yy][Ee][Ss]" maxlength=3>
+<p>3. Re-enter your admin password:</p>
+<input name=password type=password autocomplete=current-password required>
+<button type=submit class=danger>{e(meta['verb'])} {e(ipn)}</button>
+<a href="/honeypot/ip/{e(ipn)}" class="btn small">cancel</a>
+</form>
+</div>"""
+    return render(f"confirm — {meta['title']}", body)
+
+
+@app.route("/honeypot/annotate/<ip>", methods=["POST"])
+@login_required
+def honeypot_annotate(ip):
+    import ipaddress
+    if not csrf_ok():
+        abort(403)
+    try:
+        ipn = str(ipaddress.ip_address(ip))
+    except ValueError:
+        abort(404)
+    fields = {}
+    if "note" in request.form:
+        fields["note"] = (request.form.get("note") or "").strip()[:500]
+    if "escalation" in request.form:
+        fields["escalation"] = (request.form.get("escalation") or "").strip()[:64]
+    actor = session.get("user", "admin")
+    hdb, conn = _hp_conn()
+    if conn is None:
+        flash_msg("honeypot DB unavailable — annotation not saved", "err")
+        return redirect(url_for("honeypot_ip", ip=ipn))
+    try:
+        n = hdb.update_ip_state(conn, ipn, **fields)
+        hdb.record_action(conn, actor, "annotate", ipn, detail=fields, result=f"cols={n}")
+    finally:
+        conn.close()
+    log_audit("hp-annotate", ip=ipn, fields=list(fields))
+    flash_msg(f"annotation saved for {ipn}", "ok")
+    return redirect(url_for("honeypot_ip", ip=ipn))
+
+
+def _rdap_lookup(ip, timeout=8):
+    """Passive RDAP query — registry (RIR) data ONLY, never the source host. Returns
+    {ok, name, handle, country, range, abuse[], error}. Best-effort; never raises."""
+    from urllib.parse import quote
+    out = {"ok": False, "name": "", "handle": "", "country": "", "range": "",
+           "abuse": [], "error": ""}
+    try:
+        # ARIN's RDAP server (operated directly by ARIN, NOT Cloudflare-fronted, so
+        # the device's outbound isn't tripped by CF Bot Fight Mode) auto-redirects an
+        # out-of-region IP to the authoritative RIR (RIPE/APNIC/…); urllib follows it.
+        req = urllib.request.Request(
+            f"https://rdap.arin.net/registry/ip/{quote(ip)}",
+            headers={"User-Agent": "pocket-homeserver-honeypot/1.0 (rdap)",
+                     "Accept": "application/rdap+json, application/json"})
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            data = json.load(r)
+    except Exception as ex:
+        out["error"] = str(ex)[:200]
+        return out
+    out["ok"] = True
+    out["name"] = str(data.get("name") or "")
+    out["handle"] = str(data.get("handle") or "")
+    out["country"] = str(data.get("country") or "")
+    sa, ea = data.get("startAddress"), data.get("endAddress")
+    if sa and ea:
+        out["range"] = f"{sa} – {ea}"
+    elif data.get("cidr0_cidrs"):
+        try:
+            c = data["cidr0_cidrs"][0]
+            out["range"] = f"{c.get('v4prefix') or c.get('v6prefix')}/{c.get('length')}"
+        except Exception:
+            pass
+
+    pairs = []   # (roles, email)
+
+    def _walk(ent):
+        roles = [str(x).lower() for x in (ent.get("roles") or [])]
+        va = ent.get("vcardArray")
+        if isinstance(va, list) and len(va) > 1 and isinstance(va[1], list):
+            for item in va[1]:
+                if isinstance(item, list) and len(item) >= 4 and item[0] == "email":
+                    pairs.append((roles, str(item[3])))
+        for sub in ent.get("entities") or []:
+            _walk(sub)
+
+    for ent in data.get("entities") or []:
+        _walk(ent)
+    abuse = [em for roles, em in pairs if "abuse" in roles]
+    if not abuse:
+        abuse = [em for _, em in pairs]   # fall back to any contact email
+    seen = set()
+    out["abuse"] = [x for x in abuse if not (x in seen or seen.add(x))]
+    return out
+
+
+@app.route("/honeypot/rdap/<ip>")
+@login_required
+def honeypot_rdap(ip):
+    import ipaddress
+    try:
+        ipn = str(ipaddress.ip_address(ip))
+    except ValueError:
+        abort(404)
+    r = _rdap_lookup(ipn)
+    log_audit("hp-rdap", ip=ipn, ok=r["ok"])
+    if r["ok"]:
+        abuse = (", ".join(f'<a href="mailto:{e(a)}">{e(a)}</a>' for a in r["abuse"])
+                 or "<span class=small>none published</span>")
+        info = f"""
+<p class=small><b>network name:</b> {e(r['name']) or '—'}</p>
+<p class=small><b>handle:</b> {e(r['handle']) or '—'}</p>
+<p class=small><b>range:</b> <span class=mono>{e(r['range']) or '—'}</span></p>
+<p class=small><b>country:</b> {e(r['country']) or '—'}</p>
+<p class=small><b>abuse contact:</b> {abuse}</p>"""
+    else:
+        info = (f'<p class=small>RDAP lookup failed: <span class=mono>{e(r["error"])}</span>. '
+                f'Registries rate-limit; try again shortly.</p>')
+    body = f"""
+<div class=box>
+<h2><span class=ico>🏛️</span> RDAP · <span class=mono>{e(ipn)}</span>
+ <a href="/honeypot/ip/{e(ipn)}" style="font-size:.8rem;font-weight:400">‹ back</a></h2>
+<p class=small style="margin-top:.4rem">Passive registry lookup — this queries the
+regional internet registry (RIR), NOT the source host. It identifies the network
+owner and their published abuse contact.</p>
+{info}
+<p class=small style="margin-top:.6rem">
+ <a href="/honeypot/abuse-report/{e(ipn)}">generate an abuse-report draft →</a></p>
+</div>"""
+    return render(f"honeypot — rdap {ipn}", body)
+
+
+@app.route("/honeypot/abuse-report/<ip>")
+@login_required
+def honeypot_abuse_report(ip):
+    import ipaddress
+    try:
+        ipn = str(ipaddress.ip_address(ip))
+    except ValueError:
+        abort(404)
+    summ, rows = None, []
+    hdb, conn = _hp_conn()
+    if conn is not None:
+        try:
+            summ = hdb.ip_summary(conn, ipn)
+            rows, _ = hdb.ip_hits(conn, ipn, limit=20)
+        finally:
+            conn.close()
+    rdap = _rdap_lookup(ipn, timeout=6)
+    to = (rdap["abuse"][0] if rdap.get("abuse")
+          else "(run the RDAP lookup to find the network abuse contact)")
+    first = (summ.get("first_seen") if summ else "") or "—"
+    last = (summ.get("last_seen") if summ else "") or "—"
+    total = (summ.get("total_hits") if summ else 0) or len(rows)
+    rules = ", ".join(summ.get("rules", [])) if summ else ""
+    geo = ""
+    if summ:
+        geo = f"{summ.get('country') or '?'} / {summ.get('asn') or '?'} {summ.get('as_org') or ''}".strip()
+    sample = "\n".join(
+        f"  {r['ts']}  {r['host']}  {r['method']} {str(r['uri'])[:80]}  -> {r['hit_rule']} [{r['status']}]"
+        for r in rows) or "  (no sample lines available)"
+    report = f"""Subject: Abuse report — automated scanning from {ipn}
+
+To: {to}
+
+Hello,
+
+The IP address {ipn} has been repeatedly probing our infrastructure with automated
+vulnerability scans. Details from our logs (all timestamps UTC):
+
+  IP            : {ipn}
+  First seen    : {first}
+  Last seen     : {last}
+  Total hits    : {total}
+  Geo / ASN     : {geo or 'not enriched'}
+  Matched rules : {rules or '(various scanner signatures)'}
+
+Sample of requests (timestamp  host  method path  -> matched-rule [status]):
+{sample}
+
+These requests match known scanner / exploit signatures (probing for paths such as
+/.env, /.git, wp-login.php, phpMyAdmin, and shell-upload endpoints). Please
+investigate and take appropriate action against this source.
+
+Thank you,
+{BRAND} operations
+"""
+    body = f"""
+<div class=box>
+<h2><span class=ico>✉️</span> abuse-report draft · <span class=mono>{e(ipn)}</span>
+ <a href="/honeypot/ip/{e(ipn)}" style="font-size:.8rem;font-weight:400">‹ back</a></h2>
+<p class=small style="margin-top:.4rem">A pre-filled draft built from your own logs
+(+ the RDAP abuse contact, if found). Review, then send it yourself to the network's
+abuse contact. Nothing is sent automatically.</p>
+<textarea readonly rows=22 style="width:100%;font-family:var(--mono,monospace);
+ font-size:.82rem;padding:.7rem;margin-top:.5rem" onclick="this.select()">{e(report)}</textarea>
+<p class=small style="margin-top:.4rem">Click the text to select all, then copy.</p>
+</div>"""
+    return render(f"honeypot — abuse report {ipn}", body)
 
 
 @app.route("/events")

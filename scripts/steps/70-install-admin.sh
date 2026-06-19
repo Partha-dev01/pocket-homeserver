@@ -143,6 +143,8 @@ export ENABLE_VIKUNJA='${ENABLE_VIKUNJA:-false}'
 export ENABLE_SEARXNG='${ENABLE_SEARXNG:-false}'
 export ENABLE_ITTOOLS='${ENABLE_ITTOOLS:-false}'
 export ENABLE_GATUS='${ENABLE_GATUS:-false}'
+export ENABLE_HONEYPOT='${ENABLE_HONEYPOT:-false}'
+export ENABLE_BACKUP_DAEMON='${ENABLE_BACKUP_DAEMON:-false}'
 # Optional Cloudflare Access JWT validation (also reads \${DATA_DIR}/secrets/cf-access.env).
 export CF_ACCESS_MODE='${CF_ACCESS_MODE:-log}'
 export CF_ACCESS_TEAM_DOMAIN='${CF_ACCESS_TEAM_DOMAIN:-}'

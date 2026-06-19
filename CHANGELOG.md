@@ -15,6 +15,20 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
   retention, and can ping an optional heartbeat URL (`BACKUP_DAEMON_HC_URL`).
   Wired into `start-stack.sh`, `./pocket.sh`, the admin panel health list, and
   `docs/BACKUPS.md`.
+- **Optional honeypot / scanner-detection** (`ENABLE_HONEYPOT`, default off) — a
+  native watcher (`scripts/steps/77-install-honeypot.sh` supervises
+  `scripts/honeypot/honeypot-watcher.py`) that tails the Caddy access log, flags
+  high-confidence scanner probes (`/.env`, `/.git`, `wp-login.php`, `phpMyAdmin`,
+  …) by the real client IP, and writes a JSONL ledger. **No inbound listener, no
+  Caddy change — zero new attack surface. Alert-only by default.** The web admin
+  panel gains a **Security** console (`/honeypot`): ledger overview, filterable
+  hits, per-IP drill-down, passive enrichment (RDAP / reverse-DNS / optional
+  offline geo / threat-intel links), an abuse-report draft, and a confirm-gated
+  DEFENSIVE write console (Cloudflare IP Access Rules on your OWN edge + a local
+  safelist). Matrix alerts and Cloudflare edge blocking are **opt-in** via `0600`
+  files under `${DATA_DIR}/secrets` (blocking is triple-gated: mode file + opt-in
+  marker + a CF token over-scope self-check). Optional offline geo/ASN enrichment
+  via the DB-IP lite datasets. Documented in `docs/HONEYPOT.md`.
 
 ## [0.1.1] - 2026-06-19
 

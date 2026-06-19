@@ -15,11 +15,36 @@
 {
 	admin off
 	auto_https off
+
+	# Trust the Cloudflare Tunnel (the only upstream — it connects from loopback)
+	# and read the real visitor IP from the Cf-Connecting-IP header Cloudflare
+	# sets, so Caddy's {client_ip} and the access log below carry the actual
+	# client rather than the loopback tunnel peer.
+	servers {
+		trusted_proxies static private_ranges 127.0.0.1/32 ::1/128
+		client_ip_headers Cf-Connecting-IP
+	}
 }
 
 # ── Matrix homeserver + Element Web (shared origin) ─────────────────────────
 http://chat.${DOMAIN}:${CADDY_PORT} {
 	bind ${CADDY_BIND}
+
+	# JSON access log for the primary origin. Plain telemetry — no new attack
+	# surface — and the file the OPTIONAL honeypot watcher tails for scanner
+	# probes (it reads the real client IP from the Cf-Connecting-IP set above).
+	# Caddy runs in the userland and writes to /var/log/pocket, which
+	# start-stack.sh bind-mounts to ${POCKET_LOG_DIR} on the host, so the native
+	# watcher reads the same file at ${POCKET_LOG_DIR}/caddy-access.log.
+	# roll_size/roll_keep bound the disk use. (To capture probes to an app
+	# subdomain too, add the same `log` block to that app's vhost.)
+	log {
+		output file /var/log/pocket/caddy-access.log {
+			roll_size 10MiB
+			roll_keep 5
+		}
+		format json
+	}
 
 	header {
 		Strict-Transport-Security "max-age=31536000; includeSubDomains"

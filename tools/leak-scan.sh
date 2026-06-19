@@ -82,9 +82,20 @@ sec_hits="$(grep -nIE -- "$secret_assign" "${files[@]}" 2>/dev/null \
 
 # 2) Public IPv4 addresses (loopback / private / link-local are not leaks).
 ip_pat='\b([0-9]{1,3}\.){3}[0-9]{1,3}\b'
-# loopback / unspecified / private / link-local / broadcast, plus well-known
-# PUBLIC DNS resolvers (universal constants, not anyone's infrastructure).
-benign='(127\.[0-9.]+|0\.0\.0\.0|10\.[0-9.]+|192\.168\.[0-9.]+|172\.(1[6-9]|2[0-9]|3[01])\.[0-9.]+|255\.[0-9.]+|169\.254\.[0-9.]+|1\.1\.1\.1|1\.0\.0\.1|8\.8\.8\.8|8\.8\.4\.4|9\.9\.9\.9)'
+# Non-public ranges (never a leak): loopback / unspecified / private / link-local /
+# broadcast.
+benign_private='127\.[0-9.]+|0\.0\.0\.0|10\.[0-9.]+|192\.168\.[0-9.]+|172\.(1[6-9]|2[0-9]|3[01])\.[0-9.]+|255\.[0-9.]+|169\.254\.[0-9.]+'
+# Universal PUBLIC constants — not anyone's infrastructure:
+#   * well-known public DNS resolvers,
+#   * RFC 5737 documentation ranges (TEST-NET-1/2/3 — reserved for docs/examples,
+#     never routed; the correct choice for example IPs in our docs), and
+#   * Cloudflare's PUBLISHED edge ranges (https://www.cloudflare.com/ips/ —
+#     identical for every Cloudflare user; the honeypot safelists them so it can
+#     never ban its own tunnel, so they legitimately appear in the source).
+benign_dns='1\.1\.1\.1|1\.0\.0\.1|8\.8\.8\.8|8\.8\.4\.4|9\.9\.9\.9'
+benign_doc='192\.0\.2\.[0-9.]+|198\.51\.100\.[0-9.]+|203\.0\.113\.[0-9.]+'
+benign_cloudflare='173\.245\.48\.0|103\.21\.244\.0|103\.22\.200\.0|103\.31\.4\.0|141\.101\.64\.0|108\.162\.192\.0|190\.93\.240\.0|188\.114\.96\.0|197\.234\.240\.0|198\.41\.128\.0|162\.158\.0\.0|104\.16\.0\.0|104\.24\.0\.0|172\.64\.0\.0|131\.0\.72\.0'
+benign="(${benign_private}|${benign_dns}|${benign_doc}|${benign_cloudflare})"
 ip_hits="$(grep -nIE -- "$ip_pat" "${files[@]}" 2>/dev/null | grep -vE -- "$benign" || true)"
 [ -n "$ip_hits" ] && report "public-ip" "$ip_pat" "$ip_hits"
 

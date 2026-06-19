@@ -1,0 +1,4 @@
+# Offline geo/ASN datasets are large + regenerable (DB-IP lite, CC-BY 4.0) and are
+# NOT shipped — download them per README.md. Only the README is tracked.
+*.csv.gz
+.downloaded-months

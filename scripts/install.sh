@@ -52,6 +52,7 @@ core_steps=(
   "auth-gateway:steps/60-install-auth-gw.sh"
   "admin:steps/70-install-admin.sh"
   "boot:steps/75-install-boot.sh"
+  "honeypot:steps/77-install-honeypot.sh"
 )
 
 # Optional apps, in install order, each gated by ENABLE_<APP>.

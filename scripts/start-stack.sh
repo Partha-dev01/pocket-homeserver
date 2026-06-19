@@ -56,8 +56,12 @@ matrix_cmd=(
 )
 
 # Caddy: serve the deployed Caddyfile (loopback HTTP edge; the tunnel does TLS).
+# Bind the host log dir in at /var/log/pocket so Caddy's JSON access log lands on
+# the large volume (and the optional native honeypot watcher can tail it).
+mkdir -p "${POCKET_LOG_DIR}"
 caddy_cmd=(
   proot-distro login debian
+  --bind "${POCKET_LOG_DIR}:/var/log/pocket"
   -- caddy run --config /etc/caddy/Caddyfile --adapter caddyfile
 )
 
