@@ -147,6 +147,17 @@ if [ "$ENABLE_AUTH_GATEWAY" = "true" ]; then
   ask AUTHGW_ADMINS "Admin usernames for SSO (comma-separated localparts; blank = none)"
 fi
 
+# ── Optional Matrix bootstrap ────────────────────────────────────────────────
+printf '\n'; say "── Matrix bootstrap (optional) ────────────────────"
+say "Seed an admin account + a hub Space/rooms + an announcements room after the stack is up."
+say "Idempotent. It needs registration opened first (rotate-registration-token.sh) — see docs/BOOTSTRAP.md."
+ask_yn ENABLE_BOOTSTRAP "Seed a Matrix admin + default Space/rooms?" n
+ADMIN_MATRIX_USER="admin"; BOOTSTRAP_AVATARS="false"
+if [ "$ENABLE_BOOTSTRAP" = "true" ]; then
+  ask ADMIN_MATRIX_USER "Matrix admin username (localpart)" "admin"
+  ask_yn BOOTSTRAP_AVATARS "Also generate + upload avatars (needs Pillow)?" n
+fi
+
 # ── Optional apps ────────────────────────────────────────────────────────────
 printf '\n'; say "── Optional apps (each on its own subdomain) ──────"
 say "  (Element — the Matrix web client — is part of the core stack on chat.$DOMAIN; always installed.)"
@@ -228,6 +239,18 @@ AUTHGW_BRAND=\${DOMAIN}
 # rotate-adminbot-token.sh / rotate-all.sh ops scripts read this.
 ENABLE_ADMINBOT=false
 
+# ─── Matrix bootstrap (optional, idempotent; off by default) ────────────────
+# Runs AFTER the stack is up; needs registration opened first. See docs/BOOTSTRAP.md.
+ENABLE_BOOTSTRAP=${ENABLE_BOOTSTRAP}
+ADMIN_MATRIX_USER=${ADMIN_MATRIX_USER}
+BOOTSTRAP_AVATARS=${BOOTSTRAP_AVATARS}
+INVITE_TOKEN_DAYS=7
+MATRIX_SPACE_ALIAS=hub
+MATRIX_SPACE_NAME="Community Hub"
+MATRIX_SPACE_TOPIC="The landing space for community chat."
+MATRIX_PRIVATE_ROOM_ALIAS=private
+MATRIX_ANNOUNCE_ALIAS=announcements
+
 # ─── Optional apps ──────────────────────────────────────────────────────────
 ENABLE_LINKDING=${EN_LINKDING}
 ENABLE_PINGVIN=${EN_PINGVIN}
@@ -273,6 +296,7 @@ printf '\n'; ok "configuration summary (no secrets shown):"
   printf '  admin panel   : %s (user: %s)\n' "$ENABLE_ADMIN" "$ADMIN_USER"
   printf '  reboot survive: %s\n'    "$ENABLE_BOOT"
   printf '  sso gateway   : %s\n'    "$ENABLE_AUTH_GATEWAY"
+  printf '  bootstrap     : %s%s\n'  "$ENABLE_BOOTSTRAP" "$([ "$ENABLE_BOOTSTRAP" = "true" ] && echo " (admin=$ADMIN_MATRIX_USER)")"
   printf '  filters       : user=%s media=%s\n' "$ENABLE_USER_FILTER" "$ENABLE_MEDIA_FILTER"
   printf '  registration  : %s\n'    "$([ -n "$MATRIX_REGISTRATION_TOKEN" ] && echo 'generated (in .env)' || echo 'none')"
   printf '  apps enabled  :%s\n'     "${apps:- (none)}"

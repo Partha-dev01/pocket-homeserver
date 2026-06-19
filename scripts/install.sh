@@ -172,5 +172,17 @@ done
 # start-stack.sh re-supervises core + every installed app, so this also restores
 # the whole stack on a plain re-run (e.g. after a reboot).
 run_step "start" "start-stack.sh"
+
+# Optional Matrix bootstrap — runs AFTER the stack is up, because it needs the
+# homeserver reachable AND registration opened (scripts/ops/rotate-registration-token.sh).
+# Deliberately NOT a core_step: it self-gates on ENABLE_BOOTSTRAP, is idempotent,
+# and is fail-soft here so an unprepared run (e.g. registration still closed) just
+# warns instead of aborting the install. See docs/BOOTSTRAP.md.
+if [ "$CHECK" -eq 0 ] && [ "${ENABLE_BOOTSTRAP:-false}" = "true" ] && [ -f "$HERE/steps/79-install-bootstrap.sh" ]; then
+  say "=== bootstrap (optional) ==="
+  bash "$HERE/steps/79-install-bootstrap.sh" \
+    || warn "Matrix bootstrap did not complete — the rest of the stack is up. Open registration (scripts/ops/rotate-registration-token.sh) then re-run, or run scripts/steps/79-install-bootstrap.sh by hand. See docs/BOOTSTRAP.md."
+fi
+
 ok "install plan complete (check=$CHECK force=$FORCE)"
 [ "$CHECK" -eq 0 ] && say "tip: 'scripts/install.sh --status' shows what's installed and running."

@@ -159,6 +159,7 @@ stripped before the gate so they cannot be forged.
 | Status page | optional app | loopback | `status.${DOMAIN}` |
 | Honeypot watcher | optional scanner-detection (tails the Caddy log; alert-only) | native, no listener | — |
 | Privacy/media filters | optional proxies in front of Matrix (search privacy; media content-type) | `127.0.0.1:8449` / `:8450` | — |
+| Matrix bootstrap | optional one-shot seeding (admin + Space/rooms + announcements + invite tokens); Termux-native, loopback CS/admin API | native, no listener | — |
 | Supervisors | respawn crashed services | — | — |
 | Boot launcher + watchdog | restart on reboot + revive killed services | — | — |
 | Backup scripts | on-demand DB + userland snapshots | — | — |

@@ -9,6 +9,18 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 
 ### Added
 
+- **Optional Matrix bootstrap** (`ENABLE_BOOTSTRAP`, off by default) — idempotent
+  helpers (`scripts/bootstrap/*`, run by `scripts/steps/79-install-bootstrap.sh`
+  after the stack is up) that seed a fresh server: register/log-in an admin
+  account and save a `0600` credentials file; create a hub Space with a few public
+  rooms and one private E2EE room; create an admin-only `#announcements` room
+  (everyone reads, only the admin posts) and post a one-time welcome; and
+  optionally generate + upload avatars (`BOOTSTRAP_AVATARS`, needs Pillow). A
+  standalone `mint-invite-token.sh [N]` mints single-use, self-expiring invite
+  tokens. The structure (Space/room aliases, names, topics) is an env-driven
+  template. The admin password + registration token are read from `0600` files and
+  kept off argv; the install hook is fail-soft (warns, never aborts the install).
+  See `docs/BOOTSTRAP.md`.
 - **Scripted restore + credential rotation** (`scripts/ops/`). A real
   `restore.sh` rebuilds the userland rootfs and the conduwuit DB from the
   `backup-all.sh` / `backup-db.sh` snapshots — **dry-run by default** (prints the
