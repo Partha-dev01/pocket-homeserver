@@ -58,10 +58,13 @@ Install [Termux](https://termux.dev) and its add-ons **from F-Droid** (not the
 Play Store builds, which are outdated and incompatible):
 
 - **Termux** — the terminal environment.
-- **Termux:Boot** — runs a launcher on boot; used for reboot survival (a short
-  manual step for now, see [Reboot survival](#reboot-survival) below).
-- **Termux:API** — optional; provides wake-lock and is the basis for the planned
-  watchdog self-heal.
+- **Termux:Boot** — runs a launcher on boot; the installer uses it to bring the
+  whole stack back up after a reboot (see [Reboot survival](#reboot-survival)).
+- **Termux:API** — provides wake-lock and `termux-job-scheduler`, which the
+  installer uses for the self-heal watchdog.
+
+Open **Termux:Boot** once after installing it so Android allows it to run at
+boot, and install its package inside Termux later with `pkg install termux-api`.
 
 Then update packages and install git inside Termux.
 
@@ -175,32 +178,29 @@ login gate — see [APPS.md](APPS.md) for what each one is.
 
 ## Reboot survival
 
-While Termux is running, each service runs under a supervisor that respawns it if
-it crashes. Surviving a **full reboot** needs one more piece: have **Termux:Boot**
-re-run the bring-up. A turnkey install step for this is on the roadmap; until
-then, set it up manually — create a launcher that Termux:Boot runs on boot:
+Three layers keep the stack up, all installed for you when `ENABLE_BOOT=true`
+(the default), by [`scripts/steps/75-install-boot.sh`](../scripts/steps/75-install-boot.sh):
 
-```bash
-mkdir -p ~/.termux/boot
-cat > ~/.termux/boot/00-pocket-homeserver.sh <<'EOF'
-#!/data/data/com.termux/files/usr/bin/bash
-termux-wake-lock
-# idempotent full bring-up — restores the core stack AND any enabled apps
-bash ~/pocket-homeserver/scripts/install.sh
-EOF
-chmod +x ~/.termux/boot/00-pocket-homeserver.sh
-```
+1. **Per-service supervisor** — while Termux runs, each service runs under a
+   supervisor that respawns it if it crashes. (Always on; nothing to configure.)
+2. **Termux:Boot launcher** — on a full reboot, `~/.termux/boot/00-pocket-homeserver.sh`
+   acquires a wake-lock, clears stale pidfiles, and runs the idempotent
+   [`start-stack.sh`](../scripts/start-stack.sh), bringing the whole stack (core +
+   every installed app) back up. Needs the **Termux:Boot** addon.
+3. **Self-heal watchdog** — [`scripts/watchdog.sh`](../scripts/watchdog.sh) is
+   registered with Android's **JobScheduler** (~15 min, persisted), re-running the
+   same idempotent bring-up so a service the low-memory killer reaps is revived
+   without waiting for a reboot. Needs the **Termux:API** addon +
+   `pkg install termux-api`.
 
-Adjust the path if you cloned elsewhere, and open the **Termux:Boot** app once
-after installing it so Android lets it run at boot. `install.sh` is idempotent, so
-on boot it simply re-launches whatever isn't already up. You can also bring the
-whole stack up directly with [`scripts/start-stack.sh`](../scripts/start-stack.sh)
-— it re-supervises the core services and every installed app from the launch
-commands recorded at install time.
+The install step is **fail-soft**: if an addon isn't present yet it tells you what
+to install and carries on — reboot survival works without the watchdog, and you
+can re-run the installer once Termux:API is in place to add it.
 
-A periodic **watchdog** (to recover services Android's low-memory killer takes
-down) and a packaged version of the launcher above are the next items on the
-roadmap.
+> **Android FBE note:** Termux:Boot scripts only run after the *first unlock*
+> following a reboot (file-based encryption). That one unlock is the only manual
+> step; everything else is automatic. Verify with `termux-job-scheduler --pending`
+> (the watchdog job) and `tail -f ${POCKET_LOG_DIR}/watchdog.log`.
 
 ## Troubleshooting (where to look)
 

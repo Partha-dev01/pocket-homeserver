@@ -5,7 +5,7 @@ All notable changes to pocket-homeserver are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.1.1] - 2026-06-19
 
 ### Added
 
@@ -18,6 +18,13 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
   interrupted install resumes where it stopped. New `--status` (what's installed +
   what's running), `--force` (redo everything), and `--reset` (clear the markers).
   Step markers use filesystem-safe names (the data volume is often exFAT).
+- **Reboot survival + self-heal watchdog as an install step**
+  (`scripts/steps/75-install-boot.sh`, gated by `ENABLE_BOOT`, default on): a
+  **Termux:Boot** launcher that brings the whole stack back up on boot (wake-lock,
+  stale-pidfile wipe, idempotent bring-up), and a **JobScheduler** watchdog
+  (`scripts/watchdog.sh`, ~15 min, persisted) that revives any service Android's
+  low-memory killer takes down. Fail-soft when the Termux:Boot / Termux:API addons
+  aren't present yet.
 
 ### Changed
 

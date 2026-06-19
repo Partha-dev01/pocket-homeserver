@@ -25,11 +25,11 @@ The base is an ordinary Android phone running [Termux](https://termux.dev), a
 userspace terminal environment. No root is required or used. Two Termux add-ons
 support reliability and are recommended:
 
-- **Termux:Boot** can re-launch the whole stack after a reboot. *(Today that is a
-  short manual step — see [SETUP.md](SETUP.md); an install step that wires it up
-  automatically is on the roadmap.)*
-- **Termux:API** is optional; it exposes Android's `JobScheduler`, the basis for
-  the planned watchdog self-heal (see *Supervision* below).
+- **Termux:Boot** re-launches the whole stack after a reboot. The installer wires
+  up the launcher for you (`ENABLE_BOOT`); you just install the addon and open it
+  once — see [SETUP.md](SETUP.md).
+- **Termux:API** exposes Android's `JobScheduler`, which the installer uses to
+  register the self-heal watchdog (see *Supervision* below).
 
 ### 2. proot Debian userland
 
@@ -84,17 +84,23 @@ authentication (see [ADMIN.md](ADMIN.md)).
 
 ### 8. Supervision, backups, and resilience
 
-Termux has no `init`/`systemd`, so each long-running service runs under a tiny
-bash supervisor loop ([`scripts/lib/common.sh`](../scripts/lib/common.sh)) that
-respawns it within seconds if it exits. **This crash-respawn is what ships
-today.** Surviving larger events is on the roadmap:
+Termux has no `init`/`systemd`, so resilience is layered, and the installer wires
+up all three (`ENABLE_BOOT`, default on — [`scripts/steps/75-install-boot.sh`](../scripts/steps/75-install-boot.sh)):
 
-- **Reboot survival** — re-running the bring-up on boot via **Termux:Boot**. For
-  now this is a short manual step ([SETUP.md](SETUP.md)); an install step that
-  configures it automatically is planned.
+- **Crash-respawn** — each long-running service runs under a tiny bash supervisor
+  loop ([`scripts/lib/common.sh`](../scripts/lib/common.sh)) that respawns it
+  within seconds if it exits, with an identity-checked pidfile so a reused PID is
+  never mistaken for our service.
+- **Reboot survival** — a **Termux:Boot** launcher re-runs the *idempotent*
+  bring-up ([`start-stack.sh`](../scripts/start-stack.sh)) on boot, restoring the
+  core stack and every installed app (after a wake-lock + a stale-pidfile wipe).
 - **Watchdog self-heal** — a periodic job (Android's `JobScheduler`, via
-  Termux:API) that re-runs the *idempotent* bring-up to recover services killed
-  by the low-memory killer. Planned; not yet bundled.
+  Termux:API) re-runs the same idempotent bring-up (~15 min, persisted) to recover
+  any supervisor the low-memory killer reaps, without waiting for a reboot
+  ([`scripts/watchdog.sh`](../scripts/watchdog.sh)).
+
+The boot step is fail-soft: without the Termux:Boot / Termux:API addons it still
+installs what it can and tells you what to add.
 
 Backups are produced by the [`scripts/ops/`](../scripts/ops/) scripts — run by
 hand or from the admin panel — snapshotting the Matrix database and the userland
@@ -144,6 +150,7 @@ stripped before the gate so they cannot be forged.
 | Developer tools | optional app | loopback | `tools.${DOMAIN}` |
 | Status page | optional app | loopback | `status.${DOMAIN}` |
 | Supervisors | respawn crashed services | — | — |
+| Boot launcher + watchdog | restart on reboot + revive killed services | — | — |
 | Backup scripts | on-demand DB + userland snapshots | — | — |
 
 Exact ports for the apps are assigned by the install scripts; the rule is simply
@@ -180,6 +187,10 @@ cheap, resilient, and genuinely practical way to self-host.
 The system is built to degrade gracefully:
 
 - **Service crashed** → its supervisor respawns it within seconds.
+- **Service killed by the low-memory killer** → the JobScheduler watchdog revives
+  it on the next tick (~15 min) without a reboot.
+- **Phone rebooted** → the Termux:Boot launcher brings the whole stack back up
+  after the first unlock.
 - **Database corrupted** → restore from the latest snapshot.
 - **Userland gone** → restore the userland snapshot.
 - **Phone lost** → restore onto a new phone from the large volume (if it
