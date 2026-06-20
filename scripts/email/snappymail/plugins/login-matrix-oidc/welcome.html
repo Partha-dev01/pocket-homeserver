@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Welcome to {{BRAND}}</title>
+<!--
+  welcome.html — first-login welcome email template for pocket-homeserver
+  webmail (login-matrix-oidc plugin). {{USER}} is replaced by the new member's
+  localpart at send time; the __TOKENS__ ({{BRAND}}, the per-app URLs, the
+  mailbox host) are substituted at INSTALL time by
+  scripts/steps/86-install-webmail.sh from .env, so the cards only ever link to
+  apps you actually enabled. CUSTOMIZE freely — this is a template, not literal
+  bait. Animations are a progressive enhancement: every visual below also works
+  from inline styles, so if a mail client strips <style> the email still looks
+  fine.
+-->
+<style>
+  @keyframes exoFlow   { 0%{background-position:0% 50%} 50%{background-position:100% 50%} 100%{background-position:0% 50%} }
+  @keyframes exoRise   { from{opacity:0; transform:translateY(14px)} to{opacity:1; transform:translateY(0)} }
+  @keyframes exoPulse  { 0%,100%{opacity:.45; transform:scale(1)} 50%{opacity:1; transform:scale(1.25)} }
+  @keyframes exoFloat  { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-5px)} }
+  .exo-hero   { background-size:220% 220% !important; animation:exoFlow 9s ease infinite; }
+  .exo-badge  { animation:exoFloat 3.5s ease-in-out infinite; }
+  .exo-dot    { animation:exoPulse 1.8s ease-in-out infinite; }
+  .exo-card   { animation:exoRise .7s cubic-bezier(.2,.7,.2,1) both; }
+  .exo-c1{animation-delay:.10s}.exo-c2{animation-delay:.24s}.exo-c3{animation-delay:.38s}.exo-c4{animation-delay:.52s}
+  a { text-decoration:none; }
+</style>
+</head>
+<body style="margin:0; padding:0; background:#0b0e1f; background:radial-gradient(1200px 500px at 50% -10%, #161a3a 0%, #0b0e1f 60%); color:#e8ecf8; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+<div style="display:none; max-height:0; overflow:hidden; opacity:0;">Your account is ready — chat, mail and your self-hosted apps, all in one place.</div>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:transparent;">
+ <tr><td align="center" style="padding:30px 14px 44px;">
+  <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="width:600px; max-width:100%; border-radius:20px; overflow:hidden; background:#11152b; box-shadow:0 24px 70px rgba(0,0,0,.55); border:1px solid rgba(255,255,255,.06);">
+
+   <!-- HERO -->
+   <tr><td class="exo-hero" style="padding:46px 40px 40px; text-align:center; background:linear-gradient(115deg,#1f4fff 0%,#7a4dff 42%,#e6559b 78%,#ff7eb3 100%); position:relative;">
+     <div style="position:relative;">
+       <div class="exo-badge" style="display:inline-block; width:62px; height:62px; line-height:62px; border-radius:18px; background:rgba(255,255,255,.16); font-size:30px; margin-bottom:14px;">&#10022;</div>
+       <h1 style="margin:0; font-size:40px; line-height:1.05; letter-spacing:-.5px; color:#ffffff; font-weight:800; text-shadow:0 2px 18px rgba(0,0,0,.18);">{{BRAND}}</h1>
+       <p style="margin:12px 0 0; font-size:13px; letter-spacing:3px; text-transform:uppercase; color:rgba(255,255,255,.85); font-weight:600;">self&#8209;hosted &nbsp;&middot;&nbsp; private &nbsp;&middot;&nbsp; yours</p>
+     </div>
+   </td></tr>
+
+   <!-- GREETING -->
+   <tr><td style="padding:38px 42px 6px;">
+     <h2 style="margin:0 0 10px; font-size:23px; color:#f3f5ff; font-weight:700;">Welcome aboard, {{USER}} &#128075;</h2>
+     <p style="margin:0; font-size:15px; line-height:1.65; color:#aeb6d8;">
+       Your account is live across the whole stack — one Matrix login, everything connected. Here's your mailbox and the rest of your private corner of the internet.
+     </p>
+     <div style="margin:20px 0 4px; padding:14px 16px; border-radius:12px; background:#0c1024; border:1px solid rgba(123,148,255,.22);">
+       <span style="font-size:11px; letter-spacing:1.5px; text-transform:uppercase; color:#7b85b8;">Your mailbox</span><br>
+       <span style="font-size:16px; color:#cdd6ff; font-weight:600; font-family:ui-monospace,'SF Mono',Menlo,Consolas,monospace;">{{USER}}@__MAIL_HOST__</span>
+     </div>
+   </td></tr>
+
+   <!-- SERVICES -->
+   <tr><td style="padding:24px 42px 6px;">
+     <p style="margin:0 0 4px; font-size:12px; letter-spacing:2px; text-transform:uppercase; color:#6f79a8; font-weight:700;">Your apps</p>
+   </td></tr>
+
+   <!-- card: Matrix Chat -->
+   <tr><td style="padding:8px 42px;">
+     <a href="__CHAT_URL__" class="exo-card exo-c1" style="display:block; padding:18px 18px; border-radius:14px; background:linear-gradient(180deg,#171c39,#141936); border:1px solid rgba(255,255,255,.07);">
+       <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
+         <td width="52" valign="top"><div style="width:44px; height:44px; line-height:44px; text-align:center; border-radius:12px; background:rgba(95,140,255,.16); font-size:22px;">&#128172;</div></td>
+         <td valign="middle" style="padding-left:6px;">
+           <div style="font-size:16px; color:#eef1ff; font-weight:700;">Matrix Chat</div>
+           <div style="font-size:13px; color:#9aa3c4; line-height:1.5;">End&#8209;to&#8209;end encrypted group chat in your browser (Element).</div>
+         </td>
+         <td width="26" valign="middle" align="right" style="font-size:20px; color:#5f8cff;">&rsaquo;</td>
+       </tr></table>
+     </a>
+   </td></tr>
+
+   <!-- card: Webmail -->
+   <tr><td style="padding:8px 42px;">
+     <a href="__WEBMAIL_URL__" class="exo-card exo-c2" style="display:block; padding:18px 18px; border-radius:14px; background:linear-gradient(180deg,#171c39,#141936); border:1px solid rgba(255,255,255,.07);">
+       <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
+         <td width="52" valign="top"><div style="width:44px; height:44px; line-height:44px; text-align:center; border-radius:12px; background:rgba(138,124,255,.16); font-size:22px;">&#9993;&#65039;</div></td>
+         <td valign="middle" style="padding-left:6px;">
+           <div style="font-size:16px; color:#eef1ff; font-weight:700;">Webmail</div>
+           <div style="font-size:13px; color:#9aa3c4; line-height:1.5;">This inbox — send &amp; receive from your @__MAIL_HOST__ address.</div>
+         </td>
+         <td width="26" valign="middle" align="right" style="font-size:20px; color:#8a7cff;">&rsaquo;</td>
+       </tr></table>
+     </a>
+   </td></tr>
+
+   <!--
+     ADD MORE APP CARDS HERE (optional): copy a card block above, point its
+     href at the app URL, and bump the exo-cN class. Keep it to the apps you
+     actually run. The install step does not auto-generate per-app cards.
+   -->
+
+   <!-- TIP -->
+   <tr><td style="padding:22px 42px 4px;">
+     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-radius:12px; background:rgba(95,140,255,.07); border:1px solid rgba(95,140,255,.16);"><tr>
+       <td style="padding:14px 16px; font-size:13px; color:#b9c1e6; line-height:1.6;">
+         <span class="exo-dot" style="display:inline-block; width:8px; height:8px; border-radius:50%; background:#5f8cff; margin-right:8px; vertical-align:middle;"></span>
+         <b style="color:#eef1ff;">Tip:</b> sign in to any app with your same Matrix username — no new passwords to remember.
+       </td>
+     </tr></table>
+   </td></tr>
+
+   <!-- FOOTER -->
+   <tr><td style="padding:30px 42px 38px; text-align:center;">
+     <p style="margin:0; font-size:12px; color:#5b648c; line-height:1.7;">
+       You're receiving this because an account was created for you.<br>
+       <span style="color:#7b85b8;">{{BRAND}}</span> &nbsp;&middot;&nbsp; self-hosted with care.
+     </p>
+   </td></tr>
+
+  </table>
+ </td></tr>
+</table>
+</body>
+</html>

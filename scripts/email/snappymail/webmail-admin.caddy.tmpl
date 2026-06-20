@@ -1,0 +1,40 @@
+# Webmail ADMIN host — webmail-admin.${DOMAIN}   (optional EMAIL subsystem)
+#
+# OPTIONAL, off by default. Only deployed by scripts/steps/86-install-webmail.sh
+# when ENABLE_WEBMAIL_ADMIN=true. Same SnappyMail backend (php-fpm
+# __CADDY_BIND__:__FPM_PORT__) as webmail.${DOMAIN}, but SnappyMail's native
+# admin panel is HOST-LOCKED to this name ([admin_panel] host in
+# application.ini), so the admin login ONLY answers here and webmail.${DOMAIN}
+# no longer exposes it at all. `bind __CADDY_BIND__` is REQUIRED to share the
+# :__CADDY_PORT__ listener (else it lands on a separate Caddy server and 404s).
+#
+# SECURITY: this host is only public IF you publish it. Leaving it UNPUBLISHED
+# (no Cloudflare Tunnel public hostname) makes the admin panel reachable only
+# over loopback / SSH. If you DO publish it, put it behind Cloudflare Access
+# (Zero-Trust) — do NOT leave the admin panel publicly reachable behind only its
+# own password + secret URL key. TLS is terminated at the Cloudflare edge; plain
+# http on :__CADDY_PORT__ like the rest of the stack.
+http://__ADMIN_HOST__:__CADDY_PORT__ {
+	bind __CADDY_BIND__
+
+	# Fail CLOSED. Require the Cf-Access-Jwt-Assertion header (cloudflared injects
+	# it only on requests that passed a Cloudflare Zero-Trust Access policy).
+	# Without it the request is either a direct-to-origin probe or a Cloudflare
+	# route with no Access policy in front; both are rejected. This is
+	# presence-only (a cheap first gate): even if this host gets PUBLISHED on the
+	# tunnel WITHOUT an Access policy attached, the SnappyMail admin panel returns
+	# 403 instead of being reachable behind only its own password + secret key.
+	@no_cf_jwt not header Cf-Access-Jwt-Assertion *
+	respond @no_cf_jwt "Forbidden: Cloudflare Access required" 403
+
+	root * /opt/snappymail
+	encode gzip
+
+	# the in-webroot data/ is unused (real data at /opt/snappymail-data) — block
+	# it + dotfiles.
+	@blocked path /data/* /.*
+	respond @blocked 403
+
+	php_fastcgi __CADDY_BIND__:__FPM_PORT__
+	file_server
+}

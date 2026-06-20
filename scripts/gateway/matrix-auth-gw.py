@@ -211,6 +211,59 @@ def _parse_oidc_clients():
 OIDC_CLIENTS = _parse_oidc_clients()
 
 
+# ---- mail (webmail SSO) client extension ----------------------------------
+# A webmail (SnappyMail) OIDC client is special: SnappyMail must authenticate to
+# the Maddy IMAP store, and Maddy has NO server-side OAUTHBEARER (its only server
+# auth is pass_table — a password). So for MAIL clients ONLY, the /token response
+# additionally hands back the user's mailbox address (<localpart>@OIDC_MAIL_DOMAIN)
+# and a SERVER-MANAGED per-user IMAP secret = hex(HMAC-SHA256(MAIL_IMAP_SECRET,
+# canonical_localpart)). The matching Maddy account is provisioned (just-in-time, on
+# first login) with the IDENTICAL derived secret, so the webmail logs in with a
+# normal PLAIN password the user never sees. This is returned ONLY over the
+# loopback, client-secret-gated /token exchange — NEVER to the browser. Inert unless
+# both a mail client is registered AND MAIL_IMAP_SECRET is configured (none of the
+# existing HS256/RS256 behaviour changes). The email subsystem (steps/85/86) and
+# the auth-gw installer (steps/60) wire these; default install never touches them.
+OIDC_MAIL_CLIENTS = set(
+    c.strip() for c in os.getenv("AUTHGW_OIDC_MAIL_CLIENTS", "").split(",")
+    if c.strip()
+)
+OIDC_MAIL_DOMAIN = os.getenv("AUTHGW_OIDC_MAIL_DOMAIN", "")
+
+
+def _load_mail_imap_secret():
+    f = os.getenv("AUTHGW_MAIL_IMAP_SECRET_FILE", "")
+    if f and os.path.exists(f):
+        with open(f, "rb") as fh:
+            d = fh.read().strip()
+        if d:
+            return d
+    env = os.getenv("AUTHGW_MAIL_IMAP_SECRET", "")
+    return env.encode() if env else b""
+
+
+MAIL_IMAP_SECRET = _load_mail_imap_secret()
+
+
+def mail_address(localpart):
+    """The user's mailbox address in the mail subdomain (canonicalised localpart)."""
+    dom = OIDC_MAIL_DOMAIN or OIDC_EMAIL_DOMAIN
+    return f"{canonical_localpart(localpart)}@{dom}"
+
+
+def imap_password(localpart):
+    """Deterministic per-user IMAP secret = hex(HMAC-SHA256(secret, canon_localpart))
+    — 64 hex chars (alnum only, so the Maddy `creds create` is quoting-safe). Empty
+    string if MAIL_IMAP_SECRET is not configured (mail SSO then degrades to no
+    imap_password — login simply fails rather than handing out a bad credential).
+    The Maddy provisioning computes the byte-identical value so pass_table verifies
+    it."""
+    if not MAIL_IMAP_SECRET:
+        return ""
+    canon = canonical_localpart(localpart)
+    return hmac.new(MAIL_IMAP_SECRET, canon.encode(), hashlib.sha256).hexdigest()
+
+
 # ---- RS256 OIDC realm (go-oidc clients, e.g. Vikunja, Gatus) --------------
 # coreos/go-oidc verifies the id_token signature against the discovery jwks_uri
 # and accepts ONLY asymmetric algs (RS256/ES256), AND requires the discovery
@@ -888,6 +941,17 @@ class Handler(BaseHTTPRequestHandler):
             "expires_in": OIDC_TOKEN_TTL, "id_token": id_token,
             "scope": "openid email profile",
         }
+        # Mail clients ONLY (webmail): also hand back the mailbox login + the
+        # server-managed per-user IMAP secret, over this loopback + client-secret-
+        # gated exchange (NEVER to the browser). Maddy has no OAUTHBEARER, so the
+        # webmail logs in with this normal PLAIN password the user never sees; the
+        # matching mailbox is provisioned with the byte-identical derived secret.
+        # Inert unless a mail client is registered AND the HMAC key is configured.
+        if client_id in OIDC_MAIL_CLIENTS:
+            _ipw = imap_password(rec["localpart"])
+            if _ipw:
+                resp["email"] = mail_address(rec["localpart"])
+                resp["imap_password"] = _ipw
         return self._send(200, json.dumps(resp), "application/json")
 
     def do_POST(self):

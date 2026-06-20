@@ -1,0 +1,32 @@
+; php-fpm.conf.tmpl — dedicated php-fpm pool serving SnappyMail webmail on a
+; loopback FastCGI socket (Caddy fronts the public TLS edge). A template:
+; scripts/steps/86-install-webmail.sh substitutes the __TOKENS__ from .env
+; before deploying it INTO the Debian userland at /opt/snappymail/php-fpm.conf.
+;
+; Tokens substituted by the install step:
+;   __CADDY_BIND__   loopback bind address (CADDY_BIND, default 127.0.0.1)
+;   __FPM_PORT__     FastCGI port for this pool (SNAPPYMAIL_FPM_PORT, default 9092)
+;
+; proot is single-user root, so the pool runs as root (the rest of the stack does
+; too). pid/log land under the data dir so they persist with the app. `ondemand`
+; keeps idle workers from holding RAM on a phone. The health check / supervise
+; argv carries this file path, so the marker 'snappymail/php-fpm.conf' identifies
+; this exact pool.
+[global]
+pid = /opt/snappymail-data/php-fpm.pid
+error_log = /opt/snappymail-data/php-fpm.log
+daemonize = no
+
+[snappymail]
+user = root
+group = root
+listen = __CADDY_BIND__:__FPM_PORT__
+pm = ondemand
+pm.max_children = 4
+pm.process_idle_timeout = 30s
+pm.max_requests = 500
+catch_workers_output = yes
+php_admin_value[upload_max_filesize] = 25M
+php_admin_value[post_max_size] = 27M
+php_admin_value[memory_limit] = 192M
+php_admin_value[max_execution_time] = 120

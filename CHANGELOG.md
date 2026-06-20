@@ -9,6 +9,26 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 
 ### Added
 
+- **Optional email + webmail** (`ENABLE_EMAIL`, off by default — advanced) — a
+  full self-hosted mailbox without a public MX. The [Maddy](https://maddy.email/)
+  engine runs in the userland on loopback (IMAP / authenticated inject / outbound
+  submission); inbound mail arrives via a **pull pipeline** — a Cloudflare Email
+  Worker durably writes each message to R2, and a native stdlib drain
+  (`scripts/email/mail-drain.py`, SigV4, ledger-before-inject, content-addressed
+  dedupe) pulls and injects it — so SMTP accept never depends on the phone being
+  online. Outbound goes through a smarthost (Resend). The UI half is
+  [SnappyMail](https://snappymail.eu/) (php-fpm) at `webmail.${DOMAIN}`, pinned to
+  your mailbox domain. With the auth gateway on, an in-app **Matrix-SSO** login
+  (the `login-matrix-oidc` plugin) signs users in via OIDC and the gateway hands
+  back a server-managed per-user IMAP password (`hex(HMAC-SHA256(key, localpart))`,
+  returned only over the loopback secret-gated token exchange); new mailboxes are
+  JIT-provisioned on first login. You bring your own Cloudflare Email Routing + an
+  R2 bucket + a Resend key (secrets in `0600` files, never in `.env` or on argv);
+  the installer generates the inject + mailbox passwords and pins Maddy by
+  `sha256` (fail-closed until you set it). An optional host-locked SnappyMail admin
+  panel (`ENABLE_WEBMAIL_ADMIN`) sits behind Cloudflare Access. New
+  `scripts/steps/85-install-email.sh` + `86-install-webmail.sh`; see
+  `docs/EMAIL.md` + `docs/WEBMAIL.md`.
 - **Optional landing portal** (`ENABLE_LANDING`, off by default) — a clean,
   static service directory served by the core Caddy at your **apex domain**
   (`http://${DOMAIN}`). The page (`scripts/landing/index.html.tmpl`) is rendered

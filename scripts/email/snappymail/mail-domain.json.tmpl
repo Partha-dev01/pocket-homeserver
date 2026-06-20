@@ -1,0 +1,66 @@
+{
+    "_comment": "SnappyMail domain config for mail.${DOMAIN}. Deployed by scripts/steps/86-install-webmail.sh as <data>/domains/mail.${DOMAIN}.json. Points SnappyMail at the LOOPBACK Maddy mailbox (the email subsystem's IMAP/SMTP listeners); the install step substitutes __IMAP_PORT__ / __SMTP_PORT__ from .env. type 0 = plain (loopback only, no TLS — the connection never leaves the host). All public providers (gmail/outlook/...) are removed by the install step so this is the only domain SnappyMail will serve.",
+    "IMAP": {
+        "host": "127.0.0.1",
+        "port": __IMAP_PORT__,
+        "type": 0,
+        "timeout": 300,
+        "shortLogin": false,
+        "lowerLogin": true,
+        "sasl": ["PLAIN", "LOGIN"],
+        "ssl": {
+            "verify_peer": false,
+            "verify_peer_name": false,
+            "allow_self_signed": true,
+            "SNI_enabled": false,
+            "disable_compression": true,
+            "security_level": 0
+        },
+        "disabled_capabilities": [],
+        "use_expunge_all_on_delete": false,
+        "fast_simple_search": true,
+        "force_select": false,
+        "message_all_headers": false,
+        "message_list_limit": 10000,
+        "search_filter": ""
+    },
+    "SMTP": {
+        "host": "127.0.0.1",
+        "port": __SMTP_PORT__,
+        "type": 0,
+        "timeout": 60,
+        "shortLogin": false,
+        "lowerLogin": true,
+        "sasl": ["PLAIN", "LOGIN"],
+        "ssl": {
+            "verify_peer": false,
+            "verify_peer_name": false,
+            "allow_self_signed": true,
+            "SNI_enabled": false,
+            "disable_compression": true,
+            "security_level": 0
+        },
+        "useAuth": true,
+        "setSender": false,
+        "usePhpMail": false
+    },
+    "Sieve": {
+        "host": "",
+        "port": 4190,
+        "type": 0,
+        "timeout": 10,
+        "shortLogin": false,
+        "lowerLogin": true,
+        "sasl": ["PLAIN", "LOGIN"],
+        "ssl": {
+            "verify_peer": false,
+            "verify_peer_name": false,
+            "allow_self_signed": true,
+            "SNI_enabled": false,
+            "disable_compression": true,
+            "security_level": 0
+        },
+        "enabled": false
+    },
+    "whiteList": ""
+}

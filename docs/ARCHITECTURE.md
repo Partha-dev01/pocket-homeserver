@@ -166,6 +166,9 @@ stripped before the gate so they cannot be forged.
 | Sticker picker (optional) | Maunium widget (fetched, AGPL) served by Caddy + a native upload/Giphy backend + import bot | `127.0.0.1:8451` | `stickers.${DOMAIN}` |
 | Operator admin bot (optional) | operator-only Matrix ops bot; fixed `scripts/ops/*` command table, loopback to Matrix | native, no listener | — |
 | Landing portal (optional) | static apex service directory served by Caddy; cards generated from the enabled apps | served by Caddy | `${DOMAIN}` (apex) |
+| Maddy mail engine (optional) | self-hosted mailbox; loopback IMAP / inject / submission, outbound via a smarthost | `127.0.0.1:9143/9125/9587` (in proot) | — |
+| Mail drain (optional) | native pull loop: fetches inbound mail from R2 (CF Email Worker) and injects it into Maddy | native, no listener | — |
+| Webmail (SnappyMail, optional) | php-fpm webmail UI fronted by Caddy; optional Matrix-SSO login plugin | `127.0.0.1:9092` (php-fpm) | `webmail.${DOMAIN}` |
 | Supervisors | respawn crashed services | — | — |
 | Boot launcher + watchdog | restart on reboot + revive killed services | — | — |
 | Backup scripts | on-demand DB + userland snapshots | — | — |

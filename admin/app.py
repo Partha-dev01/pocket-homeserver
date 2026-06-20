@@ -107,6 +107,7 @@ ENABLE = {
     "exobot-ui":    _flag("EXOBOT_UI"),
     "stickers":     _flag("ENABLE_STICKERS"),
     "adminbot":     _flag("ENABLE_ADMINBOT"),
+    "email":        _flag("ENABLE_EMAIL"),
 }
 
 # Script allowlist — the ONLY scripts a click can run, relative to scripts/. No
@@ -689,6 +690,13 @@ def _build_health_procs():
             procs.append({"name": "sticker-importer", "pattern": "importer-bot\\.py"})
     if ENABLE["adminbot"]:
         procs.append({"name": "adminbot", "pattern": "adminbot/bot\\.py"})
+    if ENABLE["email"]:
+        # Maddy (run-maddy.sh exec's `./maddy run` in proot), the native R2 drain
+        # (run-drain.sh exec's python3 mail-drain.py), and the SnappyMail php-fpm
+        # pool. Restart from the shell (ops/restart.sh maddy|mail-drain|snappymail-fpm).
+        procs.append({"name": "maddy", "pattern": "maddy run"})
+        procs.append({"name": "mail-drain", "pattern": "mail-drain\\.py"})
+        procs.append({"name": "snappymail-fpm", "pattern": "snappymail/php-fpm.conf"})
     return procs
 
 HEALTH_PROCS = _build_health_procs()

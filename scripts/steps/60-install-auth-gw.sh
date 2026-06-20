@@ -120,6 +120,10 @@ ok "gateway installed at ${GW_DIR}"
 #   * authgw-rsa.json      — RS256 OIDC signing key (inert unless a go-oidc client
 #                            is configured); pure {n,e,d} JSON the gateway loads
 #   * authgw-session-epoch — seeded to 0; `echo <n+1> > it` = cheap global logout
+#   * mail-imap-secret.key — per-user IMAP-password HMAC key for the OPTIONAL
+#                            Matrix-SSO webmail (steps/85/86). Inert unless a mail
+#                            client (snappymail) is registered; the gateway is its
+#                            only reader (it derives each user's IMAP password)
 say "generating gateway secrets under ${GW_DATA_HOST} (chmod 600; reused on re-run)"
 proot-distro login debian \
   --bind "${GW_DATA_HOST}:${GW_DATA_USERLAND}" \
@@ -148,6 +152,10 @@ proot-distro login debian \
       echo 0 > \"\$d/authgw-session-epoch\"
       chmod 600 \"\$d/authgw-session-epoch\"
     fi
+    if [ ! -s \"\$d/mail-imap-secret.key\" ]; then
+      openssl rand -base64 48 | tr -d '\n' > \"\$d/mail-imap-secret.key\"
+      chmod 600 \"\$d/mail-imap-secret.key\"
+    fi
   " 2>&1 | grep -v 'proot warning' || true
 # Fail closed: the signing secret MUST exist (the gateway refuses to start
 # without it). Checked on the HOST path — the userland bind mount only exists
@@ -162,6 +170,9 @@ ok "gateway secrets ready under ${GW_DATA_HOST}"
 # here: drop them into ${GW_DATA_HOST}/oidc-clients.env (0600) and the launcher
 # sources that file, so secrets stay in a file and never reach argv. See
 # docs/MATRIX_AUTH_GW.md for the OIDC client format.
+# Mailbox domain for the OPTIONAL webmail SSO imap_password/email claim (inert
+# unless a mail client is registered in oidc-clients.env). Defaults to mail.${DOMAIN}.
+GW_MAIL_DOMAIN="${MAIL_DOMAIN:-mail.${DOMAIN}}"
 say "writing the launcher → ${GW_DIR}/run.sh"
 proot-distro login debian -- bash -lc "umask 077; cat > '${GW_DIR}/run.sh'" <<LAUNCH
 #!/bin/bash
@@ -180,6 +191,11 @@ export AUTHGW_OIDC_RS_KEY_FILE=${GW_DATA_USERLAND}/authgw-rsa.json
 export AUTHGW_PUBLIC_ORIGINS='${GW_PUBLIC_ORIGINS}'
 export AUTHGW_OIDC_ADMINS='${GW_ADMINS}'
 export AUTHGW_OIDC_EMAIL_DOMAIN='${DOMAIN}'
+# Webmail (SnappyMail) Matrix-SSO mail bridge — inert unless a mail client is
+# registered in oidc-clients.env (steps/86). The key file may not exist yet; the
+# gateway treats an absent/empty key as "mail SSO off" (returns no imap_password).
+export AUTHGW_OIDC_MAIL_DOMAIN='${GW_MAIL_DOMAIN}'
+export AUTHGW_MAIL_IMAP_SECRET_FILE=${GW_DATA_USERLAND}/mail-imap-secret.key
 # Optional OIDC client registrations (advanced). Keep client secrets in this
 # 0600 file — it is sourced here so they reach the gateway via the environment,
 # never via argv. It may export AUTHGW_OIDC_CLIENT_ID/SECRET,

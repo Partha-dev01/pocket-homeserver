@@ -84,6 +84,11 @@ You drive the whole thing from **one interactive menu**:
 - **Optional landing portal** — a clean service directory served at your apex
   domain, with one card per enabled app (generated from the `ENABLE_*` flags, no
   bait or decoy content). Off by default. ([docs/LANDING.md](docs/LANDING.md))
+- **Optional email + webmail (advanced)** — a self-hosted mailbox (Maddy +
+  loopback IMAP/SMTP) fed by a pull-based Cloudflare Email Routing → R2 → drain
+  pipeline, with the SnappyMail webmail UI and optional Matrix-SSO login. You
+  bring your own Cloudflare/R2/Resend. Off by default.
+  ([docs/EMAIL.md](docs/EMAIL.md), [docs/WEBMAIL.md](docs/WEBMAIL.md))
 - **Secure by construction** — no inbound ports, pinned + `sha256`-verified
   downloads, secrets kept off the command line, and a documented threat model.
   ([docs/SECURITY.md](docs/SECURITY.md))
@@ -181,6 +186,8 @@ genuinely practical way to self-host.
 - [docs/STICKERS.md](docs/STICKERS.md) — the optional sticker picker (widget + backend + import bot).
 - [docs/ADMINBOT.md](docs/ADMINBOT.md) — the optional operator admin bot (Matrix ops bot + panel widget).
 - [docs/LANDING.md](docs/LANDING.md) — the optional landing portal (apex service directory, generated from enabled apps).
+- [docs/EMAIL.md](docs/EMAIL.md) — the optional email backend (Maddy + the Cloudflare Email Routing → R2 → drain pipeline).
+- [docs/WEBMAIL.md](docs/WEBMAIL.md) — the optional SnappyMail webmail UI + Matrix-SSO login plugin.
 - [docs/MATRIX_AUTH_GW.md](docs/MATRIX_AUTH_GW.md) — the optional single sign-on gateway in depth.
 
 ## Repository layout
@@ -217,6 +224,7 @@ tools/       repo tooling (e.g. the leak-scan pre-push guard)
 - [x] Optional sticker picker (Maunium widget + upload/Giphy backend + import bot)
 - [x] Optional operator admin bot (operator-only Matrix ops bot + panel widget)
 - [x] Optional landing portal (apex service directory; cards generated from enabled apps)
+- [x] Optional email + webmail (Maddy + R2-drain pipeline + SnappyMail + Matrix-SSO; advanced/BYO)
 
 ## Status, license, and contributing
 

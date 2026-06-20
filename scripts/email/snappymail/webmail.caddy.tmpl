@@ -1,0 +1,55 @@
+# Webmail (SnappyMail) — webmail.${DOMAIN}   (optional EMAIL subsystem)
+#
+# Self-contained app vhost for pocket-homeserver, dropped into
+# /etc/caddy/apps/webmail.caddy by scripts/steps/86-install-webmail.sh (which
+# substitutes the __TOKENS__ from .env). Matches the core Caddyfile listener
+# style EXACTLY: explicit http://<host>:__CADDY_PORT__ + bind __CADDY_BIND__
+# (plain HTTP on the shared high loopback port; the Cloudflare Tunnel terminates
+# public TLS).
+#
+# Auth boundary = SnappyMail's OWN login. We do NOT stack a forward_auth
+# gateway-cookie gate here: SnappyMail is a SPA with no native OIDC, and a
+# 302-to-login gate breaks SPAs (the Pingvin/Linkding lesson). When the optional
+# Matrix-SSO auth gateway is enabled, SSO is instead offered IN-APP via the
+# login-matrix-oidc plugin (a "Sign in with OIDC" button that runs the OIDC
+# front-door), NOT via a Caddy gate. Otherwise the mailbox is protected by the
+# per-user IMAP password. The data folder lives OUTSIDE the webroot
+# (/opt/snappymail-data via include.php).
+http://__HOST__:__CADDY_PORT__ {
+	bind __CADDY_BIND__
+
+	encode gzip
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+		-Server
+	}
+
+	# OPTIONAL Matrix-SSO gateway endpoints — only meaningful when the auth gateway
+	# is enabled. The login-matrix-oidc plugin sends the browser to
+	# /authgw/oidc/authorize HERE, which proxies to the gateway; the token/userinfo/
+	# jwks endpoints are loopback-only by design, so 404 them at the edge. This block
+	# is a no-op (502) when the gateway is off — the in-app SSO button isn't shown
+	# then, so nothing hits it, and the mailbox is protected by its IMAP password.
+	handle /authgw/* {
+		@authgw_private path /authgw/oidc/token /authgw/oidc/userinfo /authgw/oidc/jwks /authgw/oidc-rs/jwks
+		respond @authgw_private 404
+		reverse_proxy 127.0.0.1:__AUTHGW_PORT__ {
+			header_up X-Forwarded-For {client_ip}
+			header_up X-Real-IP {client_ip}
+		}
+	}
+
+	# SnappyMail itself (everything else). The data folder lives OUTSIDE the webroot
+	# (/opt/snappymail-data via include.php); the in-webroot data/ is unused, so
+	# block it + dotfiles defensively.
+	handle {
+		root * /opt/snappymail
+		@blocked path /data/* /.*
+		respond @blocked 403
+		php_fastcgi __CADDY_BIND__:__FPM_PORT__
+		file_server
+	}
+}

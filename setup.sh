@@ -221,6 +221,20 @@ ask_yn ENABLE_LANDING "Install the landing portal?" n
 LANDING_BRAND="$DOMAIN"
 [ "$ENABLE_LANDING" = "true" ] && ask LANDING_BRAND "Portal brand (shown on the page)" "$DOMAIN"
 
+# ── Optional email + webmail (advanced) ───────────────────────────────────────
+printf '\n'; say "── Email + webmail (optional, advanced) ───────────"
+say "A self-hosted mailbox (Maddy) + SnappyMail webmail at webmail.$DOMAIN. You must"
+say "provision Cloudflare Email Routing + an R2 bucket + Resend on YOUR accounts and"
+say "drop their secrets into 0600 files under \$DATA_DIR/secrets AFTER setup (the"
+say "install step + docs/EMAIL.md walk you through it). Matrix-SSO webmail also needs"
+say "the auth gateway. Leave off unless you want to run mail."
+ask_yn ENABLE_EMAIL "Enable the email subsystem (mail server + webmail)?" n
+MAIL_DOMAIN="mail.$DOMAIN"; ENABLE_WEBMAIL_ADMIN=false
+if [ "$ENABLE_EMAIL" = "true" ]; then
+  ask MAIL_DOMAIN "Mail domain (Cloudflare Email Routing target)" "mail.$DOMAIN"
+  ask_yn ENABLE_WEBMAIL_ADMIN "Enable SnappyMail's native admin panel (behind CF Access)?" n
+fi
+
 # ── Write .env ───────────────────────────────────────────────────────────────
 # Quote free-form / secret values so the file sources cleanly; leave derived
 # values (${DOMAIN}, ${DATA_DIR}, $HOME) as references, exactly like the template.
@@ -230,6 +244,7 @@ Q_REGTOK=$(envq "$MATRIX_REGISTRATION_TOKEN"); Q_GWADM=$(envq "$AUTHGW_ADMINS")
 Q_XLOCAL=$(envq "$EXOBOT_LOCALPART"); Q_XBIN=$(envq "$LLAMA_SERVER_BIN"); Q_XMODEL=$(envq "$MODEL_PATH")
 Q_XROOMS=$(envq "$EXOBOT_ALLOWED_ROOMS"); Q_XUIHOST=$(envq "$EXOBOT_UI_HOST_PUBLIC")
 Q_LANDBRAND=$(envq "$LANDING_BRAND")
+Q_MAILDOMAIN=$(envq "$MAIL_DOMAIN")
 
 umask 077
 tmp="$ENV_OUT.tmp.$$"
@@ -362,6 +377,26 @@ EXOBOT_UI_HOST_PUBLIC=${Q_XUIHOST}
 ENABLE_LANDING=${ENABLE_LANDING}
 LANDING_BRAND=${Q_LANDBRAND}
 
+# ─── Email + webmail (optional, advanced) ───────────────────────────────────
+# Secrets (R2 + Resend) are NOT here — create 0600 files under \${DATA_DIR}/secrets
+# after setup; the installer generates the inject + mailbox passwords. Matrix-SSO
+# webmail also needs ENABLE_AUTH_GATEWAY=true. See docs/EMAIL.md + docs/WEBMAIL.md.
+ENABLE_EMAIL=${ENABLE_EMAIL}
+MAIL_DOMAIN=${Q_MAILDOMAIN}
+MAIL_HOSTNAME=mx.\${MAIL_DOMAIN}
+MAIL_IMAP_PORT=9143
+MAIL_INJECT_PORT=9125
+MAIL_SUBMISSION_PORT=9587
+MAIL_POLL=180
+MAIL_ADMIN_LOCALPART=admin
+SNAPPYMAIL_FPM_PORT=9092
+ENABLE_WEBMAIL_ADMIN=${ENABLE_WEBMAIL_ADMIN}
+# Pinned Maddy release — set MADDY_SHA256 to the real checksum before enabling email
+# (the step fails closed until you do). MADDY_ARCH is arm64 on a phone, amd64 on PC.
+# MADDY_VERSION=0.9.5
+# MADDY_ARCH=arm64
+# MADDY_SHA256=
+
 # ─── Backups ────────────────────────────────────────────────────────────────
 BACKUP_DIR=\${DATA_DIR}/backups
 BACKUP_KEEP_DB=3
@@ -397,6 +432,7 @@ printf '\n'; ok "configuration summary (no secrets shown):"
   printf '  stickers      : %s\n'    "$ENABLE_STICKERS"
   printf '  admin bot     : %s\n'    "$ENABLE_ADMINBOT"
   printf '  landing       : %s\n'    "$ENABLE_LANDING"
+  printf '  email+webmail : %s%s\n'  "$ENABLE_EMAIL" "$([ "$ENABLE_EMAIL" = "true" ] && echo " (domain=$MAIL_DOMAIN, admin=$ENABLE_WEBMAIL_ADMIN)")"
   printf '  registration  : %s\n'    "$([ -n "$MATRIX_REGISTRATION_TOKEN" ] && echo 'generated (in .env)' || echo 'none')"
   printf '  apps enabled  :%s\n'     "${apps:- (none)}"
 } >&2

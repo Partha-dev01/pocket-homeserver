@@ -48,6 +48,10 @@ case "$svc" in
     die "'adminweb' has no recorded launch command yet — run: bash ${POCKET_ROOT}/scripts/steps/70-install-admin.sh" ;;
   user-filter|media-filter)
     die "'$svc' has no recorded launch command yet — run: bash ${POCKET_ROOT}/scripts/steps/78-install-filters.sh (needs ENABLE_USER_FILTER or ENABLE_MEDIA_FILTER=true)" ;;
+  maddy|mail-drain)
+    die "'$svc' has no recorded launch command yet — run: bash ${POCKET_ROOT}/scripts/steps/85-install-email.sh (needs ENABLE_EMAIL=true)" ;;
+  snappymail-fpm)
+    die "'snappymail-fpm' has no recorded launch command yet — run: bash ${POCKET_ROOT}/scripts/steps/86-install-webmail.sh (needs ENABLE_EMAIL=true)" ;;
   *)
     die "'$svc' has no recorded launch command yet — run its install script (scripts/apps/${svc%-*}.sh) or scripts/install.sh first" ;;
 esac
