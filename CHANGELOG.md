@@ -7,6 +7,36 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 
 ## [Unreleased]
 
+### Added
+
+- **Optional MCP server** (`ENABLE_MCP`, off by default — advanced) — a
+  [Model Context Protocol](https://modelcontextprotocol.io/) adapter so an MCP
+  client (Claude Desktop, Claude Code, the claude.ai connector, or any MCP host)
+  can observe and operate the stack through a small, audited tool set. It is a
+  **thin protocol front door to the already-vetted `scripts/ops/*`** — it adds no
+  new privileged operation: every mutating tool is a fixed-argv `subprocess`
+  (`shell=False`, no path/command argument; the backing script is allowlisted and
+  realpath-contained), a `service` argument is validated against the
+  currently-supervised set, and a `log` argument against a fixed allowlist. Built
+  on the official `mcp` Python SDK (FastMCP) in its own pinned venv
+  (`~/pocket-mcp`), Termux-native. Two transports (`MCP_TRANSPORT`): **stdio over
+  SSH** (the recommended default — launched on demand by the client, nothing
+  published, the SSH/CF-Access channel is the authentication) and an optional
+  **Streamable HTTP** transport on `mcp.${DOMAIN}` that is **fail-closed behind
+  three gates** (Caddy `@no_cf_jwt` 403, in-process RS256 Cloudflare-Access JWT
+  validation reusing the admin panel's logic, and a `0600` bearer credential
+  generated at install and checked with `compare_digest`). Tools are tiered:
+  **read** tools are on whenever the server is (status, health, services, redacted
+  logs, config, backups, recent honeypot events, Matrix user list, a read-only
+  restore-plan describe); the **operate** tier (restart / backup / mint+rotate
+  registration token) is behind `MCP_ALLOW_OPERATE`; the **danger** tier (soft/
+  hard panic) is behind `MCP_ALLOW_DANGER` **and** a per-call typed confirmation,
+  mirroring the admin panel danger zone. Secrets never cross the boundary
+  (rotation tools return metadata only; `pocket_logs` is redacted), and every
+  `tools/call` is written to the same audit log the admin panel uses. New
+  `scripts/steps/87-install-mcp.sh`; see `docs/MCP.md` (how-to) and
+  `docs/MCP_SERVER_SPEC.md` (design).
+
 ## [0.2.0] - 2026-06-20
 
 Feature-parity release: ports almost all of the private deployment's previously

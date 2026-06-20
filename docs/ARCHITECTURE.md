@@ -169,6 +169,7 @@ stripped before the gate so they cannot be forged.
 | Maddy mail engine (optional) | self-hosted mailbox; loopback IMAP / inject / submission, outbound via a smarthost | `127.0.0.1:9143/9125/9587` (in proot) | — |
 | Mail drain (optional) | native pull loop: fetches inbound mail from R2 (CF Email Worker) and injects it into Maddy | native, no listener | — |
 | Webmail (SnappyMail, optional) | php-fpm webmail UI fronted by Caddy; optional Matrix-SSO login plugin | `127.0.0.1:9092` (php-fpm) | `webmail.${DOMAIN}` |
+| MCP server (optional) | audited Model Context Protocol adapter over the existing `scripts/ops/*`; stdio over SSH by default + optional HTTP behind CF Access | stdio (no listener) / `127.0.0.1:9120` (HTTP mode) | `mcp.${DOMAIN}` (HTTP mode) |
 | Supervisors | respawn crashed services | — | — |
 | Boot launcher + watchdog | restart on reboot + revive killed services | — | — |
 | Backup scripts | on-demand DB + userland snapshots | — | — |

@@ -1,0 +1,64 @@
+# MCP server host — mcp.${DOMAIN}   (optional MCP subsystem, HTTP transport)
+#
+# OPTIONAL, off by default. Only deployed by scripts/steps/87-install-mcp.sh
+# when ENABLE_MCP=true AND MCP_TRANSPORT includes "http" (i.e. "http" or
+# "both"). The default transport is stdio-over-SSH, which publishes NOTHING and
+# needs no vhost — this template exists solely for the optional remote
+# Streamable-HTTP transport (e.g. the claude.ai connector). The MCP ASGI server
+# (the official `mcp` SDK's streamable_http_app, served by uvicorn) listens on
+# loopback __CADDY_BIND__:__MCP_HTTP_PORT__; this vhost reverse-proxies to it.
+#
+# Edge model (matches every other vhost EXACTLY): explicit
+# http://<host>:__CADDY_PORT__ + `bind __CADDY_BIND__` — plain HTTP on the shared
+# high loopback port; the Cloudflare Tunnel terminates public TLS and forwards
+# here. `bind __CADDY_BIND__` is REQUIRED to share the :__CADDY_PORT__ listener
+# (else it lands on a separate Caddy server and 404s). __MCP_HOST__ is the
+# subdomain LABEL (renders mcp.${DOMAIN}); core only claims chat.${DOMAIN}, so
+# this fresh subdomain does not collide.
+#
+# SECURITY: this host is only public IF you publish it (a Cloudflare Tunnel
+# public hostname). Leaving it UNPUBLISHED keeps the MCP server reachable only
+# over loopback / SSH. If you DO publish it, put it behind Cloudflare Access
+# (Zero-Trust). This vhost is the CHEAP FIRST GATE only (Cf-Access-Jwt-Assertion
+# presence). It is NOT the whole defence: the MCP server enforces TWO MORE,
+# INDEPENDENT gates in-process — (2) RS256 validation of that same CF-Access JWT
+# (issuer/aud/exp via JWKS, like the admin panel's _cfa_validate), and (3) a
+# 0600 bearer credential checked with hmac.compare_digest — so a misconfigured
+# Access policy alone cannot open the server. Fail closed at every layer.
+# TLS is terminated at the Cloudflare edge; plain http on :__CADDY_PORT__ like
+# the rest of the stack.
+http://__MCP_HOST__.__DOMAIN__:__CADDY_PORT__ {
+	bind __CADDY_BIND__
+
+	# Fail CLOSED. Require the Cf-Access-Jwt-Assertion header (cloudflared injects
+	# it only on requests that passed a Cloudflare Zero-Trust Access policy).
+	# Without it the request is either a direct-to-origin probe or a Cloudflare
+	# route with no Access policy in front; both are rejected. This is
+	# presence-only (a cheap first gate); the in-process RS256 JWT validation and
+	# the bearer-credential check (gates 2 & 3, above) are what actually
+	# authenticate the caller.
+	@no_cf_jwt not header Cf-Access-Jwt-Assertion *
+	respond @no_cf_jwt "Forbidden: Cloudflare Access required" 403
+
+	# MCP Streamable HTTP transport: clients POST JSON-RPC and may upgrade the
+	# response to a text/event-stream (SSE) for server-pushed messages. There is
+	# no flush_interval precedent elsewhere in this stack (every other vhost is
+	# plain request/response or a SPA), so set it explicitly here:
+	# `flush_interval -1` disables Caddy's response buffering so any SSE frames
+	# the SDK emits are flushed immediately rather than held back. (v1 tools are
+	# request/response, but the SDK negotiates the streamable transport, so this
+	# is required for forward-compatibility and harmless for plain JSON replies.)
+	reverse_proxy __CADDY_BIND__:__MCP_HTTP_PORT__ {
+		flush_interval -1
+		header_up X-Forwarded-For {client_ip}
+		header_up X-Real-IP {client_ip}
+	}
+
+	log {
+		output file /var/log/pocket/mcp-access.log {
+			roll_size 10MiB
+			roll_keep 5
+		}
+		format json
+	}
+}

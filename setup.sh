@@ -235,6 +235,24 @@ if [ "$ENABLE_EMAIL" = "true" ]; then
   ask_yn ENABLE_WEBMAIL_ADMIN "Enable SnappyMail's native admin panel (behind CF Access)?" n
 fi
 
+# ── Optional MCP server (advanced) ────────────────────────────────────────────
+printf '\n'; say "── MCP server (optional, advanced) ────────────────"
+say "An optional Model Context Protocol server so an MCP client (Claude Desktop /"
+say "Claude Code / the claude.ai connector) can observe + operate the stack through"
+say "an audited tool set. 'stdio' runs over your SSH session (nothing published);"
+say "'http'/'both' also serve a remote transport behind Cloudflare Access. The"
+say "bearer credential is generated at install, not here. See docs/MCP.md."
+ask_yn ENABLE_MCP "Enable the MCP server?" n
+MCP_TRANSPORT="stdio"; MCP_ALLOW_OPERATE="false"; MCP_ALLOW_DANGER="false"
+if [ "$ENABLE_MCP" = "true" ]; then
+  while :; do
+    ask MCP_TRANSPORT "Transport (stdio | http | both)" "stdio"
+    case "$MCP_TRANSPORT" in stdio|http|both) break;; *) warn "choose stdio, http, or both";; esac
+  done
+  ask_yn MCP_ALLOW_OPERATE "Allow the operate tier (restart/backup/rotate-reg-token)?" n
+  ask_yn MCP_ALLOW_DANGER  "Allow the danger tier (panic; still needs a per-call confirm)?" n
+fi
+
 # ── Write .env ───────────────────────────────────────────────────────────────
 # Quote free-form / secret values so the file sources cleanly; leave derived
 # values (${DOMAIN}, ${DATA_DIR}, $HOME) as references, exactly like the template.
@@ -245,6 +263,7 @@ Q_XLOCAL=$(envq "$EXOBOT_LOCALPART"); Q_XBIN=$(envq "$LLAMA_SERVER_BIN"); Q_XMOD
 Q_XROOMS=$(envq "$EXOBOT_ALLOWED_ROOMS"); Q_XUIHOST=$(envq "$EXOBOT_UI_HOST_PUBLIC")
 Q_LANDBRAND=$(envq "$LANDING_BRAND")
 Q_MAILDOMAIN=$(envq "$MAIL_DOMAIN")
+Q_MCPTRANS=$(envq "$MCP_TRANSPORT")
 
 umask 077
 tmp="$ENV_OUT.tmp.$$"
@@ -397,6 +416,23 @@ ENABLE_WEBMAIL_ADMIN=${ENABLE_WEBMAIL_ADMIN}
 # MADDY_ARCH=arm64
 # MADDY_SHA256=
 
+# ─── MCP server (optional, advanced) ────────────────────────────────────────
+# An audited Model Context Protocol adapter for MCP clients. 'stdio' runs over
+# SSH (nothing published); 'http'/'both' add a remote transport behind CF Access.
+# The bearer credential is GENERATED at install into the 0600 file below (it is a
+# path, not a secret). Read tools are on when enabled; mutating tiers default off.
+# See docs/MCP.md + docs/MCP_SERVER_SPEC.md.
+ENABLE_MCP=${ENABLE_MCP}
+MCP_TRANSPORT=${Q_MCPTRANS}
+MCP_HTTP_HOST=mcp
+MCP_HTTP_PORT=9120
+MCP_ALLOW_OPERATE=${MCP_ALLOW_OPERATE}
+MCP_ALLOW_DANGER=${MCP_ALLOW_DANGER}
+MCP_BEARER_TOKEN_FILE=\${DATA_DIR}/secrets/mcp-bearer.cred
+MCP_LOG_REDACT=true
+MCP_ALLOWED_LOGS=caddy.log,cloudflared.log,matrix.log,adminweb.log,auth-gw.log
+MCP_RATE_LIMIT=60/min
+
 # ─── Backups ────────────────────────────────────────────────────────────────
 BACKUP_DIR=\${DATA_DIR}/backups
 BACKUP_KEEP_DB=3
@@ -433,6 +469,7 @@ printf '\n'; ok "configuration summary (no secrets shown):"
   printf '  admin bot     : %s\n'    "$ENABLE_ADMINBOT"
   printf '  landing       : %s\n'    "$ENABLE_LANDING"
   printf '  email+webmail : %s%s\n'  "$ENABLE_EMAIL" "$([ "$ENABLE_EMAIL" = "true" ] && echo " (domain=$MAIL_DOMAIN, admin=$ENABLE_WEBMAIL_ADMIN)")"
+  printf '  mcp server    : %s%s\n'  "$ENABLE_MCP" "$([ "$ENABLE_MCP" = "true" ] && echo " (transport=$MCP_TRANSPORT, operate=$MCP_ALLOW_OPERATE, danger=$MCP_ALLOW_DANGER)")"
   printf '  registration  : %s\n'    "$([ -n "$MATRIX_REGISTRATION_TOKEN" ] && echo 'generated (in .env)' || echo 'none')"
   printf '  apps enabled  :%s\n'     "${apps:- (none)}"
 } >&2

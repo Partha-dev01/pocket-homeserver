@@ -89,6 +89,12 @@ You drive the whole thing from **one interactive menu**:
   pipeline, with the SnappyMail webmail UI and optional Matrix-SSO login. You
   bring your own Cloudflare/R2/Resend. Off by default.
   ([docs/EMAIL.md](docs/EMAIL.md), [docs/WEBMAIL.md](docs/WEBMAIL.md))
+- **Optional MCP server (advanced)** — a Model Context Protocol adapter so an MCP
+  client (Claude Desktop / Claude Code / the claude.ai connector) can observe and
+  operate the stack through a small, audited tool set. A thin front door to the
+  existing `scripts/ops/*` — no new privileged code. Defaults to stdio over SSH
+  (nothing published); an optional remote HTTP transport is fail-closed behind
+  Cloudflare Access. Off by default. ([docs/MCP.md](docs/MCP.md))
 - **Secure by construction** — no inbound ports, pinned + `sha256`-verified
   downloads, secrets kept off the command line, and a documented threat model.
   ([docs/SECURITY.md](docs/SECURITY.md))
@@ -189,6 +195,7 @@ genuinely practical way to self-host.
 - [docs/EMAIL.md](docs/EMAIL.md) — the optional email backend (Maddy + the Cloudflare Email Routing → R2 → drain pipeline).
 - [docs/WEBMAIL.md](docs/WEBMAIL.md) — the optional SnappyMail webmail UI + Matrix-SSO login plugin.
 - [docs/MATRIX_AUTH_GW.md](docs/MATRIX_AUTH_GW.md) — the optional single sign-on gateway in depth.
+- [docs/MCP.md](docs/MCP.md) — the optional MCP server: connecting a client, the tool set, the tiers, and the security model.
 
 ## Repository layout
 
@@ -225,6 +232,7 @@ tools/       repo tooling (e.g. the leak-scan pre-push guard)
 - [x] Optional operator admin bot (operator-only Matrix ops bot + panel widget)
 - [x] Optional landing portal (apex service directory; cards generated from enabled apps)
 - [x] Optional email + webmail (Maddy + R2-drain pipeline + SnappyMail + Matrix-SSO; advanced/BYO)
+- [x] Optional MCP server (official MCP SDK; stdio over SSH + optional HTTP behind CF Access; read/operate/danger tiers)
 
 ## Status, license, and contributing
 

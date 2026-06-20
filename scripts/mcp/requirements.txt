@@ -1,0 +1,37 @@
+# pocket-homeserver — optional MCP server dependencies (scripts/mcp/pocket-mcp.py)
+#
+# Installed into a DEDICATED venv (e.g. ~/pocket-mcp) by
+# scripts/steps/87-install-mcp.sh, which then runs a fail-loud
+# `python -c "import mcp"` import check. The server is OFF by default
+# (ENABLE_MCP=false); nothing here is touched until you opt in.
+#
+# Pin policy (matches the project standing rule): EXACT `==` pins ONLY, and
+# deliberately NO `--require-hashes`. A frozen cross-platform hash set is its
+# own liability on a phone (Termux/aarch64) where some wheels are built
+# locally; we rely on `==` pins plus pip's per-wheel integrity check instead.
+# Bump these intentionally, never float.
+#
+# We pin ONLY the two top-level packages and let pip resolve the rest of the
+# tree (pydantic / pydantic-core / anyio / starlette / sse-starlette / httpx /
+# pyjwt / etc.) from the SDK's own constraints — the `mcp` SDK pins those
+# adequately, so re-pinning them here would just create avoidable upgrade drift.
+#
+# API NOTE for whoever writes pocket-mcp.py: with mcp 1.x the server class is
+# `FastMCP`, imported as `from mcp.server.fastmcp import FastMCP`. The unreleased
+# 2.x line RENAMES it to `MCPServer` under `mcp.server.mcpserver.*` — do NOT use
+# the 2.x symbols against this 1.28.0 pin. (See requirements rationale + the
+# API cheatsheet handed to the main loop.)
+#
+# Termux/aarch64 caveat: `mcp` pulls `pydantic-core`, a compiled Rust extension.
+# Prefer a prebuilt aarch64 wheel; if none resolves, pip will build from source,
+# which needs a Rust toolchain (pkg install rust) and is slow. The install step
+# is expected to fail LOUD if `import mcp` does not succeed afterward.
+
+# Official Model Context Protocol Python SDK (high-level FastMCP server +
+# stdio and Streamable-HTTP transports + JSON-RPC wire protocol).
+mcp==1.28.0
+
+# ASGI server for the optional Streamable-HTTP transport (serves
+# FastMCP.streamable_http_app()). Not used in the default stdio-over-SSH path.
+# `mcp` already depends on uvicorn (>=0.31.1); we pin the exact version we ship.
+uvicorn==0.49.0

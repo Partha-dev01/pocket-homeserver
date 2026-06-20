@@ -108,6 +108,7 @@ ENABLE = {
     "stickers":     _flag("ENABLE_STICKERS"),
     "adminbot":     _flag("ENABLE_ADMINBOT"),
     "email":        _flag("ENABLE_EMAIL"),
+    "mcp":          _flag("ENABLE_MCP"),
 }
 
 # Script allowlist — the ONLY scripts a click can run, relative to scripts/. No
@@ -697,6 +698,14 @@ def _build_health_procs():
         procs.append({"name": "maddy", "pattern": "maddy run"})
         procs.append({"name": "mail-drain", "pattern": "mail-drain\\.py"})
         procs.append({"name": "snappymail-fpm", "pattern": "snappymail/php-fpm.conf"})
+    if ENABLE["mcp"] and _env("MCP_TRANSPORT", "stdio") in ("http", "both"):
+        # Only the HTTP transport is a supervised long-running service; stdio mode
+        # is spawned on demand by the client over SSH (nothing to supervise). The
+        # HTTP launcher (run-mcp-http.sh, from steps/87-install-mcp.sh) is
+        # supervised as `bash run-mcp-http.sh`, which exec's the venv python on the
+        # server script — so the child cmdline carries `pocket-mcp.py`. Restart
+        # from the shell (ops/restart.sh mcp).
+        procs.append({"name": "mcp", "pattern": "pocket-mcp\\.py"})
     return procs
 
 HEALTH_PROCS = _build_health_procs()
