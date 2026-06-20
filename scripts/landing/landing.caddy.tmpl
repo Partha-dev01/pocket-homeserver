@@ -1,0 +1,95 @@
+# landing.caddy.tmpl — apex landing-portal vhost TEMPLATE for pocket-homeserver.
+#
+# Rendered by scripts/steps/84-install-landing.sh and dropped into
+# /etc/caddy/apps/landing.caddy. The installer substitutes:
+#     ${DOMAIN}          -> your apex domain
+#     ${CADDY_PORT}      -> the shared loopback port Caddy listens on
+#     ${CADDY_BIND}      -> the loopback bind address
+#     __LANDING_ROOT__   -> the in-userland dir Caddy serves the static page from
+#
+# Edge model (matches every other vhost EXACTLY): explicit
+# http://<host>:${CADDY_PORT} + `bind ${CADDY_BIND}` — plain HTTP on the shared
+# high loopback port; the Cloudflare Tunnel terminates public TLS and forwards
+# here. The explicit `http://` and the `bind` line are BOTH required: without
+# them this would land on a separate Caddy server and return empty/404.
+#
+# This is the APEX host (bare ${DOMAIN}, not a subdomain), so the install script's
+# "already present?" check greps for the exact `http://${DOMAIN}:${CADDY_PORT}`
+# token rather than a substring — otherwise it would falsely match every
+# subdomain vhost (links.${DOMAIN}, chat.${DOMAIN}, ...) that also contains the
+# apex domain as a substring.
+#
+# AUTH MODEL (default): the portal is PUBLIC — it is only a directory of links,
+# and every app it points to enforces its own authentication (the apps are gated
+# at the Cloudflare edge with Cloudflare Access and/or their own login). If you
+# run the OPTIONAL Matrix-SSO gateway (ENABLE_AUTH_GATEWAY) and want ONE login to
+# also gate the portal itself, uncomment the marked block below (see
+# docs/APP_AUTH.md). The page's account bar lights up automatically when the
+# gateway is reachable; it stays empty otherwise.
+http://${DOMAIN}:${CADDY_PORT} {
+	bind ${CADDY_BIND}
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+		-Server
+	}
+	encode gzip
+
+	# OPTIONAL Matrix-SSO gateway endpoints — PUBLIC (the login form, /verify for
+	# the account-bar JS, /logout). The parent-domain cookie the gateway sets
+	# (Domain=${DOMAIN}) is what makes one sign-in here cover every *.${DOMAIN}
+	# app. This /authgw/* block stays here so the account bar can probe /verify;
+	# it is a no-op (502) until the gateway is actually running. If you also want
+	# to GATE the portal itself, uncomment the forward_auth block at the bottom.
+	handle /authgw/* {
+		# The OIDC token/userinfo/jwks endpoints are loopback-only by design —
+		# 404 them at the edge so only the public authgw paths proxy through.
+		@authgw_private path /authgw/oidc/token /authgw/oidc/userinfo /authgw/oidc/jwks /authgw/oidc-rs/jwks
+		respond @authgw_private 404
+		reverse_proxy 127.0.0.1:9095 {
+			header_up X-Forwarded-For {client_ip}
+			header_up X-Real-IP {client_ip}
+		}
+	}
+
+	# The static portal. Files live OUTSIDE any app webroot at __LANDING_ROOT__.
+	handle {
+		root * __LANDING_ROOT__
+		# block dotfiles defensively
+		@dot path /.*
+		respond @dot 403
+		file_server
+		# the portal HTML is no-cache so card/account-bar changes show at once;
+		# static assets get a short cache.
+		@html path / /index.html
+		header @html Cache-Control "no-cache"
+		@assets path *.svg *.png *.ico *.css *.js
+		header @assets Cache-Control "public, max-age=120"
+	}
+
+	# ── OPTIONAL: gate the WHOLE portal behind the Matrix-SSO gateway ────────────
+	# Disabled by default (the portal is a public link directory). To require a
+	# login to even see the portal, run the optional gateway and (a) move the
+	# `handle { ... }` static block above INTO the forward_auth-protected handler
+	# below, OR simply uncomment this and let it gate the catch-all. The three
+	# parts MUST sit AFTER the public /authgw/* block: the request_header strips
+	# any client-forged Remote-User before the gate, and forward_auth then gates
+	# everything else. See docs/APP_AUTH.md.
+	# request_header -Remote-User
+	# forward_auth 127.0.0.1:9095 {
+	# 	uri /authgw/verify
+	# 	copy_headers Remote-User
+	# 	header_up X-Real-IP {client_ip}
+	# 	header_up X-Forwarded-Uri {uri}
+	# }
+
+	log {
+		output file /var/log/pocket/landing-access.log {
+			roll_size 10MiB
+			roll_keep 5
+		}
+		format json
+	}
+}

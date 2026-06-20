@@ -81,6 +81,9 @@ You drive the whole thing from **one interactive menu**:
 - **Optional operator admin bot** — drive the stack from a private Matrix room
   (`!status`, `!users`, `!restart-stack`…); obeys only your MXID, fixed command
   table, no `shell=True`. Off by default. ([docs/ADMINBOT.md](docs/ADMINBOT.md))
+- **Optional landing portal** — a clean service directory served at your apex
+  domain, with one card per enabled app (generated from the `ENABLE_*` flags, no
+  bait or decoy content). Off by default. ([docs/LANDING.md](docs/LANDING.md))
 - **Secure by construction** — no inbound ports, pinned + `sha256`-verified
   downloads, secrets kept off the command line, and a documented threat model.
   ([docs/SECURITY.md](docs/SECURITY.md))
@@ -177,6 +180,7 @@ genuinely practical way to self-host.
 - [docs/CHATBOTS.md](docs/CHATBOTS.md) — the optional Matrix chat bots (cloud-LLM, and the on-phone BYO model).
 - [docs/STICKERS.md](docs/STICKERS.md) — the optional sticker picker (widget + backend + import bot).
 - [docs/ADMINBOT.md](docs/ADMINBOT.md) — the optional operator admin bot (Matrix ops bot + panel widget).
+- [docs/LANDING.md](docs/LANDING.md) — the optional landing portal (apex service directory, generated from enabled apps).
 - [docs/MATRIX_AUTH_GW.md](docs/MATRIX_AUTH_GW.md) — the optional single sign-on gateway in depth.
 
 ## Repository layout
@@ -212,6 +216,7 @@ tools/       repo tooling (e.g. the leak-scan pre-push guard)
 - [x] Optional on-phone LLM bot (advanced / BYO llama.cpp + GGUF; optional web UI)
 - [x] Optional sticker picker (Maunium widget + upload/Giphy backend + import bot)
 - [x] Optional operator admin bot (operator-only Matrix ops bot + panel widget)
+- [x] Optional landing portal (apex service directory; cards generated from enabled apps)
 
 ## Status, license, and contributing
 

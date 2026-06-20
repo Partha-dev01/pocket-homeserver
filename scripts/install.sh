@@ -58,6 +58,7 @@ core_steps=(
   "exobot:steps/81-install-exobot.sh"
   "stickers:steps/82-install-stickers.sh"
   "adminbot:steps/83-install-adminbot.sh"
+  "landing:steps/84-install-landing.sh"
 )
 
 # Optional apps, in install order, each gated by ENABLE_<APP>.

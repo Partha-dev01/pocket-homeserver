@@ -1,0 +1,205 @@
+<!doctype html>
+<!--
+  index.html.tmpl — landing-portal TEMPLATE for pocket-homeserver.
+
+  This file is NOT served as-is. scripts/steps/84-install-landing.sh renders it
+  into the live landing dir by substituting two tokens:
+
+    __BRAND__       -> the portal brand (defaults to ${DOMAIN})
+    POCKET_CARDS    -> one service card per ENABLED app, generated from the
+                       ENABLE_* flags + ${DOMAIN} (e.g. ENABLE_LINKDING=true
+                       emits a card linking to https://links.${DOMAIN}). This
+                       marker appears EXACTLY ONCE (in the grid below); the card
+                       markup the installer emits mirrors the example .card block
+                       shown there.
+
+  Everything operator-specific has been removed: there is no hardcoded domain,
+  no owner name, and the service cards are data-driven, not baked in. The page is
+  pure static HTML/CSS with a tiny progressive-enhancement script — Caddy serves
+  it directly; there is no backend.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>__BRAND__</title>
+<meta name="description" content="__BRAND__ — self-hosted, private, yours. Your own chat, bookmarks, file sharing, notes, tasks, feeds, search and more.">
+<meta name="robots" content="noindex">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<meta name="theme-color" content="#8a4dff">
+<style>
+  :root{
+    --bg:#0a0d1e; --card:#141936; --card2:#10142e; --ink:#eef1ff; --mut:#9aa3c4;
+    --blue:#5f8cff; --indigo:#8a7cff; --pink:#ec6ead; --teal:#40c8a0;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{
+    font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
+    color:var(--ink); background:var(--bg); overflow-x:hidden; position:relative;
+    min-height:100vh; display:flex; flex-direction:column; align-items:center;
+  }
+  /* animated aurora background */
+  .aurora{position:fixed; inset:-30vmax; z-index:0; filter:blur(90px); opacity:.55; pointer-events:none}
+  .orb{position:absolute; border-radius:50%; mix-blend-mode:screen; animation:drift 18s ease-in-out infinite}
+  .o1{width:46vmax;height:46vmax;background:#1f4fff;top:-6vmax;left:-4vmax}
+  .o2{width:40vmax;height:40vmax;background:#7a4dff;top:8vmax;right:-6vmax;animation-delay:-4s}
+  .o3{width:38vmax;height:38vmax;background:#e6559b;bottom:-8vmax;left:18vmax;animation-delay:-9s}
+  .o4{width:30vmax;height:30vmax;background:#1fb6a8;bottom:-4vmax;right:6vmax;animation-delay:-13s}
+  @keyframes drift{0%,100%{transform:translate(0,0) scale(1)}33%{transform:translate(4vmax,-3vmax) scale(1.08)}66%{transform:translate(-3vmax,4vmax) scale(.94)}}
+  /* twinkle stars */
+  .stars{position:fixed; inset:0; z-index:0; pointer-events:none}
+  .star{position:absolute; width:2px;height:2px;border-radius:50%;background:#fff;opacity:.5;animation:tw 3.5s ease-in-out infinite}
+  @keyframes tw{0%,100%{opacity:.15;transform:scale(.7)}50%{opacity:.9;transform:scale(1.3)}}
+
+  main{position:relative; z-index:1; width:100%; max-width:960px; padding:7vh 22px 40px; text-align:center}
+  .badge{
+    display:inline-flex;align-items:center;justify-content:center;width:74px;height:74px;border-radius:22px;
+    font-size:36px;background:linear-gradient(135deg,rgba(95,140,255,.35),rgba(236,110,173,.35));
+    border:1px solid rgba(255,255,255,.14); box-shadow:0 14px 40px rgba(95,90,255,.35);
+    animation:floaty 4s ease-in-out infinite, pop .8s cubic-bezier(.2,.8,.2,1) both}
+  @keyframes floaty{0%,100%{transform:translateY(0)}50%{transform:translateY(-7px)}}
+  @keyframes pop{from{opacity:0;transform:scale(.6)}to{opacity:1;transform:scale(1)}}
+  h1{
+    margin:.5em 0 .1em; font-size:clamp(40px,8vw,72px); font-weight:850; letter-spacing:-2px; line-height:1;
+    background:linear-gradient(100deg,#9cc0ff,#c4b6ff 35%,#ffb3d9 65%,#9cc0ff);
+    background-size:220% auto; -webkit-background-clip:text; background-clip:text; color:transparent;
+    animation:flow 7s linear infinite, rise .7s ease both; word-break:break-word}
+  @keyframes flow{to{background-position:220% center}}
+  @keyframes rise{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:translateY(0)}}
+  .tag{margin:.2em 0 0;color:var(--mut);font-size:13px;letter-spacing:4px;text-transform:uppercase;font-weight:600;
+    animation:rise .7s ease .1s both}
+
+  .grid{display:grid;grid-template-columns:repeat(2,1fr);gap:16px;margin:46px auto 0;max-width:760px;text-align:left}
+  @media(max-width:640px){.grid{grid-template-columns:1fr}}
+  .card{
+    display:flex;align-items:center;gap:16px;padding:20px;border-radius:18px;text-decoration:none;color:inherit;
+    background:linear-gradient(180deg,var(--card),var(--card2));border:1px solid rgba(255,255,255,.07);
+    box-shadow:0 12px 34px rgba(0,0,0,.35); position:relative; overflow:hidden;
+    transition:transform .25s cubic-bezier(.2,.8,.2,1),border-color .25s,box-shadow .25s;
+    animation:rise .6s cubic-bezier(.2,.8,.2,1) both}
+  .card:nth-child(1){animation-delay:.12s}.card:nth-child(2){animation-delay:.22s}
+  .card:nth-child(3){animation-delay:.32s}.card:nth-child(4){animation-delay:.42s}
+  .card:nth-child(5){animation-delay:.52s}.card:nth-child(6){animation-delay:.62s}
+  .card:nth-child(7){animation-delay:.72s}.card:nth-child(8){animation-delay:.82s}
+  .card:nth-child(9){animation-delay:.92s}.card:nth-child(10){animation-delay:1.02s}
+  .card:hover{transform:translateY(-5px);border-color:rgba(255,255,255,.18);box-shadow:0 22px 50px rgba(0,0,0,.5)}
+  .card::after{content:"";position:absolute;inset:0;border-radius:18px;padding:1px;opacity:0;transition:opacity .25s;
+    background:linear-gradient(120deg,transparent,var(--accent),transparent);
+    -webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;mask-composite:exclude}
+  .card:hover::after{opacity:.7}
+  .ic{flex:0 0 auto;width:52px;height:52px;border-radius:14px;display:flex;align-items:center;justify-content:center;font-size:25px;background:var(--chip)}
+  .ct{flex:1 1 auto;min-width:0}
+  .ct h3{margin:0 0 3px;font-size:17px;font-weight:750;color:#f3f5ff}
+  .ct p{margin:0;font-size:13px;line-height:1.5;color:var(--mut)}
+  .arr{flex:0 0 auto;font-size:22px;color:var(--accent);transition:transform .25s}
+  .card:hover .arr{transform:translateX(4px)}
+  /* accent palettes — the installer cycles cards through these classes */
+  .m{--accent:var(--blue);  --chip:rgba(95,140,255,.16)}
+  .w{--accent:var(--indigo);--chip:rgba(138,124,255,.16)}
+  .l{--accent:var(--pink);  --chip:rgba(236,110,173,.16)}
+  .p{--accent:var(--teal);  --chip:rgba(64,200,160,.16)}
+  .adm{--accent:#f5b945;    --chip:rgba(245,185,69,.18)}
+
+  .empty{margin:46px auto 0;max-width:620px;padding:26px;border-radius:18px;text-align:center;
+    background:linear-gradient(180deg,var(--card),var(--card2));border:1px solid rgba(255,255,255,.07);
+    color:var(--mut);font-size:14.5px;line-height:1.6;animation:rise .6s ease both}
+
+  footer{position:relative;z-index:1;color:#5b648c;font-size:12px;padding:30px 16px 40px;text-align:center;line-height:1.7}
+  footer b{color:#7b85b8;font-weight:700}
+
+  /* top-right account bar — present only when the optional auth gateway is on */
+  .authbar{position:fixed;top:18px;right:18px;z-index:6;display:flex;gap:12px;align-items:center;
+    animation:rise .7s ease .25s both}
+  .authbar a{text-decoration:none}
+  .btn{display:inline-flex;align-items:center;gap:9px;padding:13px 22px;border-radius:999px;
+    font-size:15px;font-weight:700;letter-spacing:.2px;color:#eaf0ff;cursor:pointer;
+    border:1px solid rgba(255,255,255,.16);
+    background:linear-gradient(180deg,rgba(95,140,255,.24),rgba(138,124,255,.16));
+    box-shadow:0 8px 24px rgba(95,90,255,.28);
+    transition:transform .2s cubic-bezier(.2,.8,.2,1),border-color .2s,box-shadow .2s}
+  .btn:hover{transform:translateY(-2px);border-color:rgba(255,255,255,.32);box-shadow:0 12px 30px rgba(95,90,255,.42)}
+  .btn.ghost{background:rgba(255,255,255,.05);box-shadow:none;color:var(--mut);font-weight:600}
+  .btn.ghost:hover{color:#eaf0ff;box-shadow:0 8px 20px rgba(0,0,0,.3)}
+  .who{display:inline-flex;align-items:center;gap:10px;padding:12px 20px;border-radius:999px;
+    font-size:14.5px;color:var(--mut);background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.09)}
+  .who .dot{width:10px;height:10px;border-radius:50%;background:var(--teal);box-shadow:0 0 10px var(--teal);flex:0 0 auto}
+  .who b{color:#dfe6ff;font-weight:700}
+  @media(max-width:560px){.authbar{top:12px;right:12px;gap:9px}.btn,.who{padding:11px 16px;font-size:13.5px}.who span.lbl{display:none}}
+
+  @media(prefers-reduced-motion:reduce){*{animation:none!important}}
+</style>
+</head>
+<body>
+  <!-- The account bar is populated by the script below ONLY when the optional
+       Matrix-SSO gateway is reachable; otherwise it stays empty (no broken
+       "Sign in" link to a gateway that isn't running). The installer leaves the
+       bar in place either way — it is harmless when the gateway is absent. -->
+  <div class="authbar" id="authbar" aria-label="account"></div>
+  <div class="aurora"><span class="orb o1"></span><span class="orb o2"></span><span class="orb o3"></span><span class="orb o4"></span></div>
+  <div class="stars" id="stars"></div>
+
+  <main>
+    <div class="badge">✦</div>
+    <h1>__BRAND__</h1>
+    <p class="tag">self&#8209;hosted &nbsp;·&nbsp; private &nbsp;·&nbsp; yours</p>
+
+    <div class="grid">
+      <!-- The marker on the next line is replaced by the installer with one card
+           per ENABLED app, generated from the ENABLE_* flags + ${DOMAIN}. Each
+           card is an anchor of the shape (the .m/.w/.l/.p accent class cycles):
+
+             a.card.m -> href https://links.example.com, an .ic emoji, an .ct
+             title + blurb, and an .arr chevron.
+
+           If NO optional apps are enabled the installer emits a single .empty
+           panel instead, so the grid is never blank. The marker below is the
+           ONLY literal POCKET_CARDS token in this file. -->
+      POCKET_CARDS
+    </div>
+  </main>
+
+  <footer><b>__BRAND__</b> — self&#8209;hosted with care.</footer>
+
+  <script>
+    // sprinkle a few twinkling stars (progressive enhancement; page is fine without JS)
+    var s = document.getElementById('stars'), n = 42;
+    for (var i = 0; i < n; i++) {
+      var d = document.createElement('span'); d.className = 'star';
+      d.style.left = (Math.random()*100) + '%'; d.style.top = (Math.random()*100) + '%';
+      d.style.animationDelay = (-Math.random()*3.5) + 's';
+      d.style.opacity = (0.2 + Math.random()*0.5);
+      s.appendChild(d);
+    }
+
+    // Generic account bar. The OPTIONAL Matrix-SSO gateway (ENABLE_AUTH_GATEWAY)
+    // exposes /authgw/verify, which answers 200 (+ a Remote-User header) when the
+    // visitor has a valid session and 302 when they don't. We ask it once:
+    //   - gateway present + signed in  -> show "Signed in as <user>" + Sign out
+    //   - gateway present + signed out -> show a "Sign in" button
+    //   - gateway absent (fetch fails / not 200/302) -> leave the bar empty
+    // This is purely a UI affordance; every app still enforces its own auth
+    // server-side. No team domain, owner name, or admin auto-detect is baked in.
+    (function () {
+      var bar = document.getElementById('authbar');
+      if (!bar) return;
+      function esc(s){return String(s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
+      function signedOut(){ bar.innerHTML = '<a class="btn" href="/authgw/login?next=%2F">Sign in</a>'; }
+      function signedIn(user){
+        var name = user ? ' as <b>'+esc(user)+'</b>' : '';
+        bar.innerHTML =
+          '<span class="who"><span class="dot"></span><span class="lbl">Signed in'+name+'</span></span>' +
+          '<a class="btn ghost" href="/authgw/logout">Sign out</a>';
+      }
+      fetch('/authgw/verify', {credentials:'include', redirect:'manual', cache:'no-store'})
+        .then(function(r){
+          // 302 => gateway is up but the visitor is signed out.
+          if (r.status === 200) { signedIn(r.headers.get('Remote-User') || ''); }
+          else if (r.status === 0 || r.type === 'opaqueredirect' || r.status === 302) { signedOut(); }
+          // any other status: gateway not configured — leave the bar empty.
+        })
+        .catch(function(){ /* gateway absent — no sign-in affordance */ });
+    })();
+  </script>
+</body>
+</html>

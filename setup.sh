@@ -213,6 +213,14 @@ say "(!status, !users, !invite-token, !restart-stack…). Its token + room go in
 say "secrets file (created AFTER the stack is up) — not .env. See docs/ADMINBOT.md."
 ask_yn ENABLE_ADMINBOT "Enable the operator admin bot?" n
 
+# ── Optional landing portal ───────────────────────────────────────────────────
+printf '\n'; say "── Landing portal (optional) ──────────────────────"
+say "A clean service directory at your apex domain (http://$DOMAIN); cards are built"
+say "from the apps you enabled. No bait/decoys. Needs an apex CF Tunnel hostname."
+ask_yn ENABLE_LANDING "Install the landing portal?" n
+LANDING_BRAND="$DOMAIN"
+[ "$ENABLE_LANDING" = "true" ] && ask LANDING_BRAND "Portal brand (shown on the page)" "$DOMAIN"
+
 # ── Write .env ───────────────────────────────────────────────────────────────
 # Quote free-form / secret values so the file sources cleanly; leave derived
 # values (${DOMAIN}, ${DATA_DIR}, $HOME) as references, exactly like the template.
@@ -221,6 +229,7 @@ Q_TUN=$(envq "$CF_TUNNEL_TOKEN");  Q_AUSER=$(envq "$ADMIN_USER"); Q_APASS=$(envq
 Q_REGTOK=$(envq "$MATRIX_REGISTRATION_TOKEN"); Q_GWADM=$(envq "$AUTHGW_ADMINS")
 Q_XLOCAL=$(envq "$EXOBOT_LOCALPART"); Q_XBIN=$(envq "$LLAMA_SERVER_BIN"); Q_XMODEL=$(envq "$MODEL_PATH")
 Q_XROOMS=$(envq "$EXOBOT_ALLOWED_ROOMS"); Q_XUIHOST=$(envq "$EXOBOT_UI_HOST_PUBLIC")
+Q_LANDBRAND=$(envq "$LANDING_BRAND")
 
 umask 077
 tmp="$ENV_OUT.tmp.$$"
@@ -347,6 +356,12 @@ EXOBOT_WAKER_PORT=9116
 EXOBOT_UI_TITLE="Self-hosted AI"
 EXOBOT_UI_HOST_PUBLIC=${Q_XUIHOST}
 
+# ─── Landing portal (optional) ──────────────────────────────────────────────
+# A service directory at your apex domain; cards built from the ENABLE_* flags.
+# LANDING_BRAND is HTML-escaped at render — keep it plain text. See docs/LANDING.md.
+ENABLE_LANDING=${ENABLE_LANDING}
+LANDING_BRAND=${Q_LANDBRAND}
+
 # ─── Backups ────────────────────────────────────────────────────────────────
 BACKUP_DIR=\${DATA_DIR}/backups
 BACKUP_KEEP_DB=3
@@ -381,6 +396,7 @@ printf '\n'; ok "configuration summary (no secrets shown):"
   printf '  on-phone bot  : %s%s\n'  "$ENABLE_EXOBOT" "$([ "$ENABLE_EXOBOT" = "true" ] && echo " (ui=$EXOBOT_UI)")"
   printf '  stickers      : %s\n'    "$ENABLE_STICKERS"
   printf '  admin bot     : %s\n'    "$ENABLE_ADMINBOT"
+  printf '  landing       : %s\n'    "$ENABLE_LANDING"
   printf '  registration  : %s\n'    "$([ -n "$MATRIX_REGISTRATION_TOKEN" ] && echo 'generated (in .env)' || echo 'none')"
   printf '  apps enabled  :%s\n'     "${apps:- (none)}"
 } >&2

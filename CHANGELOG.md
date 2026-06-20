@@ -9,6 +9,19 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 
 ### Added
 
+- **Optional landing portal** (`ENABLE_LANDING`, off by default) — a clean,
+  static service directory served by the core Caddy at your **apex domain**
+  (`http://${DOMAIN}`). The page (`scripts/landing/index.html.tmpl`) is rendered
+  at install time with **one card per enabled app**, generated from the
+  `ENABLE_*` flags + `${DOMAIN}` (Chat always leads) — so it always matches what
+  you actually run, with **no bait or decoy content**. No new process: Caddy
+  serves the files from inside the userland via an apex
+  `/etc/caddy/apps/landing.caddy` drop-in (the install step prints the manual
+  apex Cloudflare Tunnel hostname). The portal is public by default; it ships a
+  commented `forward_auth` block and an `/authgw/*` proxy so it can be gated
+  behind, and show sign-in state from, the optional Matrix-SSO gateway.
+  `LANDING_BRAND` (HTML-escaped at render) sets the title. New
+  `scripts/steps/84-install-landing.sh`; see `docs/LANDING.md`.
 - **Optional operator admin bot** (`ENABLE_ADMINBOT`, off by default) — a
   Termux-native Matrix bot (`scripts/adminbot/bot.py`) that lets **only you**
   drive the stack from a private admin-ops room: `!status`, `!users`,
