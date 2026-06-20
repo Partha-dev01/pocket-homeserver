@@ -123,12 +123,40 @@ else
   say "edge blocking OFF (alert-only). To enable: create ${CF_ENV} (CF_API_TOKEN/CF_ACCOUNT_ID) AND the marker ${ALLOW_BLOCK_MARKER}, then set ${MODE_FILE} to challenge/block (see docs/HONEYPOT.md)"
 fi
 
-# ── 5. Supervise the watcher (Termux-native respawn loop + identity-checked pid) ─
+# ── 5. Watcher launcher: pin the SQLite DB to the INTERNAL ext4 filesystem ───
+# honeypot_db.py defaults its SQLite DB to ${POCKET_STATE_DIR}/honeypot.db, which
+# sits under DATA_DIR — and DATA_DIR is typically the exFAT SD card, where SQLite
+# WAL/locking misbehaves (and can corrupt). It honors an HP_DB env override, so we
+# point it at the Termux home, which is real ext4 — the SAME $HOME/.pocket ext4
+# precedent the boot watchdog uses for exec-safe files. The watcher runs
+# Termux-native, so $HOME here is the Termux ext4 home. POCKET_HONEYPOT_DB lets an
+# operator override the location if their layout differs.
+HP_DB_PATH="${POCKET_HONEYPOT_DB:-$HOME/.pocket/honeypot/honeypot.db}"
+mkdir -p "$(dirname "${HP_DB_PATH}")"
+chmod 700 "$(dirname "${HP_DB_PATH}")" 2>/dev/null || true
+
+# A tiny native launcher exports HP_DB into the watcher's env (never on argv) and
+# execs it. supervise records THIS launcher in the .cmd, so start-stack.sh and
+# ops/restart.sh re-supervise the exact same env-pinned command on every bring-up.
+HP_LAUNCHER="$HOME/.pocket/honeypot/run-watcher.sh"
+say "writing the honeypot watcher launcher -> ${HP_LAUNCHER} (HP_DB on ext4)"
+( umask 077; cat > "${HP_LAUNCHER}" <<LAUNCH
+#!/usr/bin/env bash
+# Native honeypot watcher launcher — written by steps/77-install-honeypot.sh.
+# Pins the SQLite DB to ext4 (HP_DB) so it NEVER lands on the exFAT SD card, then
+# execs the watcher. No secrets on argv (the watcher reads its own 0600 files).
+export HP_DB="${HP_DB_PATH}"
+exec python3 "${WATCHER}"
+LAUNCH
+)
+chmod 700 "${HP_LAUNCHER}"
+
+# ── 6. Supervise the watcher (Termux-native respawn loop + identity-checked pid) ─
 # The shared supervisor records the launch argv to ${POCKET_STATE_DIR}/honeypot-watcher.cmd
 # so start-stack.sh re-supervises it on every bring-up and ops/restart.sh can
 # restart it. The watcher reads its OPTIONAL Matrix token from the 0600
 # honeypot-alert.env file itself (never on argv); we pass it nothing sensitive.
-supervise honeypot-watcher -- python3 "${WATCHER}"
+supervise honeypot-watcher -- bash "${HP_LAUNCHER}"
 
 # Confirm the python child came up. There is no port to probe (it is a log tailer),
 # so we look for the live process by its script path.

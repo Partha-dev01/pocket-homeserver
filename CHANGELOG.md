@@ -7,6 +7,51 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 
 ## [Unreleased]
 
+### Fixed
+
+- **First-user creation now actually works.** The setup wizard wrote a
+  `MATRIX_REGISTRATION_TOKEN` to `.env` that nothing consumed (registration is
+  baked closed in the homeserver config), and `docs/SETUP.md` told you to register
+  with that dead token. Removed the inert `MATRIX_ALLOW_REGISTRATION` /
+  `MATRIX_REGISTRATION_TOKEN` / `MATRIX_ALLOW_FEDERATION` vars and rewrote the
+  first-user flow around `scripts/ops/rotate-registration-token.sh` (which opens
+  token-gated signup and prints a working token) in the wizard and SETUP.md.
+- **Landing portal install no longer aborts.** `84-install-landing.sh` only
+  substituted `__LANDING_ROOT__`, leaving literal `${DOMAIN}`/`${CADDY_PORT}`/
+  `${CADDY_BIND}` in the rendered vhost (the heredoc can't re-expand them) →
+  `caddy validate` failed. The renderer now substitutes all of them, and the
+  auth-gateway port is templated (`__AUTHGW_PORT__`) instead of hardcoded.
+- **Operator admin bot regains its env-dependent commands.** Its launcher sourced
+  only the secrets file, so `DATA_DIR`/`POCKET_LOG_DIR`/`MATRIX_SERVER_NAME` were
+  empty and `!invite-token`/`!private-list` plus the audit log silently failed.
+  The launcher now exports them (matching the exobot launcher).
+- **Honeypot SQLite no longer lands on the exFAT SD card** (where its own code
+  warns WAL/locking misbehaves). The watcher now points `HP_DB` at an internal
+  ext4 path under `$HOME/.pocket` (overridable via `POCKET_HONEYPOT_DB`).
+- **Email install no longer 404s on the Maddy download** — the arch string is now
+  `aarch64` (upstream's name for arm64), not `arm64`.
+- **Setup wizard completeness**: it now prompts for the honeypot and the
+  scheduled-backup daemon (previously enableable only by hand-editing `.env`),
+  warns that SearXNG / IT-Tools / Gatus have no built-in login and must sit behind
+  Cloudflare Access, and writes the full `MCP_ALLOWED_LOGS` list (fixes a drift
+  introduced in 0.3.1).
+- **No-auth backends are pinned to loopback.** FreshRSS and SnappyMail php-fpm
+  pools (and their Caddy upstreams/probes) now bind `127.0.0.1` explicitly instead
+  of following `CADDY_BIND`, so they cannot be exposed on the LAN if a user sets
+  `CADDY_BIND=0.0.0.0`.
+- **exobot UI** is no longer force-supervised on every bring-up (it is managed
+  on-demand by the waker), restoring its lazy-start / idle-stop behaviour.
+
+### Changed
+
+- **Docs**: `docs/SETUP.md` now walks through creating one Cloudflare Tunnel
+  public hostname per exposed service and protecting them with Cloudflare Access,
+  and includes the literal `pkg install git` / `git clone` first steps;
+  `docs/SECURITY.md` reflects the shipped (optional) honeypot and email backend;
+  `docs/ARCHITECTURE.md` corrects the Matrix hostname to `chat.${DOMAIN}`; the
+  README docs index and `scripts/README.md` are refreshed. Added
+  `ADMINWEB_SECURE_COOKIE` to `.env.example`.
+
 ## [0.3.1] - 2026-06-20
 
 ### Fixed

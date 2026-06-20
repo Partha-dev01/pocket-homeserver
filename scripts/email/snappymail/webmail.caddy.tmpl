@@ -49,7 +49,9 @@ http://__HOST__:__CADDY_PORT__ {
 		root * /opt/snappymail
 		@blocked path /data/* /.*
 		respond @blocked 403
-		php_fastcgi __CADDY_BIND__:__FPM_PORT__
+		# php-fpm is loopback-only by design (Caddy is the only front door); do not
+		# follow CADDY_BIND — it must match the pool's 127.0.0.1 listen address.
+		php_fastcgi 127.0.0.1:__FPM_PORT__
 		file_server
 	}
 }

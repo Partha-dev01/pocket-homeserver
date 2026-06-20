@@ -196,6 +196,8 @@ genuinely practical way to self-host.
 - [docs/WEBMAIL.md](docs/WEBMAIL.md) — the optional SnappyMail webmail UI + Matrix-SSO login plugin.
 - [docs/MATRIX_AUTH_GW.md](docs/MATRIX_AUTH_GW.md) — the optional single sign-on gateway in depth.
 - [docs/MCP.md](docs/MCP.md) — the optional MCP server: connecting a client, the tool set, the tiers, and the security model.
+- [docs/MCP_SERVER_SPEC.md](docs/MCP_SERVER_SPEC.md) — the MCP server's as-built design specification (tool table, transports, threat model).
+- [docs/HONEYPOT.md](docs/HONEYPOT.md) — the optional honeypot / scanner-detection surface (alert-only by default; admin Security console).
 
 ## Repository layout
 

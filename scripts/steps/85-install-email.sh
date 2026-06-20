@@ -97,12 +97,14 @@ ADMIN_ENV="${SECRETS_DIR}/mail-admin.env"      # generated: ADMIN_USER/ADMIN_PAS
 # marked placeholder — DO NOT trust it as-is.
 #
 # TODO(human:pin): set MADDY_SHA256 to the real sha256 of the archive you download
-# for your CPU arch (verify against the upstream checksums / release page), e.g.:
+# for your CPU arch (verify against the upstream checksums / release page). For an
+# arm64 phone that is the `aarch64` asset, e.g.:
+#   maddy-${MADDY_VERSION}-aarch64-linux-musl.tar.zst
 #   curl -fsSL "$MADDY_URL" | sha256sum
 # fetch_verified is fail-closed: with the placeholder hash the download is rejected
 # and the install aborts rather than running an unverified binary.
 MADDY_VERSION="${MADDY_VERSION:-0.9.5}"
-MADDY_ARCH="${MADDY_ARCH:-arm64}"   # arm64 for a typical phone; set amd64 on a PC test box
+MADDY_ARCH="${MADDY_ARCH:-aarch64}"   # upstream uses 'aarch64' for arm64 phones; set 'amd64' on an x86 PC test box
 MADDY_URL="${MADDY_URL:-https://github.com/foxcpp/maddy/releases/download/v${MADDY_VERSION}/maddy-${MADDY_VERSION}-${MADDY_ARCH}-linux-musl.tar.zst}"
 MADDY_SHA256="${MADDY_SHA256:-PLACEHOLDER_SET_REAL_SHA256_SEE_TODO_human_pin}"
 

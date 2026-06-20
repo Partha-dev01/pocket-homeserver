@@ -66,7 +66,15 @@ Play Store builds, which are outdated and incompatible):
 Open **Termux:Boot** once after installing it so Android allows it to run at
 boot, and install its package inside Termux later with `pkg install termux-api`.
 
-Then update packages and install git inside Termux.
+Then update packages, install git, and clone this repository — inside Termux:
+
+```bash
+pkg upgrade && pkg install git
+git clone https://github.com/Partha-dev01/pocket-homeserver
+cd pocket-homeserver
+```
+
+Run the remaining steps from inside that `pocket-homeserver` directory.
 
 ## 3. Install the Debian userland
 
@@ -82,12 +90,43 @@ needed). You don't run this by hand — the installer's first steps
    Cloudflare nameservers shown. Wait for the zone to go active.
    *If the domain already serves a live site, export its existing DNS records
    first and re-create anything important before flipping nameservers.*
-2. **Create a Tunnel:** Cloudflare dashboard → Zero Trust → Networks → Tunnels →
-   Create tunnel → connector "Cloudflared". Copy the **tunnel token** (a long
-   `eyJ...` string) — this becomes `CF_TUNNEL_TOKEN`.
-3. **Add a public hostname** for the tunnel pointing at the local reverse proxy,
-   e.g. `chat.${DOMAIN}` → `http://localhost:${CADDY_PORT}`. One hostname per
-   subdomain you expose; the reverse proxy handles path routing.
+2. **Create a Tunnel:** in the Cloudflare dashboard → **Zero Trust / Cloudflare
+   One** → Networks → Tunnels → Create tunnel → connector "Cloudflared". Copy the
+   **tunnel token** (a long `eyJ...` string) — this becomes `CF_TUNNEL_TOKEN`.
+3. **Add one public hostname per subdomain you expose.** Every hostname points at
+   the same local reverse proxy — `http://localhost:${CADDY_PORT}` — and Caddy
+   routes by hostname. At minimum you need `chat.${DOMAIN}` (Matrix/Element). Add
+   `admin.${DOMAIN}` for the admin panel (step 10), and one more for **each app
+   you enable** in step 9, following the same pattern:
+
+   | Public hostname | Service |
+   |---|---|
+   | `chat.${DOMAIN}` | `http://localhost:${CADDY_PORT}` |
+   | `admin.${DOMAIN}` | `http://localhost:${CADDY_PORT}` |
+   | `<app>.${DOMAIN}` (e.g. `links`, `search`, …) | `http://localhost:${CADDY_PORT}` |
+
+   The app subdomains are listed in [APPS.md](APPS.md); add a row only for the apps
+   you turn on. You can come back and add hostnames as you enable more apps.
+
+### Protect your apps with Cloudflare Access
+
+The phone has no inbound ports, but a **public tunnel hostname is reachable by
+anyone on the internet** until you put an identity gate in front of it. That gate
+is **Cloudflare Access** (in the same Zero Trust / Cloudflare One dashboard). For
+each hostname you expose, add an Access **application + policy**:
+
+- **Zero Trust / Cloudflare One → Access → Applications → Add an application →
+  Self-hosted**, set the application domain to the hostname (e.g.
+  `admin.${DOMAIN}`), and add a policy that *Allows* only your trusted identities
+  (an email allow-list, a one-time PIN, or your IdP).
+
+> ⚠️ **Three apps have NO login of their own — SearXNG (metasearch), IT-Tools
+> (developer toolbox), and Gatus (status page).** For these, **Cloudflare Access
+> is the only thing standing between the internet and the app.** If you expose any
+> of them without an Access policy, you publish an open service. The apps that *do*
+> have a native login (bookmarks, RSS, notes, tasks, file sharing) should still be
+> behind Access as well — it is defense in depth. Full details, including the
+> optional Matrix-SSO single-sign-on alternative, are in [APP_AUTH.md](APP_AUTH.md).
 
 ## 5. Prepare storage
 
@@ -151,25 +190,48 @@ after you change `.env`); `--reset` forgets the markers.
 
 ## 8. Create your admin user
 
-Registration is token-gated. If you let the wizard generate a registration token
-(step 6), it is already in your `.env`:
+Registration is **closed by default** — the homeserver ships with
+`allow_registration = false`, so signup is off until you explicitly open it. To
+create your first account, mint a fresh registration token and open token-gated
+signup in one step:
 
 ```bash
-grep MATRIX_REGISTRATION_TOKEN .env
+bash scripts/ops/rotate-registration-token.sh
 ```
 
-Open `https://chat.${DOMAIN}`, choose to create an account on your server, and
-supply that token when prompted. The first account you create is the server
-admin. You can mint or rotate the token later from the admin panel's danger zone.
+(Same thing from the menu: `./pocket.sh` → **Rotate credentials** → *Matrix
+registration token*; or from the admin panel's danger zone.) The script edits the
+live homeserver config to set `allow_registration = true` with a new token,
+restarts the homeserver, and **prints the working token** (also saved `0600` to
+`${DATA_DIR}/secrets/registration-token.txt`).
+
+Then open `https://chat.${DOMAIN}`, choose to create an account on your server,
+and supply that token when prompted. **The first account you create becomes the
+server admin.**
+
+> **Heads-up:** re-running `./scripts/install.sh` re-renders the homeserver config
+> and **re-closes** registration. If you need to add more accounts later, just run
+> `scripts/ops/rotate-registration-token.sh` again to mint a new token and reopen
+> signup. See [ADMIN.md](ADMIN.md) for managing the token from the panel.
 
 ## 9. Enable the apps you want
 
 In `.env`, flip the `ENABLE_*` toggles for the apps you want (bookmarks, RSS,
 notes, tasks, file sharing, metasearch, a developer toolbox, status page), then
-re-run the installer. Each enabled app is served on its own subdomain behind the
-login gate — see [APPS.md](APPS.md) for what each one is.
+re-run the installer. Each enabled app is served on its own subdomain — see
+[APPS.md](APPS.md) for what each one is.
+
+For each app you enable, also add its tunnel **public hostname** and a
+**Cloudflare Access** application/policy as described in step 4 — otherwise the app
+is unreachable (no hostname) or, for the three apps with no built-in login,
+exposed to the internet (no Access).
 
 ## 10. Verify
+
+The admin panel lives at `admin.${DOMAIN}`. Make sure you added that tunnel public
+hostname **and** a Cloudflare Access application/policy for it (step 4) before
+opening it — the panel has its own login too, but Access is the recommended outer
+gate. Then:
 
 - Open `https://chat.${DOMAIN}` — Element Web should load and you should be able
   to log in.

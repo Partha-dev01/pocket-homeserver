@@ -124,7 +124,10 @@ extras=0
 shopt -s nullglob
 for cmdfile in "${POCKET_STATE_DIR}"/*.cmd; do
   name="$(basename "${cmdfile}" .cmd)"
-  case " matrix caddy cloudflared backup-daemon " in *" ${name} "*) continue ;; esac
+  # Skip core (handled above) AND exobot-ui: the heavy Gradio UI is lazily
+  # started + idle-stopped by exobot-waker, so pinning it up here on every
+  # bring-up would defeat its on-demand design. The waker itself stays .cmd-driven.
+  case " matrix caddy cloudflared backup-daemon exobot-ui " in *" ${name} "*) continue ;; esac
   mapfile -t _cmd < "${cmdfile}"
   [ "${#_cmd[@]}" -gt 0 ] || { warn "empty launch command for '${name}' (${cmdfile}) — skipping"; continue; }
   [ "${RESTART}" -eq 1 ] && unsupervise "${name}"

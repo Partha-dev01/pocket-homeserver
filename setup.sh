@@ -128,15 +128,9 @@ ask_yn ENABLE_BOOT "Install reboot survival + the self-heal watchdog?" y
 
 # ── Matrix homeserver ────────────────────────────────────────────────────────
 printf '\n'; say "── Matrix homeserver ──────────────────────────────"
-ask_yn _gentok "Generate a registration token now (lets you create your first user)?" y
-if [ "$_gentok" = "true" ]; then
-  MATRIX_REGISTRATION_TOKEN="$(gen_token)"
-  MATRIX_ALLOW_REGISTRATION=true
-  ok "registration token generated and stored in .env (token-gated registration ON)"
-else
-  MATRIX_REGISTRATION_TOKEN=""
-  MATRIX_ALLOW_REGISTRATION=false
-fi
+say "Registration is closed by default. To create your first (admin) account, run"
+say "scripts/ops/rotate-registration-token.sh AFTER the stack is up — it mints a"
+say "token + opens token-gated signup, then register at chat.\$DOMAIN. See docs/SETUP.md step 8."
 
 # ── Optional single sign-on ──────────────────────────────────────────────────
 printf '\n'; say "── Optional single sign-on (advanced) ─────────────"
@@ -169,6 +163,11 @@ ask_yn EN_VIKUNJA  "Tasks (tasks.$DOMAIN)?"                    n
 ask_yn EN_SEARXNG  "Metasearch (search.$DOMAIN)?"             n
 ask_yn EN_ITTOOLS  "Developer tools (tools.$DOMAIN)?"          n
 ask_yn EN_GATUS    "Status page (status.$DOMAIN)?"            n
+if [ "$EN_SEARXNG" = "true" ] || [ "$EN_ITTOOLS" = "true" ] || [ "$EN_GATUS" = "true" ]; then
+  warn "SearXNG, IT-Tools and Gatus have NO built-in login — Cloudflare Access (or"
+  warn "another auth layer) is the ONLY thing protecting them. Without it you publish"
+  warn "an open metasearch proxy / open tools site / open status page. See docs/APP_AUTH.md."
+fi
 
 # ── Privacy & media filters ───────────────────────────────────────────────────
 printf '\n'; say "── Privacy & media filters (optional) ─────────────"
@@ -253,17 +252,41 @@ if [ "$ENABLE_MCP" = "true" ]; then
   ask_yn MCP_ALLOW_DANGER  "Allow the danger tier (panic; still needs a per-call confirm)?" n
 fi
 
+# ── Optional honeypot watcher ─────────────────────────────────────────────────
+printf '\n'; say "── Honeypot watcher (optional) ────────────────────"
+say "A native watcher that tails the Caddy access log and flags scanner probes into"
+say "a ledger the admin panel's Security console reads. No inbound listener, no Caddy"
+say "change; alert-only by default. See docs/HONEYPOT.md."
+ask_yn ENABLE_HONEYPOT "Enable the honeypot watcher?" n
+HONEYPOT_DECOY_HOSTS=""
+if [ "$ENABLE_HONEYPOT" = "true" ]; then
+  ask HONEYPOT_DECOY_HOSTS "Decoy subdomains (comma-separated, e.g. nas.$DOMAIN,vpn.$DOMAIN; blank = none)"
+fi
+
+# ── Optional scheduled-backup daemon ──────────────────────────────────────────
+printf '\n'; say "── Scheduled backups (optional daemon) ────────────"
+say "A small supervised loop that wakes once a day and snapshots automatically: the"
+say "Matrix DB weekly (Sun, UTC) + the full userland on the 1st of the month (UTC),"
+say "then applies retention. On-demand backups still work regardless. See docs/BACKUPS.md."
+ask_yn ENABLE_BACKUP_DAEMON "Enable the scheduled-backup daemon?" n
+BACKUP_DAEMON_HOUR="4"; BACKUP_DAEMON_HC_URL=""
+if [ "$ENABLE_BACKUP_DAEMON" = "true" ]; then
+  ask BACKUP_DAEMON_HOUR   "Hour of day to run (UTC, 0-23)" "4"
+  ask BACKUP_DAEMON_HC_URL "Optional heartbeat URL (e.g. a healthchecks.io ping URL; blank = none)"
+fi
+
 # ── Write .env ───────────────────────────────────────────────────────────────
 # Quote free-form / secret values so the file sources cleanly; leave derived
 # values (${DOMAIN}, ${DATA_DIR}, $HOME) as references, exactly like the template.
 Q_DOMAIN=$(envq "$DOMAIN");        Q_TZ=$(envq "$TZ");            Q_DATA=$(envq "$DATA_DIR")
 Q_TUN=$(envq "$CF_TUNNEL_TOKEN");  Q_AUSER=$(envq "$ADMIN_USER"); Q_APASS=$(envq "$ADMIN_PASSWORD")
-Q_REGTOK=$(envq "$MATRIX_REGISTRATION_TOKEN"); Q_GWADM=$(envq "$AUTHGW_ADMINS")
+Q_GWADM=$(envq "$AUTHGW_ADMINS")
 Q_XLOCAL=$(envq "$EXOBOT_LOCALPART"); Q_XBIN=$(envq "$LLAMA_SERVER_BIN"); Q_XMODEL=$(envq "$MODEL_PATH")
 Q_XROOMS=$(envq "$EXOBOT_ALLOWED_ROOMS"); Q_XUIHOST=$(envq "$EXOBOT_UI_HOST_PUBLIC")
 Q_LANDBRAND=$(envq "$LANDING_BRAND")
 Q_MAILDOMAIN=$(envq "$MAIL_DOMAIN")
 Q_MCPTRANS=$(envq "$MCP_TRANSPORT")
+Q_HPDECOY=$(envq "$HONEYPOT_DECOY_HOSTS"); Q_BDHOUR=$(envq "$BACKUP_DAEMON_HOUR"); Q_BDHC=$(envq "$BACKUP_DAEMON_HC_URL")
 
 umask 077
 tmp="$ENV_OUT.tmp.$$"
@@ -287,11 +310,6 @@ ROOTFS_DIR=\$HOME/debian
 CF_TUNNEL_TOKEN=${Q_TUN}
 CADDY_BIND=127.0.0.1
 CADDY_PORT=8443
-
-# ─── Matrix homeserver ──────────────────────────────────────────────────────
-MATRIX_ALLOW_FEDERATION=false
-MATRIX_ALLOW_REGISTRATION=${MATRIX_ALLOW_REGISTRATION}
-MATRIX_REGISTRATION_TOKEN=${Q_REGTOK}
 
 # ─── Web admin panel ────────────────────────────────────────────────────────
 ENABLE_ADMIN=${ENABLE_ADMIN}
@@ -430,8 +448,16 @@ MCP_ALLOW_OPERATE=${MCP_ALLOW_OPERATE}
 MCP_ALLOW_DANGER=${MCP_ALLOW_DANGER}
 MCP_BEARER_TOKEN_FILE=\${DATA_DIR}/secrets/mcp-bearer.cred
 MCP_LOG_REDACT=true
-MCP_ALLOWED_LOGS=caddy.log,cloudflared.log,matrix.log,adminweb.log,auth-gw.log
+MCP_ALLOWED_LOGS=caddy.log,caddy-access.log,cloudflared.log,matrix.log,adminweb.log,auth-gw.log,honeypot.log,backup-daemon.log
 MCP_RATE_LIMIT=60/min
+
+# ─── Honeypot (optional, alert-only by default) ─────────────────────────────
+# Tails the Caddy access log and flags scanner probes into a ledger the admin
+# panel's Security console reads. No inbound listener / no Caddy change. Matrix
+# alerts, CF blocking and geo enrichment are opt-in via 0600 files / datasets,
+# never .env. See docs/HONEYPOT.md.
+ENABLE_HONEYPOT=${ENABLE_HONEYPOT}
+HONEYPOT_DECOY_HOSTS=${Q_HPDECOY}
 
 # ─── Backups ────────────────────────────────────────────────────────────────
 BACKUP_DIR=\${DATA_DIR}/backups
@@ -441,6 +467,15 @@ BACKUP_AGE_RECIPIENT=
 # age PRIVATE-key file path, needed only to RESTORE an encrypted backup (kept OFF
 # the backup volume). It is a path, not a secret value. Empty by default.
 BACKUP_AGE_IDENTITY=
+
+# ─── Scheduled backups (optional daemon) ────────────────────────────────────
+# When true, start-stack.sh supervises a loop that wakes once a day and snapshots
+# automatically (DB weekly Sun / DB+rootfs on the 1st, UTC), then applies retention.
+ENABLE_BACKUP_DAEMON=${ENABLE_BACKUP_DAEMON}
+# Hour of day (UTC, 0-23) the daemon wakes to run any due snapshot.
+BACKUP_DAEMON_HOUR=${Q_BDHOUR}
+# Optional heartbeat URL (e.g. a healthchecks.io ping URL); empty = no heartbeat.
+BACKUP_DAEMON_HC_URL=${Q_BDHC}
 EOF
 mv -f "$tmp" "$ENV_OUT"
 chmod 600 "$ENV_OUT"
@@ -470,14 +505,17 @@ printf '\n'; ok "configuration summary (no secrets shown):"
   printf '  landing       : %s\n'    "$ENABLE_LANDING"
   printf '  email+webmail : %s%s\n'  "$ENABLE_EMAIL" "$([ "$ENABLE_EMAIL" = "true" ] && echo " (domain=$MAIL_DOMAIN, admin=$ENABLE_WEBMAIL_ADMIN)")"
   printf '  mcp server    : %s%s\n'  "$ENABLE_MCP" "$([ "$ENABLE_MCP" = "true" ] && echo " (transport=$MCP_TRANSPORT, operate=$MCP_ALLOW_OPERATE, danger=$MCP_ALLOW_DANGER)")"
-  printf '  registration  : %s\n'    "$([ -n "$MATRIX_REGISTRATION_TOKEN" ] && echo 'generated (in .env)' || echo 'none')"
+  printf '  honeypot      : %s\n'    "$ENABLE_HONEYPOT"
+  printf '  backup daemon : %s%s\n'  "$ENABLE_BACKUP_DAEMON" "$([ "$ENABLE_BACKUP_DAEMON" = "true" ] && echo " (hour=$BACKUP_DAEMON_HOUR)")"
   printf '  apps enabled  :%s\n'     "${apps:- (none)}"
 } >&2
 
 printf '\n'; say "next: review .env if you wish, then run the installer:"
 say "    ./scripts/install.sh"
-[ -n "$MATRIX_REGISTRATION_TOKEN" ] && \
-  say "your Matrix registration token is in .env — use it to create your first user."
+say "to create your first (admin) account, AFTER the stack is up run"
+say "    bash scripts/ops/rotate-registration-token.sh"
+say "(it mints a token + opens token-gated signup), then register at chat.$DOMAIN."
+say "See docs/SETUP.md step 8 / docs/ADMIN.md."
 
 printf '\n'
 ask_yn _runnow "Run ./scripts/install.sh now?" n

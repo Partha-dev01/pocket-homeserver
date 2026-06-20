@@ -143,7 +143,7 @@ stripped before the gate so they cannot be forged.
 
 | Component | Role | Binds (loopback) | Example hostname |
 |---|---|---|---|
-| Matrix homeserver | chat server (RocksDB) | `127.0.0.1:8448` | `matrix.${DOMAIN}` |
+| Matrix homeserver | chat server (RocksDB) | `127.0.0.1:8448` | `chat.${DOMAIN}` (via Caddy; `/_matrix/*` + `.well-known`) |
 | Caddy | reverse proxy (plain-HTTP loopback origin), static files, security headers | `${CADDY_BIND}:${CADDY_PORT}` | the front door |
 | cloudflared | Cloudflare Tunnel connector | outbound only | — |
 | Element Web | Matrix web client (static) | served by Caddy | `chat.${DOMAIN}` |

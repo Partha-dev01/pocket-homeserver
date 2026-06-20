@@ -155,12 +155,21 @@ fi
 ok "landing page installed (${LANDING_ROOT}/index.html)"
 
 # ── 3. Render + drop the apex Caddy vhost ─────────────────────────────────────
-# Substitute the template tokens in the running shell (the heredoc expands
-# ${DOMAIN}/${CADDY_PORT}/${CADDY_BIND}) and __LANDING_ROOT__ via sed. The core
+# Substitute ALL template tokens with sed (mirrors scripts/render-config.sh): the
+# ${DOMAIN}/${CADDY_PORT}/${CADDY_BIND} site-address/bind vars AND __LANDING_ROOT__
+# /__AUTHGW_PORT__. We must do this with sed, NOT rely on the heredoc: heredoc
+# expansion is non-recursive, so any ${VAR} sitting INSIDE the value of
+# ${VHOST_RENDERED} would survive verbatim and break `caddy validate`. The core
 # Caddyfile imports /etc/caddy/apps/*.caddy, so dropping this file in is all it
 # takes — no hand-edit of the core file.
 say "writing the apex Caddy vhost -> /etc/caddy/apps/landing.caddy"
-VHOST_RENDERED="$(sed "s|__LANDING_ROOT__|${LANDING_ROOT}|g" "${VHOST_TMPL}")"
+VHOST_RENDERED="$(sed \
+  -e "s|\${DOMAIN}|${DOMAIN}|g" \
+  -e "s|\${CADDY_PORT}|${CADDY_PORT}|g" \
+  -e "s|\${CADDY_BIND}|${CADDY_BIND}|g" \
+  -e "s|__AUTHGW_PORT__|${AUTHGW_PORT:-9095}|g" \
+  -e "s|__LANDING_ROOT__|${LANDING_ROOT}|g" \
+  "${VHOST_TMPL}")"
 proot-distro login debian -- bash -lc 'mkdir -p /etc/caddy/apps && cat > /etc/caddy/apps/landing.caddy' <<EOF || die "failed to write /etc/caddy/apps/landing.caddy"
 ${VHOST_RENDERED}
 EOF

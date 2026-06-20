@@ -114,16 +114,23 @@ reach is **loopback** — where the sensitive services live. Mitigations:
 - Enable remote-locate / remote-wipe.
 
 ### Deception (optional)
-A honeypot / decoy surface can be added as a *concept*: routes that look like
-common targets but only log and tarpit, turning scans into signal. Treat the
-specifics of any decoy as deployment-private.
+An **optional, off-by-default honeypot** ships with the stack (`ENABLE_HONEYPOT`):
+a native watcher that tails the Caddy access log, flags high-confidence scanner
+probes (requests for `/.env`, `/.git`, `/wp-login.php`, …), and surfaces them in
+the admin panel's Security console — turning scans into signal. It opens no new
+listener and changes nothing at the edge by default; Matrix alerts and Cloudflare
+edge blocking are each separately opt-in. See [HONEYPOT.md](HONEYPOT.md).
 
 ## What this design deliberately does not do
 
 - **No federation** — avoids the largest attack surface and unwanted state/egress.
 - **No open room directory** — no anonymous room enumeration.
-- **No email-based password reset** — running an inbound mail server is out of
-  scope; password resets go through the admin.
+- **No email-based password reset in the base design** — password resets go
+  through the admin. The phone never exposes an inbound SMTP port. An **optional,
+  off-by-default email backend** (`ENABLE_EMAIL`) does exist, but it deliberately
+  accepts no SMTP on the device: inbound mail arrives via a pull-based Cloudflare
+  Email Routing → R2 → drain pipeline into a loopback-only mailbox, and outbound
+  goes through a relay. See [EMAIL.md](EMAIL.md).
 - **No always-on voice/video relay (TURN)** in the base design.
 
 ## Operator checklist

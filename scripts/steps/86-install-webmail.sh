@@ -428,15 +428,15 @@ supervise snappymail-fpm -- \
   -- bash "${SM_WEBROOT}/run-fpm.sh"
 
 # Wait for the FastCGI port to accept (probe from inside the userland).
-say "waiting for php-fpm to listen on ${CADDY_BIND}:${SM_FPM_PORT}"
+say "waiting for php-fpm to listen on 127.0.0.1:${SM_FPM_PORT}"
 fpm_up=0
 for _ in $(seq 1 20); do
-  if in_debian "python3 -c 'import socket,sys; s=socket.socket(); s.settimeout(2); sys.exit(0 if s.connect_ex((\"${CADDY_BIND}\",${SM_FPM_PORT}))==0 else 1)'" >/dev/null 2>&1; then
+  if in_debian "python3 -c 'import socket,sys; s=socket.socket(); s.settimeout(2); sys.exit(0 if s.connect_ex((\"127.0.0.1\",${SM_FPM_PORT}))==0 else 1)'" >/dev/null 2>&1; then
     fpm_up=1; break
   fi
   sleep 1
 done
-[ "${fpm_up}" -eq 1 ] && ok "php-fpm listening on ${CADDY_BIND}:${SM_FPM_PORT}" \
+[ "${fpm_up}" -eq 1 ] && ok "php-fpm listening on 127.0.0.1:${SM_FPM_PORT}" \
   || warn "php-fpm not listening yet on ${CADDY_BIND}:${SM_FPM_PORT} — check ${POCKET_LOG_DIR}/snappymail-fpm.log"
 
 # ── 6. Bootstrap the data dir (first request creates _data_/_default_) ────────

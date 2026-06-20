@@ -6,6 +6,7 @@
 #     ${CADDY_PORT}      -> the shared loopback port Caddy listens on
 #     ${CADDY_BIND}      -> the loopback bind address
 #     __LANDING_ROOT__   -> the in-userland dir Caddy serves the static page from
+#     __AUTHGW_PORT__    -> the optional Matrix-SSO gateway loopback port
 #
 # Edge model (matches every other vhost EXACTLY): explicit
 # http://<host>:${CADDY_PORT} + `bind ${CADDY_BIND}` — plain HTTP on the shared
@@ -13,11 +14,10 @@
 # here. The explicit `http://` and the `bind` line are BOTH required: without
 # them this would land on a separate Caddy server and return empty/404.
 #
-# This is the APEX host (bare ${DOMAIN}, not a subdomain), so the install script's
-# "already present?" check greps for the exact `http://${DOMAIN}:${CADDY_PORT}`
-# token rather than a substring — otherwise it would falsely match every
-# subdomain vhost (links.${DOMAIN}, chat.${DOMAIN}, ...) that also contains the
-# apex domain as a substring.
+# This is the APEX host (bare ${DOMAIN}, not a subdomain). The install script is
+# idempotent by OVERWRITE: it rewrites /etc/caddy/apps/landing.caddy in full on
+# every run, then re-validates the whole Caddyfile fail-closed — so there is no
+# substring "already present?" grep to get fooled by subdomain vhosts.
 #
 # AUTH MODEL (default): the portal is PUBLIC — it is only a directory of links,
 # and every app it points to enforces its own authentication (the apps are gated
@@ -48,7 +48,7 @@ http://${DOMAIN}:${CADDY_PORT} {
 		# 404 them at the edge so only the public authgw paths proxy through.
 		@authgw_private path /authgw/oidc/token /authgw/oidc/userinfo /authgw/oidc/jwks /authgw/oidc-rs/jwks
 		respond @authgw_private 404
-		reverse_proxy 127.0.0.1:9095 {
+		reverse_proxy 127.0.0.1:__AUTHGW_PORT__ {
 			header_up X-Forwarded-For {client_ip}
 			header_up X-Real-IP {client_ip}
 		}

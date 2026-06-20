@@ -164,7 +164,10 @@ daemonize = no
 [freshrss]
 user = root
 group = root
-listen = ${CADDY_BIND}:${FR_FPM_PORT}
+; php-fpm is loopback-only by design (Caddy is the only front door); do not
+; follow CADDY_BIND. This no-auth backend must never be LAN-reachable even if an
+; operator sets CADDY_BIND=0.0.0.0 to expose Caddy itself.
+listen = 127.0.0.1:${FR_FPM_PORT}
 pm = ondemand
 pm.max_children = 4
 pm.process_idle_timeout = 30s
@@ -264,7 +267,7 @@ say "writing ${FR_DIR}/run-fpm.sh + ${FR_DIR}/run-refresh.sh launchers"
 proot-distro login debian -- bash -lc "umask 077; cat > '${FR_DIR}/run-fpm.sh'" <<LAUNCH
 #!/bin/bash
 # Runs INSIDE the Debian userland; started + kept alive by apps/freshrss.sh.
-# Serves FreshRSS on ${CADDY_BIND}:${FR_FPM_PORT}; Caddy fronts the public TLS edge.
+# Serves FreshRSS on 127.0.0.1:${FR_FPM_PORT} (loopback-only); Caddy fronts the public TLS edge.
 exec ${FR_FPM_BIN} -R -F -y '${FR_FPM_CONF}'
 LAUNCH
 in_debian "chmod +x '${FR_DIR}/run-fpm.sh'" || die "failed to make ${FR_DIR}/run-fpm.sh executable"
@@ -338,7 +341,7 @@ http://${FR_HOST}:${CADDY_PORT} {
 	# 	copy_headers Remote-User
 	# }
 
-	php_fastcgi ${CADDY_BIND}:${FR_FPM_PORT}
+	php_fastcgi 127.0.0.1:${FR_FPM_PORT}
 	file_server
 }
 EOF
