@@ -160,8 +160,10 @@ MCP_LOG_REDACT    = _env("MCP_LOG_REDACT", "true").strip().lower() != "false"
 MCP_BEARER_TOKEN_FILE = _env("MCP_BEARER_TOKEN_FILE") or os.path.join(
     SECRETS, "mcp-bearer.cred")
 
-# CF Access knobs reused verbatim from the admin panel (no new CF keys).
-CF_ACCESS_MODE        = _env("CF_ACCESS_MODE", "log").lower()
+# CF Access knobs reused from the admin panel (no new CF keys). NOTE: unlike the
+# admin panel, the HTTP transport ALWAYS enforces JWT validation when a team domain
+# is set — it intentionally ignores CF_ACCESS_MODE so a remote tool surface is
+# fail-closed (there is no "log-only" permissive mode here).
 CF_ACCESS_TEAM_DOMAIN = _env("CF_ACCESS_TEAM_DOMAIN")
 CF_ACCESS_AUD         = _env("CF_ACCESS_AUD")
 CF_ACCESS_ISSUER      = f"https://{CF_ACCESS_TEAM_DOMAIN}" if CF_ACCESS_TEAM_DOMAIN else ""
@@ -233,19 +235,40 @@ _RE_KV_SECRET   = re.compile(
     r'(?i)\b(password|passwd|secret|api[_-]?key|access[_-]?token'
     r'|registration[_-]?token|auth[_-]?token|bot[_-]?token|'
     r'client[_-]?secret)\b(\s*[:=]\s*)\S+')
+# Generic env/KV secrets by name convention (e.g. FOO_TOKEN=, DB_PASS=, AWS_SECRET=).
+# The leading-`\b` + separator-before-key/pass/cred avoids matching words like
+# "monkey"/"keyboard" while still catching real *_KEY=/_PASS= env dumps.
+_RE_KV_GENERIC  = re.compile(
+    r'(?i)\b(\w*(?:secret|token|passwd|password)\w*'
+    r'|\w+[_-](?:key|pass|cred|credential|credentials))(\s*[:=]\s*)\S+')
+# Bare Matrix access/refresh tokens (syt_…/syr_…); the underscores break _RE_LONG_B64.
+_RE_MATRIX_TOK  = re.compile(r'(?i)\bsy[tr]_[A-Za-z0-9._~+/\-]{10,}=*')
+# PEM private-key blocks (any internal line length, multiline).
+_RE_PEM_KEY     = re.compile(
+    r'(?s)-----BEGIN[^-]*PRIVATE KEY-----.*?-----END[^-]*PRIVATE KEY-----')
+# Credentials embedded in a URL: scheme://user:pass@host.
+_RE_BASIC_AUTH  = re.compile(r'([A-Za-z][A-Za-z0-9+.\-]*://)[^/\s:@]+:[^/\s@]+@')
 _RE_LONG_HEX    = re.compile(r'\b[A-Fa-f0-9]{32,}\b')
 _RE_LONG_B64    = re.compile(r'[A-Za-z0-9+/]{40,}={0,2}')
 
 
 def _redact(text):
-    """Redact secret-shaped substrings. Honors MCP_LOG_REDACT (default on)."""
+    """Redact secret-shaped substrings. Honors MCP_LOG_REDACT (default on).
+    Fail-safe by design: over-redacting a log line is acceptable, leaking a
+    credential is not. Covers auth headers, bearer/Matrix tokens, KV secrets
+    (named + by convention), PEM private keys, in-URL credentials, and long
+    hex/base64 runs."""
     if not text:
         return text
     if not MCP_LOG_REDACT:
         return text
-    out = _RE_AUTH_HEADER.sub(r'\1<redacted>', text)
+    out = _RE_PEM_KEY.sub('<redacted-private-key>', text)
+    out = _RE_BASIC_AUTH.sub(r'\1<redacted>@', out)
+    out = _RE_AUTH_HEADER.sub(r'\1<redacted>', out)
     out = _RE_BEARER.sub(r'\1 <redacted>', out)
     out = _RE_KV_SECRET.sub(r'\1\2<redacted>', out)
+    out = _RE_KV_GENERIC.sub(r'\1\2<redacted>', out)
+    out = _RE_MATRIX_TOK.sub('<redacted>', out)
     out = _RE_LONG_HEX.sub('<redacted>', out)
     out = _RE_LONG_B64.sub('<redacted>', out)
     return out
@@ -253,8 +276,9 @@ def _redact(text):
 
 # ---------- audit ----------
 def _audit(tool, **kw):
-    """Append one JSON audit line for a tools/call, mirroring admin/app.py
-    log_audit() (schema: ts, user, source, action, [args]). The caller identity
+    """Append one JSON audit line for a tools/call, written to the SAME audit file
+    as admin/app.py log_audit() (this variant adds source=mcp and omits the ip/ua
+    fields). Schema: ts, user, source, action, [args]. The caller identity
     is the per-request _CALLER (CF-Access email for HTTP, "ssh" for stdio). Args
     are REDACTED and a `confirm` value is never recorded. Best-effort — auditing
     never crashes a tool."""
@@ -924,6 +948,12 @@ class _RateLimiter:
     def ok(self, key):
         now = time.time()
         with self._lock:
+            # Bound memory under key churn (we key on a client-influenced IP):
+            # drop buckets whose newest hit has aged out of the window.
+            if len(self._hits) > 4096:
+                stale = now - self.window
+                self._hits = {k: v for k, v in self._hits.items()
+                              if v and v[-1] >= stale}
             q = self._hits.setdefault(key, [])
             cutoff = now - self.window
             while q and q[0] < cutoff:
@@ -955,8 +985,13 @@ class _AuthGate:
         headers = {k.decode("latin1").lower(): v.decode("latin1")
                    for k, v in scope.get("headers", [])}
         client = scope.get("client") or ("?", 0)
-        ip = client[0] if isinstance(client, (list, tuple)) and client else "?"
-        if not _RATE.ok(ip):
+        peer = client[0] if isinstance(client, (list, tuple)) and client else "?"
+        # Behind Caddy every TCP peer is loopback, so keying the limiter on the peer
+        # would be a single global bucket. Caddy sets X-Real-IP to its
+        # trusted_proxies-validated client_ip, so prefer that for a per-caller cap;
+        # fall back to the peer if the header is absent (e.g. a direct local call).
+        rl_key = headers.get("x-real-ip") or headers.get("cf-connecting-ip") or peer
+        if not _RATE.ok(rl_key):
             return await self._deny(send, 429, "rate limited")
         # Gate 3 — bearer credential (constant-time compare).
         auth = headers.get("authorization", "")

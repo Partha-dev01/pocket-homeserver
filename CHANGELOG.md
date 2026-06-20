@@ -7,6 +7,29 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 
 ## [Unreleased]
 
+### Fixed
+
+- **MCP server — hardened secret redaction** (defense-in-depth): the `pocket_logs`
+  output and audit redaction now also scrub bare Matrix access/refresh tokens
+  (`syt_…` / `syr_…`), PEM private-key blocks, credentials embedded in URLs
+  (`scheme://user:pass@host`), and generic `*_TOKEN=` / `*_KEY=` / `*_SECRET=` /
+  `*_PASS=` env-style assignments — in addition to the previous auth-header,
+  bearer, named-secret, long-hex, and base64 coverage.
+- **MCP server — per-caller HTTP rate limiting**: the optional HTTP transport
+  keyed its rate limit on the TCP peer, which is always loopback behind Caddy
+  (so it was effectively one global bucket). It now keys on the reverse-proxy-set
+  client IP (`X-Real-IP` / `Cf-Connecting-IP`, falling back to the peer) so the
+  cap is per-caller, and it bounds the limiter's memory under key churn.
+
+### Changed
+
+- **MCP server — docs/behaviour accuracy**: documented that the HTTP transport
+  *always* enforces the Cloudflare-Access JWT when a team domain is set (it does
+  not honour a `CF_ACCESS_MODE=log` permissive mode); removed the unused
+  `CF_ACCESS_MODE` variable. `.env.example`'s `MCP_ALLOWED_LOGS` now matches the
+  in-code default (adds `caddy-access.log`, `honeypot.log`, `backup-daemon.log`).
+  Marked `docs/MCP_SERVER_SPEC.md` as implemented (shipped in v0.3.0).
+
 ## [0.3.0] - 2026-06-20
 
 ### Added

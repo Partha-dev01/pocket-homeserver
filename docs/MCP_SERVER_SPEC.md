@@ -1,8 +1,8 @@
 # MCP Server — Design Specification
 
-> **Status:** DRAFT / proposed — **not yet implemented.**
-> **Target release:** v0.3.0 (after operator approval of the open decisions in §13).
-> This document is a design RFC. No code ships until the pivotal decisions are locked.
+> **Status:** IMPLEMENTED — shipped in v0.3.0.
+> This document is the as-built design specification; the pivotal decisions in §13
+> were locked with the operator before implementation.
 
 ## 1. Summary
 

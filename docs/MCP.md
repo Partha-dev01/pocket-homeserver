@@ -116,11 +116,10 @@ claude.ai custom connector). It publishes a hostname, so it is fail-closed behin
    # in .env
    MCP_TRANSPORT=http        # or "both" to keep stdio too
    MCP_HTTP_HOST=mcp         # → mcp.${DOMAIN}
-   # HTTP mode also validates the Cloudflare Access JWT in-process; reuse the same
-   # CF Access keys the admin panel uses:
+   # HTTP mode also validates the Cloudflare Access JWT in-process (always enforced
+   # when a team domain is set); reuse the same CF Access keys the admin panel uses:
    CF_ACCESS_TEAM_DOMAIN=<your-team>.cloudflareaccess.com
    CF_ACCESS_AUD=<the Access application AUD tag>
-   CF_ACCESS_MODE=enforce
 
    bash scripts/install.sh --force
    ```
@@ -281,8 +280,10 @@ credential.
 | `MCP_ALLOWED_LOGS` | core set | Comma-separated log basenames `pocket_logs` may read. |
 | `MCP_RATE_LIMIT` | `60/min` | Per-session call cap. |
 
-HTTP mode also reuses the admin panel's `CF_ACCESS_MODE` / `CF_ACCESS_TEAM_DOMAIN`
-/ `CF_ACCESS_AUD` for in-process JWT validation — no new Cloudflare keys.
+HTTP mode also reuses the admin panel's `CF_ACCESS_TEAM_DOMAIN` / `CF_ACCESS_AUD`
+for in-process JWT validation — no new Cloudflare keys. Unlike the admin panel, the
+HTTP transport always enforces the JWT when a team domain is set (it does not honor
+a `CF_ACCESS_MODE=log` permissive mode — a remote surface is fail-closed).
 
 ## Troubleshooting
 
