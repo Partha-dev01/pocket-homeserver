@@ -951,70 +951,70 @@ def gather_stats():
 CSS = """
 /* ===== design tokens (indigo/blue/teal) ===== */
 :root {
-  --bg:#f5f6fb; --fg:#1a1f36; --muted:#5b6480; --border:#e4e7f1; --panel:#ffffff;
-  --card1:#ffffff; --card2:#f6f8fd;
-  --pre-bg:#0f1430; --pre-fg:#dce2ff; --link:#3257d6; --brand:#5b46e0;
-  --accent:#3257d6; --accent2:#6b4dff; --teal:#0f9b76; --pink:#d6498f; --amber:#b9791a;
-  --btn-bg:#e9ecf7; --btn-hover:#dde2f2; --btn-fg:#2a3358;
-  --btn-primary:#3257d6; --btn-primary-hover:#2746bf; --btn-primary-fg:#fff;
+  --bg:#f4f7f6; --fg:#16201b; --muted:#566b63; --border:#dde7e2; --panel:#ffffff;
+  --card1:#ffffff; --card2:#f2f8f5;
+  --pre-bg:#0e1320; --pre-fg:#d4dbe8; --link:#0c8466; --brand:#0c8466;
+  --accent:#0f9b76; --accent2:#13b487; --teal:#0f9b76; --pink:#d6498f; --amber:#b9791a;
+  --btn-bg:#e6efeb; --btn-hover:#d8e7e1; --btn-fg:#214036;
+  --btn-primary:#40c8a0; --btn-primary-hover:#2c8e72; --btn-primary-fg:#04130e;
   --danger:#d23b54; --danger-hover:#b32942;
   --err-bg:#fde8ee; --err-fg:#9a1b3a; --err-border:#f0b9c7;
   --ok-bg:#e4f7ef; --ok-fg:#0a6b4d; --ok-border:#a9e3cf;
   --warn-bg:#fff4d6; --warn-fg:#7a5200; --warn-border:#e6cf8f;
-  --code-bg:#eef0f8; --danger-bg:#fdeaee; --danger-border:#e7a9b6;
+  --code-bg:#eef3f0; --danger-bg:#fdeaee; --danger-border:#e7a9b6;
   --dot-up:#1faf6b; --dot-down:#d23b54;
-  --shadow:0 4px 18px rgba(30,40,90,.08); --shadow-sm:0 1px 3px rgba(30,40,90,.06);
-  --ring:rgba(50,87,214,.30); --grad:linear-gradient(100deg,#3257d6,#6b4dff 45%,#d6498f);
+  --shadow:0 4px 18px rgba(20,60,45,.08); --shadow-sm:0 1px 3px rgba(20,60,45,.06);
+  --ring:rgba(15,155,118,.30); --grad:linear-gradient(100deg,#0c8466,#0f9b76 45%,#13b487);
 }
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg:#0a0d1e; --fg:#e9ecff; --muted:#98a1c6; --border:#232b50; --panel:#141936;
-    --card1:#171c40; --card2:#0f1430;
-    --pre-bg:#070a18; --pre-fg:#cdd6ff; --link:#86a9ff; --brand:#a99cff;
-    --accent:#5f8cff; --accent2:#8a7cff; --teal:#40c8a0; --pink:#ec6ead; --amber:#f5b945;
-    --btn-bg:#1f2750; --btn-hover:#293467; --btn-fg:#d8def7;
-    --btn-primary:#3257d6; --btn-primary-hover:#436bef; --btn-primary-fg:#fff;
+    --bg:#0a0c12; --fg:#e7ebf3; --muted:#aab2c5; --border:#262c3d; --panel:#141826;
+    --card1:#181d2b; --card2:#0e1320;
+    --pre-bg:#070a10; --pre-fg:#d4dbe8; --link:#5fe0bb; --brand:#5fe0bb;
+    --accent:#40c8a0; --accent2:#5fe0bb; --teal:#40c8a0; --pink:#ec6ead; --amber:#f5b945;
+    --btn-bg:#1b2230; --btn-hover:#252d3d; --btn-fg:#d7deea;
+    --btn-primary:#40c8a0; --btn-primary-hover:#5fe0bb; --btn-primary-fg:#04130e;
     --danger:#e0556b; --danger-hover:#f3667c;
     --err-bg:#2a1622; --err-fg:#ffb3c4; --err-border:#5b2740;
     --ok-bg:#0f2a22; --ok-fg:#7ff0c8; --ok-border:#1f5a47;
     --warn-bg:#2c2410; --warn-fg:#ffd58a; --warn-border:#6b5520;
-    --code-bg:#1b2247; --danger-bg:#251320; --danger-border:#7a2740;
+    --code-bg:#161c2a; --danger-bg:#251320; --danger-border:#7a2740;
     --dot-up:#42d392; --dot-down:#ff5c7c;
     --shadow:0 8px 28px rgba(0,0,0,.40); --shadow-sm:0 1px 3px rgba(0,0,0,.30);
-    --ring:rgba(124,156,255,.40); --grad:linear-gradient(100deg,#9cc0ff,#c4b6ff 38%,#ffb3d9 66%,#9cc0ff);
+    --ring:rgba(64,200,160,.40); --grad:linear-gradient(100deg,#2c8e72,#40c8a0 45%,#5fe0bb);
   }
 }
 body[data-theme=dark] {
-  --bg:#0a0d1e; --fg:#e9ecff; --muted:#98a1c6; --border:#232b50; --panel:#141936;
-  --card1:#171c40; --card2:#0f1430;
-  --pre-bg:#070a18; --pre-fg:#cdd6ff; --link:#86a9ff; --brand:#a99cff;
-  --accent:#5f8cff; --accent2:#8a7cff; --teal:#40c8a0; --pink:#ec6ead; --amber:#f5b945;
-  --btn-bg:#1f2750; --btn-hover:#293467; --btn-fg:#d8def7;
-  --btn-primary:#3257d6; --btn-primary-hover:#436bef; --btn-primary-fg:#fff;
+  --bg:#0a0c12; --fg:#e7ebf3; --muted:#aab2c5; --border:#262c3d; --panel:#141826;
+  --card1:#181d2b; --card2:#0e1320;
+  --pre-bg:#070a10; --pre-fg:#d4dbe8; --link:#5fe0bb; --brand:#5fe0bb;
+  --accent:#40c8a0; --accent2:#5fe0bb; --teal:#40c8a0; --pink:#ec6ead; --amber:#f5b945;
+  --btn-bg:#1b2230; --btn-hover:#252d3d; --btn-fg:#d7deea;
+  --btn-primary:#40c8a0; --btn-primary-hover:#5fe0bb; --btn-primary-fg:#04130e;
   --danger:#e0556b; --danger-hover:#f3667c;
   --err-bg:#2a1622; --err-fg:#ffb3c4; --err-border:#5b2740;
   --ok-bg:#0f2a22; --ok-fg:#7ff0c8; --ok-border:#1f5a47;
   --warn-bg:#2c2410; --warn-fg:#ffd58a; --warn-border:#6b5520;
-  --code-bg:#1b2247; --danger-bg:#251320; --danger-border:#7a2740;
+  --code-bg:#161c2a; --danger-bg:#251320; --danger-border:#7a2740;
   --dot-up:#42d392; --dot-down:#ff5c7c;
   --shadow:0 8px 28px rgba(0,0,0,.40); --shadow-sm:0 1px 3px rgba(0,0,0,.30);
-  --ring:rgba(124,156,255,.40); --grad:linear-gradient(100deg,#9cc0ff,#c4b6ff 38%,#ffb3d9 66%,#9cc0ff);
+  --ring:rgba(64,200,160,.40); --grad:linear-gradient(100deg,#2c8e72,#40c8a0 45%,#5fe0bb);
 }
 body[data-theme=light] {
-  --bg:#f5f6fb; --fg:#1a1f36; --muted:#5b6480; --border:#e4e7f1; --panel:#ffffff;
-  --card1:#ffffff; --card2:#f6f8fd;
-  --pre-bg:#0f1430; --pre-fg:#dce2ff; --link:#3257d6; --brand:#5b46e0;
-  --accent:#3257d6; --accent2:#6b4dff; --teal:#0f9b76; --pink:#d6498f; --amber:#b9791a;
-  --btn-bg:#e9ecf7; --btn-hover:#dde2f2; --btn-fg:#2a3358;
-  --btn-primary:#3257d6; --btn-primary-hover:#2746bf; --btn-primary-fg:#fff;
+  --bg:#f4f7f6; --fg:#16201b; --muted:#566b63; --border:#dde7e2; --panel:#ffffff;
+  --card1:#ffffff; --card2:#f2f8f5;
+  --pre-bg:#0e1320; --pre-fg:#d4dbe8; --link:#0c8466; --brand:#0c8466;
+  --accent:#0f9b76; --accent2:#13b487; --teal:#0f9b76; --pink:#d6498f; --amber:#b9791a;
+  --btn-bg:#e6efeb; --btn-hover:#d8e7e1; --btn-fg:#214036;
+  --btn-primary:#40c8a0; --btn-primary-hover:#2c8e72; --btn-primary-fg:#04130e;
   --danger:#d23b54; --danger-hover:#b32942;
   --err-bg:#fde8ee; --err-fg:#9a1b3a; --err-border:#f0b9c7;
   --ok-bg:#e4f7ef; --ok-fg:#0a6b4d; --ok-border:#a9e3cf;
   --warn-bg:#fff4d6; --warn-fg:#7a5200; --warn-border:#e6cf8f;
-  --code-bg:#eef0f8; --danger-bg:#fdeaee; --danger-border:#e7a9b6;
+  --code-bg:#eef3f0; --danger-bg:#fdeaee; --danger-border:#e7a9b6;
   --dot-up:#1faf6b; --dot-down:#d23b54;
-  --shadow:0 4px 18px rgba(30,40,90,.08); --shadow-sm:0 1px 3px rgba(30,40,90,.06);
-  --ring:rgba(50,87,214,.30); --grad:linear-gradient(100deg,#3257d6,#6b4dff 45%,#d6498f);
+  --shadow:0 4px 18px rgba(20,60,45,.08); --shadow-sm:0 1px 3px rgba(20,60,45,.06);
+  --ring:rgba(15,155,118,.30); --grad:linear-gradient(100deg,#0c8466,#0f9b76 45%,#13b487);
 }
 
 /* ===== base — fluid full width ===== */
@@ -1040,7 +1040,7 @@ header {
 }
 .brand { display:flex; align-items:center; gap:.5rem; font-weight:700; font-size:1.12rem }
 .brand .mark { width:1.6rem; height:1.6rem; display:grid; place-items:center; border-radius:8px;
-  background:var(--grad); color:#fff; font-size:1rem; box-shadow:var(--shadow-sm) }
+  background:var(--grad); color:#04130e; font-size:1rem; box-shadow:var(--shadow-sm) }
 .brand .word { background:var(--grad); -webkit-background-clip:text; background-clip:text; color:transparent }
 .brand .sub { color:var(--muted); font-weight:600; font-size:.78rem; letter-spacing:.12em; text-transform:uppercase; margin-left:.1rem }
 nav { display:flex; gap:.3rem; flex-wrap:wrap; flex-grow:1 }
@@ -1209,7 +1209,7 @@ def render(title, body_html, hide_nav=False):
         flashes += f'<div class="flash {e(cat)}">{e(msg)}</div>'
     pwa_head = (
         '<link rel="manifest" href="/manifest.json">'
-        '<meta name="theme-color" content="#0a0d1e">'
+        '<meta name="theme-color" content="#0a0c12">'
         '<meta name="apple-mobile-web-app-capable" content="yes">'
         f'<meta name="apple-mobile-web-app-title" content="{e(BRAND)}">'
         '<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">'
@@ -3508,10 +3508,10 @@ def sse_events():
 _ICON_LETTER = (BRAND.strip()[:1] or "p").upper()
 _ICON_SVG = (
     '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">'
-    '<rect width="512" height="512" rx="80" fill="#101218"/>'
+    '<rect width="512" height="512" rx="80" fill="#0a0c12"/>'
     '<text x="256" y="340" font-family="ui-monospace,Menlo,monospace" '
     f'font-size="280" font-weight="700" text-anchor="middle" fill="#e7e9ee">{html.escape(_ICON_LETTER)}</text>'
-    '<rect x="64" y="430" width="384" height="14" rx="4" fill="#2c6dec"/>'
+    '<rect x="64" y="430" width="384" height="14" rx="4" fill="#40c8a0"/>'
     "</svg>"
 )
 
@@ -3539,8 +3539,8 @@ def pwa_manifest():
         "scope": "/",
         "display": "standalone",
         "orientation": "any",
-        "background_color": "#101218",
-        "theme_color": "#101218",
+        "background_color": "#0a0c12",
+        "theme_color": "#0a0c12",
         "icons": [
             {"src": "/icon.svg", "type": "image/svg+xml", "sizes": "any", "purpose": "any maskable"},
         ],
