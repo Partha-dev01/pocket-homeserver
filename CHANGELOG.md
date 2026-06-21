@@ -5,7 +5,7 @@ All notable changes to pocket-homeserver are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.3.3] - 2026-06-22
 
 ### Added
 
@@ -391,6 +391,7 @@ productized from a real deployment that has run for ~20 users for months.
   for now (see the setup guide), and the watchdog is on the roadmap. The
   per-service supervisor (crash-respawn) does ship.
 
+[0.3.3]: https://github.com/Partha-dev01/pocket-homeserver/releases/tag/v0.3.3
 [0.3.2]: https://github.com/Partha-dev01/pocket-homeserver/releases/tag/v0.3.2
 [0.3.1]: https://github.com/Partha-dev01/pocket-homeserver/releases/tag/v0.3.1
 [0.3.0]: https://github.com/Partha-dev01/pocket-homeserver/releases/tag/v0.3.0
