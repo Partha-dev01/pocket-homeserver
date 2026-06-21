@@ -11,10 +11,15 @@
 #
 # Cadence (all UTC) — pocket-homeserver has exactly two backup artifacts, the
 # Matrix DB (small, the primary user data) and the full Debian rootfs (large):
-#   • WEEKLY  (Sunday)      → ops/backup-db.sh    — keep a tight recovery window.
-#   • MONTHLY (the 1st)     → ops/backup-db.sh + ops/backup-all.sh (heavy rootfs).
-#   • every other day       → wake, run nothing, log, sleep again.
-# ops/rotate-backups.sh is run at the end of every wake (a safe no-op when nothing
+#   • Matrix DB → ops/backup-db.sh on BACKUP_DB_CADENCE (daily|weekly|monthly,
+#                 default DAILY). DAILY bounds data loss to <=1 day and the tar is
+#                 small; the homeserver pauses only for the snapshot (tens of s).
+#                 A phone gets reboot/LMK-killed often, so sparse DB backups risk
+#                 large loss if the DB is corrupted by an unclean kill — keep it
+#                 tight (see docs/RESILIENCE.md, 2026 corruption post-mortem).
+#   • Rootfs    → ops/backup-all.sh MONTHLY (the 1st) — heavy, infrequent.
+#   • otherwise → wake, run nothing, log, sleep again.
+# ops/rotate-backups.sh runs at the end of every wake (a safe no-op when nothing
 # is due). backup-db / backup-all already call rotate, so the trailing call is
 # belt-and-braces.
 #
@@ -41,6 +46,10 @@ require_cmd date
 OPS="${POCKET_ROOT}/scripts/ops"
 HOUR="${BACKUP_DAEMON_HOUR:-4}"
 HC_URL="${BACKUP_DAEMON_HC_URL:-}"
+DB_CADENCE="${BACKUP_DB_CADENCE:-daily}"   # daily | weekly | monthly (DB snapshot)
+case "${DB_CADENCE}" in daily|weekly|monthly) ;; *)
+  warn "unknown BACKUP_DB_CADENCE='${DB_CADENCE}' — falling back to 'daily'"; DB_CADENCE=daily ;;
+esac
 
 # Idle-class self (and every backup child we fork). Guarded — only lowers our own
 # priority, so it is allowed unprivileged; absent tools are skipped silently.
@@ -49,7 +58,7 @@ command -v renice >/dev/null 2>&1 && renice 19 "$$" >/dev/null 2>&1 \
 command -v ionice >/dev/null 2>&1 && ionice -c3 -p "$$" >/dev/null 2>&1 \
   && say "ionice idle-class self (best-effort idle IO priority)" || true
 
-say "backup-daemon starting (pid=$$) — daily wake at ${HOUR}:00 UTC"
+say "backup-daemon starting (pid=$$) — wake ${HOUR}:00 UTC · DB cadence=${DB_CADENCE} · rootfs monthly"
 if [ -n "${HC_URL}" ]; then
   say "heartbeat enabled (url length ${#HC_URL})"
 else
@@ -82,30 +91,32 @@ while true; do
   DOW="$(date -u +%u)"   # day-of-week  1..7    — weekly gate (7 = Sunday)
   db_ok=1                # 1 = no DB backup attempted-and-failed this wake
 
-  # ── MONTHLY (1st of month, UTC): DB + the heavy full rootfs ─────────────────
-  if [ "${DOM}" = "01" ]; then
-    say "== monthly (1st): Matrix DB backup =="
+  # ── Is a DB snapshot due today, per BACKUP_DB_CADENCE? ──────────────────────
+  do_db=0
+  case "${DB_CADENCE}" in
+    daily)   do_db=1 ;;
+    weekly)  [ "${DOW}" = "7" ]  && do_db=1 ;;
+    monthly) [ "${DOM}" = "01" ] && do_db=1 ;;
+  esac
+
+  if [ "${do_db}" = "1" ]; then
+    say "== Matrix DB backup (cadence=${DB_CADENCE}) =="
     if bash "${OPS}/backup-db.sh"; then
       db_ok=1
     else
       db_ok=0
       warn "ops/backup-db.sh failed"
     fi
+  fi
+
+  # ── MONTHLY (1st of month, UTC): the heavy full rootfs ──────────────────────
+  if [ "${DOM}" = "01" ]; then
     say "== monthly (1st): full rootfs backup (heavy) =="
     bash "${OPS}/backup-all.sh" || warn "ops/backup-all.sh failed"
+  fi
 
-  # ── WEEKLY (Sunday, UTC): DB only ───────────────────────────────────────────
-  elif [ "${DOW}" = "7" ]; then
-    say "== weekly (Sun): Matrix DB backup =="
-    if bash "${OPS}/backup-db.sh"; then
-      db_ok=1
-    else
-      db_ok=0
-      warn "ops/backup-db.sh failed"
-    fi
-
-  else
-    say "nothing scheduled today (DOM=${DOM}, DOW=${DOW}) — sleeping again"
+  if [ "${do_db}" != "1" ] && [ "${DOM}" != "01" ]; then
+    say "nothing scheduled today (DOM=${DOM}, DOW=${DOW}, DB cadence=${DB_CADENCE}) — sleeping again"
   fi
 
   # ── Retention (safe no-op when nothing is due; belt-and-braces) ─────────────

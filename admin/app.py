@@ -762,6 +762,19 @@ def _proc_alive(pattern):
     return (False, 0)
 
 
+def _degraded_marker(name):
+    """If the supervisor has flagged this service as crash-looping, return the
+    marker text (service/rc/fails/since); else None. Written by supervise() in
+    scripts/lib/common.sh after POCKET_CRASHLOOP_FAILS rapid restarts. A service
+    can pgrep-alive momentarily while crash-looping, so this marker — not the
+    instantaneous proc/port check — is the reliable 'stuck' signal."""
+    try:
+        with open(os.path.join(STATE, f"{name}.degraded"), encoding="utf-8") as fh:
+            return fh.read().strip() or None
+    except Exception:
+        return None
+
+
 def gather_health():
     """Run all probes and process checks. Returns structured report."""
     out = {"ts": time.strftime("%FT%TZ", time.gmtime()),
@@ -775,9 +788,11 @@ def gather_health():
     proc_ok = proc_total = 0
     for proc in HEALTH_PROCS:
         alive, pid = _proc_alive(proc["pattern"])
-        out["procs"].append({**proc, "alive": alive, "pid": pid})
+        degraded = _degraded_marker(proc["name"])
+        out["procs"].append({**proc, "alive": alive, "pid": pid, "degraded": degraded})
         proc_total += 1
-        if alive: proc_ok += 1
+        # A crash-looping service is NOT healthy even if pgrep caught it mid-respawn.
+        if alive and not degraded: proc_ok += 1
     out["summary"] = {
         "http_ok": http_ok, "http_total": http_total,
         "proc_ok": proc_ok, "proc_total": proc_total,
@@ -930,7 +945,8 @@ def gather_stats():
             sock.close(); up = True
         except Exception:
             pass
-        s["services"].append({"name": name, "port": port, "up": up})
+        s["services"].append({"name": name, "port": port, "up": up,
+                               "degraded": _degraded_marker(name)})
 
     # cloudflared — check its log for a recent tunnel connection
     try:
@@ -940,6 +956,7 @@ def gather_stats():
             "port": None,
             "up": ("Registered tunnel connection" in log) or ("Connection " in log and "registered" in log.lower()),
             "note": "tunnel",
+            "degraded": _degraded_marker("cloudflared"),
         })
     except Exception:
         pass
@@ -1085,6 +1102,8 @@ hr { border:0; border-top:1px solid var(--border); margin:.8rem 0 }
 .dot { display:inline-block; width:.6rem; height:.6rem; border-radius:50%; vertical-align:middle; margin-right:.45rem }
 .dot.up { background:var(--dot-up); box-shadow:0 0 0 3px color-mix(in srgb,var(--dot-up) 22%,transparent) }
 .dot.down { background:var(--dot-down); box-shadow:0 0 0 3px color-mix(in srgb,var(--dot-down) 22%,transparent) }
+.dot.degraded { background:var(--amber); box-shadow:0 0 0 3px color-mix(in srgb,var(--amber) 26%,transparent); animation:dotpulse 1.4s ease-in-out infinite }
+@keyframes dotpulse { 0%,100%{opacity:1} 50%{opacity:.45} }
 
 /* ===== pills / badges / status ===== */
 .pill { display:inline-flex; align-items:center; gap:.35rem; font-size:.74rem; font-weight:700;
@@ -1440,9 +1459,16 @@ def theme_toggle():
 
 # ---------- dashboard ----------
 def _service_row(svc):
-    dot_cls = "up" if svc["up"] else "down"
     port_s = f":{svc['port']}" if svc.get("port") else ""
     note = f' <span class=small>({e(svc["note"])})</span>' if svc.get("note") else ""
+    # A DEGRADED marker (crash-looping) takes precedence over the up/down probe:
+    # the service may flap green for a moment between respawns.
+    if svc.get("degraded"):
+        hint = ("crash-looping — DB may be corrupt; run scripts/ops/restore.sh"
+                if svc["name"] == "matrix" else "crash-looping — see logs")
+        return (f'<span class="dot degraded"></span>{e(svc["name"])}{port_s} '
+                f'<span class=small style="color:var(--warn-fg)">⚠ {hint}</span>')
+    dot_cls = "up" if svc["up"] else "down"
     return f'<span class="dot {dot_cls}"></span>{e(svc["name"])}{port_s}{note}'
 
 
@@ -1627,8 +1653,13 @@ def health_page():
 
     proc_rows = ""
     for r in h["procs"]:
-        cls = "ok" if r["alive"] else "err"
-        status = f"alive (pid {r['pid']})" if r["alive"] else "DOWN"
+        if r.get("degraded"):
+            cls = "err"
+            status = "CRASH-LOOPING ⚠ (see logs)"
+        elif r["alive"]:
+            cls = "ok"; status = f"alive (pid {r['pid']})"
+        else:
+            cls = "err"; status = "DOWN"
         proc_rows += (
             f'<tr class="health-{cls}"><td>{e(r["name"])}</td>'
             f'<td><code class=small>{e(r["pattern"])}</code></td>'

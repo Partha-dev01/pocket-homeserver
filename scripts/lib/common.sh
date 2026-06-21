@@ -115,6 +115,16 @@ run_once() {
 # Detached respawn loop with a pidfile. On restart it identity-checks the live
 # PID's cmdline, so a reused PID (common after an Android reboot) is never
 # mistaken for our service.
+#
+# Crash-loop safety: a child that stays up >= POCKET_HEALTHY_SECS (default 60s)
+# is "healthy" — the respawn backoff resets and any DEGRADED marker clears. A
+# child that keeps exiting fast is backed off exponentially (POCKET_RESPAWN_MIN
+# .. POCKET_RESPAWN_MAX, default 5s..300s) and, after POCKET_CRASHLOOP_FAILS
+# (default 5) rapid failures, the supervisor writes a machine-readable
+# "$name.degraded" marker (surfaced by the admin panel + status page) and fires
+# the OPTIONAL one-shot POCKET_ALERT_CMD. This stops a corrupt-DB crash loop
+# from silently hammering storage for hours unnoticed — the failure mode behind
+# the RocksDB-corruption post-mortem (see docs/RESILIENCE.md).
 supervise() {
   local name="$1"; shift; [ "${1:-}" = "--" ] && shift
   local pidfile="$POCKET_STATE_DIR/$name.pid"
@@ -122,6 +132,9 @@ supervise() {
   mkdir -p "$POCKET_STATE_DIR" "$POCKET_LOG_DIR"
   if _supervisor_alive "$pidfile" "$name"; then ok "already running: $name"; return 0; fi
   rm -f "$pidfile"
+  # A fresh (re)start clears any stale DEGRADED marker — give the service a clean
+  # slate; the loop below re-raises it if it crash-loops again.
+  rm -f "$POCKET_STATE_DIR/$name.degraded" 2>/dev/null
   # Record the launch argv (one element per line) so a targeted restart can
   # re-supervise this exact command without each caller having to re-specify it
   # (used by scripts/ops/restart.sh). Best-effort; never fatal.
@@ -130,15 +143,49 @@ supervise() {
   # then take down the child too. Fall back to nohup where setsid is absent.
   local launcher=nohup
   command -v setsid >/dev/null 2>&1 && launcher=setsid
+  # Inner respawn loop: exponential backoff + crash-loop circuit breaker.
+  # Args: _sv NAME PIDFILE STATEDIR ALERTCMD -- service argv...
   "$launcher" bash -c '
-    name="$1"; pidfile="$2"; shift 2
+    name="$1"; pidfile="$2"; sdir="$3"; alert="$4"; shift 4
     echo $$ > "$pidfile"
+    degraded="$sdir/$name.degraded"
+    healthy="${POCKET_HEALTHY_SECS:-60}"
+    dmin="${POCKET_RESPAWN_MIN:-5}"; dmax="${POCKET_RESPAWN_MAX:-300}"
+    loopn="${POCKET_CRASHLOOP_FAILS:-5}"
+    delay="$dmin"; fails=0; degr=0
     while true; do
-      "$@"
-      echo "[$(date -u +%FT%TZ)] supervise:$name child exited rc=$? — respawn in 5s" >&2
-      sleep 5
+      t0=$(date -u +%s)
+      "$@"; rc=$?
+      ran=$(( $(date -u +%s) - t0 ))
+      if [ "$ran" -ge "$healthy" ]; then
+        # Healthy run — reset backoff + clear any crash-loop state.
+        delay="$dmin"; fails=0
+        if [ "$degr" = 1 ]; then
+          rm -f "$degraded" 2>/dev/null
+          echo "[$(date -u +%FT%TZ)] supervise:$name RECOVERED (was crash-looping)" >&2
+          degr=0
+        fi
+      else
+        fails=$(( fails + 1 ))
+        echo "[$(date -u +%FT%TZ)] supervise:$name exited rc=$rc after ${ran}s (rapid fail #$fails) — retry in ${delay}s" >&2
+        if [ "$fails" -ge "$loopn" ] && [ "$degr" = 0 ]; then
+          # Crash loop confirmed: raise a loud, machine-readable DEGRADED marker
+          # and fire the optional one-shot alert (cmd from .env; context off-argv).
+          mkdir -p "$sdir" 2>/dev/null
+          printf "service=%s\trc=%s\tfails=%s\tsince=%s\n" "$name" "$rc" "$fails" "$(date -u +%FT%TZ)" > "$degraded" 2>/dev/null
+          echo "[$(date -u +%FT%TZ)] supervise:$name DEGRADED — crash-looping ($fails rapid failures, last rc=$rc); see this log + docs/RESILIENCE.md" >&2
+          if [ -n "$alert" ]; then
+            POCKET_ALERT_SERVICE="$name" POCKET_ALERT_RC="$rc" POCKET_ALERT_FAILS="$fails" \
+              sh -c "$alert" >/dev/null 2>&1 &
+          fi
+          degr=1
+        fi
+      fi
+      sleep "$delay"
+      # Grow backoff only while unhealthy (reset happens on a healthy run above).
+      [ "$fails" -gt 0 ] && { delay=$(( delay * 2 )); [ "$delay" -gt "$dmax" ] && delay="$dmax"; }
     done
-  ' _sv "$name" "$pidfile" "$@" >>"$log" 2>&1 </dev/null &
+  ' _sv "$name" "$pidfile" "$POCKET_STATE_DIR" "${POCKET_ALERT_CMD:-}" "$@" >>"$log" 2>&1 </dev/null &
   disown 2>/dev/null || true
   ok "started: $name (log: $log)"
 }
@@ -169,3 +216,9 @@ unsupervise() {
   fi
   rm -f "$pidfile"
 }
+
+# ── Crash-loop / DEGRADED state (raised by supervise's circuit breaker) ──────
+# is_degraded NAME    — rc 0 if the service is currently flagged crash-looping.
+# degraded_info NAME  — print the marker (service/rc/fails/since) if present.
+is_degraded()   { [ -f "$POCKET_STATE_DIR/$1.degraded" ]; }
+degraded_info() { cat "$POCKET_STATE_DIR/$1.degraded" 2>/dev/null; }

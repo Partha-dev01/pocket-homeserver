@@ -7,6 +7,33 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 
 ## [Unreleased]
 
+### Added
+
+- **Crash-loop resilience for every supervised service.** `supervise()` in
+  `scripts/lib/common.sh` now respawns with exponential backoff
+  (`POCKET_RESPAWN_MIN`..`POCKET_RESPAWN_MAX`, default 5s..300s) instead of a
+  fixed 5s, treats a child that stays up `>= POCKET_HEALTHY_SECS` (default 60s) as
+  healthy (resets backoff), and after `POCKET_CRASHLOOP_FAILS` (default 5) rapid
+  failures raises a machine-readable **DEGRADED** marker and fires an optional
+  one-shot alert. A corrupt-DB crash loop can no longer silently hammer storage
+  for hours unnoticed.
+- **Crash-loop alerting hook** `POCKET_ALERT_CMD` (optional, off by default): a
+  shell command run once when any service goes DEGRADED, with
+  `$POCKET_ALERT_SERVICE` / `$POCKET_ALERT_RC` / `$POCKET_ALERT_FAILS` in the
+  environment (never on argv). Wire it to healthchecks.io, ntfy, Matrix, etc.
+- **DEGRADED visibility in the admin panel + `/health`.** Crash-looping services
+  show an amber pulsing dot and a "crash-looping" badge instead of flapping green;
+  the Matrix row adds a "DB may be corrupt; run `scripts/ops/restore.sh`" hint.
+  The marker auto-clears on a healthy run or a manual restart.
+- **Configurable Matrix-DB backup cadence** `BACKUP_DB_CADENCE`
+  (`daily`|`weekly`|`monthly`), now defaulting to **daily** so an unclean-kill DB
+  corruption costs at most ~1 day of data (the DB tar is small; the heavy rootfs
+  stays monthly).
+- **`docs/RESILIENCE.md`** — the failure modes (unclean-kill RocksDB corruption,
+  silent crash loops), what the stack does automatically, alerting setup, and
+  recovery via `ops/restore.sh`. Plus an OFF-by-default, documented
+  `rocksdb_recovery_mode` block in `config/conduwuit.toml.tmpl`.
+
 ## [0.3.2] - 2026-06-20
 
 ### Fixed

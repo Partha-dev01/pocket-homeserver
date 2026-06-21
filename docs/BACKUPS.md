@@ -91,9 +91,13 @@ snapshots automatically — no cron needed. It wakes **once a day** at hour
 
 | When (UTC) | Runs |
 |---|---|
-| **Every Sunday** | [`ops/backup-db.sh`](../scripts/ops/backup-db.sh) — the Matrix DB (your primary user data; cheap, keeps a tight recovery window) |
-| **The 1st of each month** | [`ops/backup-db.sh`](../scripts/ops/backup-db.sh) **and** [`ops/backup-all.sh`](../scripts/ops/backup-all.sh) — DB plus the heavy full rootfs |
+| **Per `BACKUP_DB_CADENCE`** (default `daily`) | [`ops/backup-db.sh`](../scripts/ops/backup-db.sh) — the Matrix DB (your primary user data; small + cheap). `daily` bounds worst-case loss to ≤ 1 day if the DB is ever corrupted by an unclean kill — recommended. Set `weekly` or `monthly` to snapshot less often. |
+| **The 1st of each month** | [`ops/backup-all.sh`](../scripts/ops/backup-all.sh) — the heavy full rootfs |
 | **Any other day** | nothing — it wakes, logs, and sleeps again |
+
+> Why daily by default? A phone gets rebooted / low-memory-killed often, and an
+> unclean kill can corrupt RocksDB. Sparse DB backups then mean large data loss.
+> See [RESILIENCE.md](RESILIENCE.md) for the full failure-mode + recovery picture.
 
 [`ops/rotate-backups.sh`](../scripts/ops/rotate-backups.sh) runs at the end of every wake, so retention stays
 applied. The daemon (and every backup it forks) runs at idle CPU + best-effort

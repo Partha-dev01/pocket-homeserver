@@ -13,6 +13,26 @@ address            = "127.0.0.1"
 port               = 8448
 max_request_size   = 52428800            # 50 MB
 
+# ── Crash / unclean-shutdown durability (OPTIONAL — TEST on your build first) ──
+# A phone homeserver is reboot- and low-memory-killer-prone; an unclean kill
+# mid-write can leave RocksDB unable to open (a MANIFEST referencing SSTs that
+# were never fsync'd) → conduwuit crash-loops. pocket-homeserver already (a) backs
+# off + raises a DEGRADED flag instead of hammering a broken DB, (b) takes DAILY
+# DB backups so loss is bounded, and (c) ships scripts/ops/restore.sh — see
+# docs/RESILIENCE.md. You can ADDITIONALLY ask RocksDB to self-recover to the last
+# consistent point on open. Option names/semantics VARY by continuwuity build, and
+# a key your build rejects fails CLOSED at startup — so these are left OFF here;
+# cross-check your version's example config, then uncomment and confirm the server
+# still starts before relying on them:
+#
+#   # Recover to the last consistent point rather than refusing to open after a
+#   # torn write (drops only the un-fsync'd tail). 2 = PointInTime on most builds.
+#   rocksdb_recovery_mode = 2
+#
+#   # Leave rocksdb_repair OFF by default — repair can be lossy. Only run a repair
+#   # deliberately on an already-broken DB (or just restore.sh the last backup).
+#   # rocksdb_repair = false
+
 # Registration is closed; create accounts with single-use invite tokens minted
 # by the admin. Set a strong token out-of-band — never commit it here.
 allow_registration = false
