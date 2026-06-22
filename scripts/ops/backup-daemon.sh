@@ -122,6 +122,14 @@ while true; do
   # ── Retention (safe no-op when nothing is due; belt-and-braces) ─────────────
   bash "${OPS}/rotate-backups.sh" >/dev/null 2>&1 || warn "ops/rotate-backups.sh reported a problem"
 
+  # ── Optional off-device push of the ENCRYPTED archives (self-gates) ─────────
+  # Mirrors local retention to the remote. Refuses to run unless backups are
+  # age-encrypted (BACKUP_AGE_RECIPIENT set). See docs/BACKUPS.md.
+  if [ "${ENABLE_OFFSITE_BACKUP:-false}" = "true" ]; then
+    say "== offsite push (encrypted) =="
+    bash "${OPS}/offsite-push.sh" || warn "ops/offsite-push.sh reported a problem"
+  fi
+
   # ── Optional heartbeat ──────────────────────────────────────────────────────
   if [ -n "${HC_URL}" ]; then
     if [ "${db_ok}" = "1" ]; then

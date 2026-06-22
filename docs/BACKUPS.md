@@ -119,3 +119,63 @@ Backups → *Stop the scheduled daemon* (which calls `unsupervise backup-daemon`
 
 Prefer to drive backups yourself? Leave the flag off and run the scripts on demand
 from the admin panel, `./pocket.sh`, or by hand any time.
+
+## Off-device encrypted backup (S3-compatible)
+
+The snapshots above live **on the same phone**. To survive a lost or dead phone,
+pocket-homeserver can push the **age-encrypted** archives to any S3-compatible
+bucket — Cloudflare R2, Backblaze B2 (S3 API), AWS S3, Wasabi, MinIO.
+
+```sh
+ENABLE_OFFSITE_BACKUP=true       # in .env (or pick it in ./setup.sh)
+BACKUP_AGE_RECIPIENT=age1…        # REQUIRED — see below
+```
+
+Then create a **0600** secrets file (the S3 keys never go in `.env`):
+
+```sh
+# ${DATA_DIR}/secrets/offsite.env   (chmod 600)
+S3_ENDPOINT=https://<account>.r2.cloudflarestorage.com    # HTTPS required
+S3_BUCKET=my-pocket-backups
+S3_REGION=auto             # 'auto' for R2; a real region for AWS/B2/Wasabi
+S3_ACCESS_KEY_ID=…
+S3_SECRET_ACCESS_KEY=…
+S3_PREFIX=pocket           # optional folder/prefix inside the bucket
+```
+
+The backup daemon runs the push after each retention pass; you can also run it on
+demand from the admin panel (**backups → push encrypted backups off-device**),
+`./pocket.sh` → *Backups → Push backups off-device*, or directly:
+
+```sh
+bash scripts/ops/offsite-push.sh
+```
+
+It uploads only the `*.tar.zst.age` archives (+ their `.sha256` sidecars), skips
+anything already present (HEAD check), and mirrors local retention to the remote
+(keeps the newest `BACKUP_KEEP_DB` / `BACKUP_KEEP_ROOTFS`). The transfer is a small,
+dependency-free SigV4 client ([`ops/offsite-s3.py`](../scripts/ops/offsite-s3.py)) —
+no `rclone`/`aws`/`boto3` to install or pin. The secret access key flows **only**
+through the signing HMAC; it is never put in a URL, a log line, or on argv.
+
+> **Encryption is mandatory for offsite.** `offsite-push.sh` **refuses to run**
+> unless `BACKUP_AGE_RECIPIENT` is set — plaintext backups must never leave the
+> device. Keep the age **private key off the phone** (it is the only thing that can
+> decrypt what you upload).
+
+### Resource & Risk
+
+- **It uploads over your metered SIM** unless the phone is on Wi-Fi. The monthly
+  rootfs archive is ~1 GB; the daily DB archive is small. Schedule / cadence is the
+  backup daemon's (DB daily, rootfs monthly) — the push only sends what's new.
+- **Single-PUT only (objects must be < 5 GiB).** Multipart upload is intentionally
+  not implemented (it is a large, hard-to-verify amount of signing code). A larger
+  rootfs archive is **skipped with a loud error**, not silently dropped — if yours
+  approaches 5 GiB, prune the userland or copy that archive off by hand.
+- **Restore is manual from the remote:** download the `.age` (+ `.sha256`) objects
+  back into `${BACKUP_DIR}/db` or `/rootfs`, verify, then use the normal
+  [restore](RESTORE_AND_ROTATION.md) path. There is no automatic pull-restore.
+- **Cost / trust:** you are trusting your object-store provider with ciphertext only
+  (age-encrypted), so a bucket compromise leaks nothing usable — but you still pay
+  their storage/egress and must keep the bucket's credentials scoped (a
+  bucket-scoped key, write+list+delete only).

@@ -5,6 +5,43 @@ All notable changes to pocket-homeserver are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-06-22
+
+Reliability & ops: see your phone's health over time, get told when something
+breaks, get backups off the device, and manage Matrix users from the panel. Every
+piece is opt-in (`ENABLE_*`, off by default) and adds no inbound surface.
+
+### Added
+
+- **Observability** — an optional supervised metrics sampler
+  (`scripts/ops/metrics-sampler.py`, `ENABLE_METRICS`) records CPU / memory / swap /
+  load / disk / temperature / battery + the DEGRADED count once a minute into a
+  capped JSONL ring on **ext4**. The admin panel gains a **`/metrics`** page
+  (inline-SVG sparklines + a 24h health strip), a DEGRADED-aware **`/problems`**
+  view with a loud dashboard banner + nav badge, a **run doctor** button, and a
+  **filter + line-count** on the log viewer. See `docs/OBSERVABILITY.md`.
+- **Crash-loop alerts** — `./setup.sh` now wires `POCKET_ALERT_CMD` (none / ntfy /
+  healthchecks / Matrix). The Matrix channel ships `scripts/ops/alert-matrix.sh`,
+  which reads its token from a 0600 file (never `.env`).
+- **Off-device encrypted backup** (`ENABLE_OFFSITE_BACKUP`) — push the
+  age-**encrypted** archives to any S3-compatible bucket (R2 / B2 / S3 / Wasabi /
+  MinIO) via a tiny dependency-free SigV4 client (`scripts/ops/offsite-s3.py` +
+  `offsite-push.sh`); no `rclone`/`aws`/`boto3` to install. It **refuses to upload
+  plaintext**, mirrors local retention, and is wired into the backup daemon, the
+  panel, and `./pocket.sh`. See `docs/BACKUPS.md`.
+- **Matrix user management** (`ENABLE_USER_ADMIN`) — a panel **`/users`** page and
+  `scripts/ops/user-*.sh` (list / create / reset-password / suspend / unsuspend /
+  deactivate / invite) driven through continuwuity's admin command room
+  (`scripts/lib/matrix_admin.py`). Each write op needs CSRF + a password re-auth +
+  audit; deactivation needs a typed confirm. See `docs/USERS.md`.
+
+### Fixed
+
+- The admin panel launcher (`steps/70-install-admin.sh`) now exports **all** the
+  `ENABLE_*` flags (and `MCP_TRANSPORT`) the panel reads — previously the
+  cloud-bots / exobot / stickers / adminbot / email / mcp / filter health rows and
+  the admin-bot widget never appeared even when those modules were enabled.
+
 ## [0.4.0] - 2026-06-22
 
 ### Added
@@ -429,6 +466,7 @@ productized from a real deployment that has run for ~20 users for months.
   for now (see the setup guide), and the watchdog is on the roadmap. The
   per-service supervisor (crash-respawn) does ship.
 
+[0.5.0]: https://github.com/Partha-dev01/pocket-homeserver/releases/tag/v0.5.0
 [0.4.0]: https://github.com/Partha-dev01/pocket-homeserver/releases/tag/v0.4.0
 [0.3.3]: https://github.com/Partha-dev01/pocket-homeserver/releases/tag/v0.3.3
 [0.3.2]: https://github.com/Partha-dev01/pocket-homeserver/releases/tag/v0.3.2

@@ -110,6 +110,7 @@ backups_menu() {
     printf '   6) Stop the scheduled daemon\n'
     printf '   7) Restore — preview the plan       (dry-run; changes nothing)\n'
     printf '   8) Restore — ERASE & RESTORE        (destructive; needs confirm)\n'
+    printf '   9) Push backups off-device          (encrypted → S3/R2/B2)\n'
     printf '    b) back\n\n'
     local c=""; read -r -p "  Choose: " c || c=""
     case "$c" in
@@ -131,6 +132,7 @@ backups_menu() {
       8) warn "This ERASES the live userland + DB and restores from the latest backup."
          confirm "Restore now — erase the current rootfs and DB?" && \
            run_action bash "$POCKET_ROOT/scripts/ops/restore.sh" --confirm=ERASE-AND-RESTORE ;;
+      9) run_action env ENABLE_OFFSITE_BACKUP=true bash "$POCKET_ROOT/scripts/ops/offsite-push.sh" ;;
       b|B|"") return ;;
       *) warn "not a valid choice: $c"; pause ;;
     esac

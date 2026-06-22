@@ -62,6 +62,7 @@ core_steps=(
   "email:steps/85-install-email.sh"
   "webmail:steps/86-install-webmail.sh"
   "mcp:steps/87-install-mcp.sh"
+  "metrics:steps/88-install-metrics.sh"
 )
 
 # Optional apps, in install order, each gated by ENABLE_<APP>.

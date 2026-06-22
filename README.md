@@ -38,7 +38,7 @@ You drive the whole thing from **one interactive menu**:
     q) quit
 ```
 
-> **Status: v0.4.0 — pre-release.** Everything below has landed. Interfaces may
+> **Status: v0.5.0 — pre-release.** Everything below has landed. Interfaces may
 > still change before 1.0, and the fresh-phone, zero-to-running walkthrough is
 > still being hardened — expect some rough edges. See the [changelog](CHANGELOG.md).
 
@@ -58,11 +58,18 @@ You drive the whole thing from **one interactive menu**:
   watchdog revives anything Android's low-memory killer takes down.
 - **Backups, restore & rotation** — database and full-rootfs snapshots with
   retention and optional `age` encryption; a **scripted, dry-run-by-default
-  restore**; and one-command rotation of the admin password, registration token,
-  tunnel token, OIDC signing key, and admin-bot token.
+  restore**; one-command rotation of the admin password, registration token,
+  tunnel token, OIDC signing key, and admin-bot token; and an optional
+  **off-device encrypted push** to any S3-compatible bucket (R2 / B2 / S3 / …).
   ([docs/BACKUPS.md](docs/BACKUPS.md), [docs/RESTORE_AND_ROTATION.md](docs/RESTORE_AND_ROTATION.md))
-- **A web admin panel** — health, stats, logs, per-service restarts, backups, and
-  a guarded danger zone, reachable over the tunnel. ([docs/ADMIN.md](docs/ADMIN.md))
+- **Observability & alerts (optional)** — a tiny metrics sampler feeds the panel
+  sparklines + a 24h health strip + a DEGRADED-aware *problems* view, and a
+  crash-loop alert can ping ntfy / healthchecks / Matrix. ([docs/OBSERVABILITY.md](docs/OBSERVABILITY.md))
+- **Matrix user management (optional)** — list / create / reset-password / suspend /
+  deactivate users and mint invite tokens, from the panel or the CLI, driven through
+  the homeserver's admin command room. ([docs/USERS.md](docs/USERS.md))
+- **A web admin panel** — health, stats, logs, per-service restarts, backups,
+  metrics, user management, and a guarded danger zone, over the tunnel. ([docs/ADMIN.md](docs/ADMIN.md))
 - **Optional privacy & media filters** — hide chosen accounts from the member
   search, and fix untyped media so mobile clients render thumbnails. Two small
   loopback proxies, off by default, that fail open. ([docs/FILTERS.md](docs/FILTERS.md))
@@ -235,10 +242,13 @@ tools/       repo tooling (e.g. the leak-scan pre-push guard)
 - [x] Optional landing portal (apex service directory; cards generated from enabled apps)
 - [x] Optional email + webmail (Maddy + R2-drain pipeline + SnappyMail + Matrix-SSO; advanced/BYO)
 - [x] Optional MCP server (official MCP SDK; stdio over SSH + optional HTTP behind CF Access; read/operate/danger tiers)
+- [x] Observability — metrics sampler + admin sparklines / 24h health strip / problems view + crash-loop alerts
+- [x] Off-device encrypted backup (push age-ciphertext to any S3-compatible bucket)
+- [x] Matrix user management in the panel (list/create/reset/suspend/deactivate + invite tokens)
 
 ## Status, license, and contributing
 
-Pre-release (v0.4.0) and under active construction — expect breaking changes.
+Pre-release (v0.5.0) and under active construction — expect breaking changes.
 Licensed under the [MIT License](LICENSE). Issues, bug reports, and discussion are
 welcome — see [CONTRIBUTING.md](CONTRIBUTING.md). Because the repo is public, every
 change is scanned for secrets and deployment-specific data by

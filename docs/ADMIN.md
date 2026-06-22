@@ -45,9 +45,12 @@ break-glass path if the edge is misbehaving.
 | **dashboard** (`/`) | live stat chips (uptime/load/RAM/battery), stack health, per-service quick-restart buttons |
 | **health** (`/health`) | HTTP endpoint probes + process liveness, refreshed every 30 s |
 | **stats** (`/stats`) | device / CPU / memory / thermal / network detail |
-| **backups** (`/backups`) | list + delete snapshots; trigger a DB or full-rootfs backup |
+| **backups** (`/backups`) | list + delete snapshots; trigger a DB / full-rootfs backup; push encrypted backups off-device (when `ENABLE_OFFSITE_BACKUP`) |
 | **tokens** (`/tokens`) | reveal (password-gated) the Matrix registration token |
-| **logs** (`/logs`) | tail the last 200 lines of any service log |
+| **logs** (`/logs`) | tail any service log, with a case-insensitive filter + line count |
+| **metrics** (`/metrics`) | sparklines + a 24h health strip (when `ENABLE_METRICS`) — see [OBSERVABILITY.md](OBSERVABILITY.md) |
+| **users** (`/users`) | list / create / reset-password / suspend / deactivate + invite tokens (when `ENABLE_USER_ADMIN`) — see [USERS.md](USERS.md) |
+| **problems** (`/problems`) | appears when a service is crash-looping or down: per-service detail + restart + a *run doctor* button |
 | **danger** (`/danger`) | rotations + panic kill-switches, behind a two-page typed confirmation |
 
 ### The action surface

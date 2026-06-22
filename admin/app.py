@@ -63,6 +63,11 @@ SECRETS     = os.path.join(DATA_DIR, "secrets")
 STATE       = _env("POCKET_STATE_DIR") or os.path.join(DATA_DIR, "state")
 LOGS        = _env("POCKET_LOG_DIR")   or os.path.join(DATA_DIR, "logs")
 BACKUP_DIR  = _env("BACKUP_DIR")       or os.path.join(DATA_DIR, "backups")
+# Metrics ring written by scripts/ops/metrics-sampler.py. It lives on ext4 (Termux
+# $HOME), NOT under DATA_DIR (often exFAT); the sampler's launcher pins the SAME
+# default, so the panel finds it without threading the path through .env.
+METRICS_LOG = _env("POCKET_METRICS_LOG") or os.path.join(
+    os.path.expanduser("~"), ".pocket", "metrics", "metrics.jsonl")
 
 PASSWORD_FILE       = os.path.join(SECRETS, "adminweb-password.hash")
 SESSION_SECRET_FILE = os.path.join(SECRETS, "adminweb-session.bin")
@@ -109,15 +114,20 @@ ENABLE = {
     "adminbot":     _flag("ENABLE_ADMINBOT"),
     "email":        _flag("ENABLE_EMAIL"),
     "mcp":          _flag("ENABLE_MCP"),
+    "metrics":      _flag("ENABLE_METRICS"),
+    "user-admin":   _flag("ENABLE_USER_ADMIN"),
+    "offsite":      _flag("ENABLE_OFFSITE_BACKUP"),
 }
 
 # Script allowlist — the ONLY scripts a click can run, relative to scripts/. No
 # shell=True; no user input ever reaches a shell (run_script joins fixed argv).
 SCRIPTS_OK = {
     "status":            {"argv": ["ops/status.sh"],                   "kind": "info"},
+    "run-doctor":        {"argv": ["ops/doctor.sh"],                   "kind": "info"},
     "backup-now":        {"argv": ["ops/backup-db.sh"],                "kind": "mutate"},
     "full-backup":       {"argv": ["ops/backup-all.sh"],              "kind": "async"},
     "rotate-backups":    {"argv": ["ops/rotate-backups.sh"],          "kind": "mutate"},
+    "offsite-push":      {"argv": ["ops/offsite-push.sh"],            "kind": "async"},
     "restart-stack":     {"argv": ["start-stack.sh", "--restart"],    "kind": "restart"},
     # per-service restarts → ops/restart.sh <name> (re-supervises from the recorded cmd)
     "restart-matrix":      {"argv": ["ops/restart.sh", "matrix"],          "kind": "restart"},
@@ -137,6 +147,7 @@ SCRIPTS_OK = {
     "restart-gatus":       {"argv": ["ops/restart.sh", "gatus"],           "kind": "restart"},
     "restart-backup-daemon": {"argv": ["ops/restart.sh", "backup-daemon"], "kind": "restart"},
     "restart-honeypot-watcher": {"argv": ["ops/restart.sh", "honeypot-watcher"], "kind": "restart"},
+    "restart-metrics-sampler": {"argv": ["ops/restart.sh", "metrics-sampler"], "kind": "restart"},
     "restart-user-filter":  {"argv": ["ops/restart.sh", "user-filter"],  "kind": "restart"},
     "restart-media-filter": {"argv": ["ops/restart.sh", "media-filter"], "kind": "restart"},
     # danger-tier (go through the two-page typed confirmation)
@@ -698,6 +709,8 @@ def _build_health_procs():
         procs.append({"name": "maddy", "pattern": "maddy run"})
         procs.append({"name": "mail-drain", "pattern": "mail-drain\\.py"})
         procs.append({"name": "snappymail-fpm", "pattern": "snappymail/php-fpm.conf"})
+    if ENABLE["metrics"]:
+        procs.append({"name": "metrics-sampler", "pattern": "metrics-sampler\\.py"})
     if ENABLE["mcp"] and _env("MCP_TRANSPORT", "stdio") in ("http", "both"):
         # Only the HTTP transport is a supervised long-running service; stdio mode
         # is spawned on demand by the client over SSH (nothing to supervise). The
@@ -773,6 +786,17 @@ def _degraded_marker(name):
             return fh.read().strip() or None
     except Exception:
         return None
+
+
+def _degraded_names():
+    """Service names currently flagged DEGRADED (crash-looping) by the supervisor.
+    Cheap — just lists *.degraded markers in STATE, no subprocess — so it is safe
+    to call on every page render (drives the nav 'problems' badge)."""
+    try:
+        return sorted(f[: -len(".degraded")] for f in os.listdir(STATE)
+                      if f.endswith(".degraded"))
+    except OSError:
+        return []
 
 
 def gather_health():
@@ -1210,8 +1234,17 @@ def render(title, body_html, hide_nav=False):
             ("/backups", "backups"), ("/tokens", "tokens"), ("/logs", "logs"),
             ("/danger", "danger"),
         ]
+        if ENABLE.get("metrics"):
+            items.append(("/metrics", "metrics"))
+        if ENABLE.get("user-admin"):
+            items.append(("/users", "users"))
         if ENABLE["honeypot"]:
             items.append(("/honeypot", "security"))
+        # Surface a loud 'problems' tab only when something is crash-looping, so the
+        # nav stays clean normally but a DEGRADED service is impossible to miss.
+        _degr = _degraded_names()
+        if _degr:
+            items.append(("/problems", f"problems ({len(_degr)})"))
         links = ""
         for href, label in items:
             on = " class=active" if (cur == href if href == "/" else cur.startswith(href)) else ""
@@ -1506,6 +1539,22 @@ def dashboard():
     svc_html = "<br>".join(_service_row(x) for x in s["services"])
     restart_buttons = _restart_buttons()
 
+    # Loud problems banner (cheap): crash-loop markers + any down core service.
+    _dnames = _degraded_names()
+    _down = [x["name"] for x in s.get("services", [])
+             if not x.get("up") and not x.get("degraded")]
+    problems_banner = ""
+    if _dnames or _down:
+        _bits = []
+        if _dnames:
+            _bits.append(f"{len(_dnames)} crash-looping ({e(', '.join(_dnames))})")
+        if _down:
+            _bits.append(f"{len(_down)} down ({e(', '.join(_down))})")
+        problems_banner = (
+            '<div class="flash err">⚠ ' + " · ".join(_bits)
+            + ' &nbsp;<a href="/problems">open problems →</a></div>'
+        )
+
     # Optional admin-bot quick-command widget — each button POSTs one allowlisted
     # read-only !command to the admin-ops room (the bot replies in Element).
     bot_widget = ""
@@ -1577,6 +1626,7 @@ def dashboard():
     batt_pct = b['pct'] if b else '?'
 
     body = f"""
+{problems_banner}
 <div class=statgrid>
   <div class=stat><div class=lbl>uptime</div><div class=val>{e(s.get('uptime','?'))}</div></div>
   <div class="stat accent"><div class=lbl>load · 1/5/15m</div><div class=val><span id=k-load>{e(load1)}</span> <small>/ {e(load_rest)}</small></div>
@@ -1595,6 +1645,7 @@ def dashboard():
 <h3>quick restart</h3>
 <p>{restart_buttons}</p>
 <p class=small>Each service auto-restarts on crash; buttons are for manual intervention.</p>
+<p>{action_btn("run-doctor", "run doctor", "small")}<span class=small> &nbsp;read-only preflight + health check (scripts/ops/doctor.sh)</span></p>
 {bot_widget}
 </div>
 
@@ -1991,6 +2042,7 @@ def backups():
 {action_btn("backup-now", "backup the homeserver DB")}
 {action_btn("rotate-backups", "prune old (apply retention)")}
 <p class=small><strong>backup-now</strong> stops the homeserver for tens of seconds for a consistent DB snapshot. App data lives on the large volume (back that up by copying the volume).</p>
+{('<hr>' + action_btn("offsite-push", "push encrypted backups off-device", "primary") + '<p class=small><strong>offsite push</strong> uploads the age-encrypted archives to your S3 bucket and runs in the background. Configure <code>' + e(os.path.join(SECRETS, "offsite.env")) + '</code> (0600). See docs/BACKUPS.md.</p>') if ENABLE.get("offsite") else ''}
 </div>"""
     return render(f"backups — {BRAND} admin", body)
 
@@ -2190,17 +2242,385 @@ def logs_view(name):
     if not os.path.isfile(path):
         abort(404)
     try:
+        n = int(request.args.get("n", "200"))
+    except (TypeError, ValueError):
+        n = 200
+    n = max(20, min(n, 2000))
+    # grep is a plain CASE-INSENSITIVE SUBSTRING filter, not a regex — there is no
+    # pattern to compile and no shell, so no injection or ReDoS surface.
+    grep = (request.args.get("grep", "") or "").strip()
+    total = matched = 0
+    try:
         with open(path, errors="replace") as f:
-            content = "".join(f.readlines()[-200:])
+            lines = f.readlines()
+        total = len(lines)
+        if grep:
+            gl = grep.lower()
+            lines = [ln for ln in lines if gl in ln.lower()]
+            matched = len(lines)
+        content = "".join(lines[-n:])
     except Exception as ex:
         content = f"[read error] {ex}"
+    filt = (f' · matched <strong>{matched}</strong> of {total} lines for '
+            f'<code>{e(grep)}</code>' if grep else f' · {total} lines')
     body = f"""
 <div class=box>
 <h2>log: {e(name)}</h2>
-<pre>{e(content)}</pre>
+<form method=get action="/logs/{e(name)}" class=block>
+  <input type=text name=grep value="{e(grep)}" placeholder="filter (substring, case-insensitive)" autocomplete=off>
+  <input type=text name=n value="{n}" inputmode=numeric pattern="[0-9]*" style="min-width:5rem" title="lines to show (20–2000)">
+  <button type=submit class=small>filter</button>
+  {('<a href="/logs/' + e(name) + '" class="btn small">clear</a>') if grep else ''}
+</form>
+<p class=small>showing last {n} lines{filt}.</p>
+<pre>{e(content) or '(no matching lines)'}</pre>
 <a href="/logs">← logs</a>
 </div>"""
     return render(f"log {name} — {BRAND} admin", body)
+
+
+# ---------- observability: metrics history + problems view ----------
+def _read_metrics(limit=1500):
+    """Tail the JSONL metrics ring (newest `limit` samples) as a list of dicts.
+    Best-effort: a missing/half-written line is skipped, never raised."""
+    try:
+        with open(METRICS_LOG, errors="replace") as fh:
+            lines = fh.readlines()[-limit:]
+    except OSError:
+        return []
+    out = []
+    for ln in lines:
+        ln = ln.strip()
+        if not ln:
+            continue
+        try:
+            out.append(json.loads(ln))
+        except ValueError:
+            continue
+    return out
+
+
+def _svg_spark(vals, w=260, h=46, pad=3):
+    """Inline SVG sparkline from a series (None entries skipped). Reuses the
+    existing svg.spark .ln/.ar CSS so it inherits the theme's accent colour."""
+    pts_vals = [v for v in vals if isinstance(v, (int, float))]
+    if len(pts_vals) < 2:
+        return '<p class=small>not enough data yet</p>'
+    mn, mx = min(pts_vals), max(pts_vals)
+    rng = (mx - mn) or 1.0
+    n = len(pts_vals)
+    coords = []
+    for i, v in enumerate(pts_vals):
+        x = (i / (n - 1)) * (w - 2 * pad) + pad
+        y = (h - pad) - ((v - mn) / rng) * (h - 2 * pad)
+        coords.append(f"{x:.1f},{y:.1f}")
+    d = "M" + " ".join(coords)
+    ar = d + f" {w - pad:.1f},{h - pad:.1f} {pad:.1f},{h - pad:.1f}Z"
+    return (f'<svg class=spark width="{w}" height="{h}" viewBox="0 0 {w} {h}" '
+            f'preserveAspectRatio=none style="width:100%"><path class=ar d="{ar}">'
+            f'</path><path class=ln d="{d}"></path></svg>')
+
+
+def _svg_health_strip(samples, cols=96, w=576, h=22):
+    """A 24h health strip: one column per ~15min bucket, green when no service was
+    DEGRADED in that window, red when one was, grey when there is no sample."""
+    now = int(time.time())
+    span = 24 * 3600
+    start = now - span
+    buckets = [None] * cols  # None=no data, 0=ok, 1=problem
+    for s in samples:
+        ts = s.get("ts")
+        if not isinstance(ts, (int, float)) or ts < start:
+            continue
+        idx = int((ts - start) / span * cols)
+        idx = max(0, min(cols - 1, idx))
+        deg = s.get("deg")
+        prob = 1 if (isinstance(deg, (int, float)) and deg > 0) else 0
+        buckets[idx] = prob if buckets[idx] is None else max(buckets[idx], prob)
+    cw = w / cols
+    rects = []
+    for i, b in enumerate(buckets):
+        fill = ("var(--border)" if b is None
+                else "var(--dot-down)" if b == 1 else "var(--dot-up)")
+        rects.append(f'<rect x="{i * cw:.1f}" y="0" width="{cw + 0.6:.1f}" '
+                     f'height="{h}" style="fill:{fill}"></rect>')
+    return (f'<svg width="{w}" height="{h}" viewBox="0 0 {w} {h}" '
+            f'preserveAspectRatio=none style="width:100%;border-radius:6px;display:block">'
+            f'{"".join(rects)}</svg>')
+
+
+@app.route("/metrics")
+@login_required
+def metrics_page():
+    if not ENABLE.get("metrics"):
+        body = """
+<div class=box>
+<h2>metrics</h2>
+<p>The metrics sampler is not enabled. Set <code>ENABLE_METRICS=true</code> in
+<code>.env</code> and re-run <code>scripts/install.sh --force</code> (or pick it in
+<code>./setup.sh</code>). It records CPU/memory/disk/temperature/load once a minute
+into a tiny capped file the panel charts here. See docs/OBSERVABILITY.md.</p>
+</div>"""
+        return render(f"metrics — {BRAND} admin", body)
+
+    samples = _read_metrics(1500)
+    if not samples:
+        body = f"""
+<div class=box>
+<h2>metrics</h2>
+<p>No samples yet — the sampler may have just started (it writes one sample every
+~minute to <code>{e(METRICS_LOG)}</code>). Refresh shortly.</p>
+</div>"""
+        return render(f"metrics — {BRAND} admin", body)
+
+    last = samples[-1]
+
+    def card(key, label, unit, fmt="{:.0f}"):
+        vals = [s.get(key) for s in samples]
+        present = [v for v in vals if isinstance(v, (int, float))]
+        cur = last.get(key)
+        cur_s = (fmt.format(cur) if isinstance(cur, (int, float)) else "—") + unit
+        if present:
+            stat = (f"min {min(present):.0f}{unit} · "
+                    f"avg {sum(present) / len(present):.0f}{unit} · "
+                    f"max {max(present):.0f}{unit}")
+        else:
+            stat = "no data for this metric"
+        return f"""
+<div class=box>
+<h3>{e(label)}</h3>
+<div class=val style="font-size:1.6rem;font-weight:700;line-height:1">{e(cur_s)}</div>
+{_svg_spark(vals)}
+<p class=small>{e(stat)} · {len(present)} samples</p>
+</div>"""
+
+    cards = (card("cpu", "CPU busy", "%") + card("mem", "memory used", "%")
+             + card("l1", "load (1m)", "", "{:.2f}") + card("temp", "temperature", "°C")
+             + card("disk", "disk used", "%") + card("batt", "battery", "%"))
+
+    health = _svg_health_strip(samples)
+    span_h = (last.get("ts", 0) - samples[0].get("ts", 0)) / 3600.0
+    body = f"""
+<div class=box>
+<h2><span class=ico>\U0001F4C8</span> 24h service health</h2>
+<p class=small>green = all services healthy · red = a service was crash-looping (DEGRADED) · grey = no sample</p>
+{health}
+</div>
+<div class=cardgrid>{cards}</div>
+<p class=small>Sampled by scripts/ops/metrics-sampler.py into <code>{e(METRICS_LOG)}</code>
+(~{span_h:.1f}h shown, {len(samples)} samples). See docs/OBSERVABILITY.md.</p>
+"""
+    return render(f"metrics — {BRAND} admin", body)
+
+
+@app.route("/problems")
+@login_required
+def problems_page():
+    h = gather_health()
+    degraded = [p for p in h["procs"] if p.get("degraded")]
+    down = [p for p in h["procs"] if not p["alive"] and not p.get("degraded")]
+    http_fail = [r for r in h["http"] if not r["ok"]]
+
+    if not (degraded or down or http_fail):
+        body = f"""
+<div class=box>
+<h2>✅ no problems</h2>
+<p>All {h['summary']['proc_total']} services are running and all
+{h['summary']['http_total']} endpoint probes are green.</p>
+<p>{action_btn("run-doctor", "run doctor", "small")}<span class=small> &nbsp;read-only preflight check</span></p>
+<a href="/">← dashboard</a> &nbsp; <a href="/health">full health →</a>
+</div>"""
+        return render(f"problems — {BRAND} admin", body)
+
+    def _restart_for(name):
+        key = f"restart-{name}"
+        return action_btn(key, f"restart {name}", "small danger") if key in SCRIPTS_OK else ""
+
+    rows = []
+    for p in degraded:
+        info = e(p["degraded"] or "")
+        hint = ("DB may be corrupt — see scripts/ops/restore.sh"
+                if p["name"] == "matrix" else "check this service's log")
+        rows.append(
+            f'<div class=box><h3><span class="dot degraded"></span>{e(p["name"])} '
+            f'— crash-looping</h3><pre>{info}</pre>'
+            f'<p class=small>{hint}</p>'
+            f'<p>{_restart_for(p["name"])} '
+            f'<a href="/logs/{e(p["name"])}" class="btn small">view log</a></p></div>')
+    for p in down:
+        rows.append(
+            f'<div class=box><h3><span class="dot down"></span>{e(p["name"])} '
+            f'— not running</h3>'
+            f'<p>{_restart_for(p["name"])} '
+            f'<a href="/logs/{e(p["name"])}" class="btn small">view log</a></p></div>')
+    http_html = ""
+    if http_fail:
+        items = "".join(
+            f'<li>{e(r["name"])}: '
+            f'{("HTTP " + str(r["code"])) if r["code"] else "unreachable"}'
+            f'{(" — " + e(r["error"])) if r.get("error") else ""}</li>'
+            for r in http_fail)
+        http_html = (f'<div class=box><h3>endpoint probes failing</h3>'
+                     f'<ul>{items}</ul>'
+                     f'<p class=small>An app behind Cloudflare Access may answer 302 '
+                     f'to its login — that is expected, not an outage.</p></div>')
+
+    body = f"""
+<div class="flash err">⚠ {len(degraded)} crash-looping · {len(down)} down · {len(http_fail)} probe failure(s)</div>
+<p>{action_btn("run-doctor", "run doctor", "small")}
+<a href="/danger" class="btn danger small">full-stack restart…</a>
+<a href="/health" class="btn small">full health →</a></p>
+<div class=cardgrid>{''.join(rows)}</div>
+{http_html}
+"""
+    return render(f"problems — {BRAND} admin", body)
+
+
+# ---------- Matrix user management (optional — ENABLE_USER_ADMIN) ----------
+# These drive continuwuity's admin command room through fixed-argv ops/user-*.sh
+# (no shell, validated input). Every write op requires a CSRF token + a password
+# re-auth + an audit-log entry; deactivation additionally requires retyping the
+# exact user id. continuwuity returns generated passwords in its room reply, so
+# those land in the admin room history — see docs/USERS.md.
+_VALID_LOCALPART = re.compile(r"^[a-z0-9][a-z0-9._=-]{0,63}$")
+_VALID_MXID = re.compile(r"^@[a-z0-9._=/+-]+:[A-Za-z0-9.:-]+$")
+# op -> (script, value-kind, needs_typed_confirm)
+_USER_OPS = {
+    "create":     ("user-create.sh",         "localpart", False),
+    "reset":      ("user-reset-password.sh",  "localpart", False),
+    "suspend":    ("user-suspend.sh",         "user",      False),
+    "unsuspend":  ("user-unsuspend.sh",       "user",      False),
+    "deactivate": ("user-deactivate.sh",      "user",      True),
+    "invite":     ("user-invite.sh",          "count",     False),
+}
+
+
+def run_user_op(script, *args, timeout=90):
+    """Run an ops/user-*.sh with FIXED, pre-validated argv (no shell)."""
+    cmd = ["bash", os.path.join(SCRIPTS, "ops", script), *args]
+    try:
+        p = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        return p.returncode, (p.stdout + p.stderr)
+    except subprocess.TimeoutExpired:
+        return -1, f"timed out after {timeout}s"
+    except Exception as ex:
+        return -2, str(ex)
+
+
+@app.route("/users")
+@login_required
+def users_page():
+    if not ENABLE.get("user-admin"):
+        body = """
+<div class=box>
+<h2>users</h2>
+<p>Matrix user management is not enabled. Set <code>ENABLE_USER_ADMIN=true</code>
+in <code>.env</code> and re-run <code>scripts/install.sh --force</code> (or pick it
+in <code>./setup.sh</code>). It drives the homeserver's admin command room. See
+docs/USERS.md.</p>
+</div>"""
+        return render(f"users — {BRAND} admin", body)
+
+    rc, out = run_user_op("user-list.sh")
+    list_block = e(out.strip()) or "(no reply — open the admin room in Element)"
+    csrf = e(new_csrf())
+
+    def _form(op, label, placeholder, kind, danger=False, confirm=False):
+        cls = "danger" if danger else "primary"
+        extra = ""
+        if confirm:
+            extra = ('<input name=confirm type=text autocomplete=off '
+                     'placeholder="retype to confirm" required>')
+        return f"""
+<form method=post action=/users/op class=block>
+<input type=hidden name=_csrf value="{csrf}">
+<input type=hidden name=op value="{e(op)}">
+<input name=value type=text autocomplete=off placeholder="{e(placeholder)}" required>
+{extra}
+<input name=password type=password autocomplete=current-password placeholder="admin password" required>
+<button type=submit class="{cls} small">{e(label)}</button>
+</form>"""
+
+    body = f"""
+<div class=box>
+<h2><span class=ico>\U0001F465</span> users</h2>
+<p class=small>Drives continuwuity's admin command room (<code>#admins:{e(DOMAIN)}</code>).
+Generated passwords appear in that room's history — treat it as sensitive (docs/USERS.md).</p>
+<pre>{list_block}</pre>
+</div>
+
+<div class=cardgrid>
+<div class=box><h3>create user</h3>{_form("create", "create", "localpart e.g. alice", "localpart")}
+<p class=small>The server generates the password and shows it in its reply.</p></div>
+<div class=box><h3>reset password</h3>{_form("reset", "reset password", "localpart e.g. alice", "localpart")}</div>
+<div class=box><h3>suspend / unsuspend</h3>
+{_form("suspend", "suspend (read-only)", "localpart or @user:server", "user")}
+{_form("unsuspend", "unsuspend", "localpart or @user:server", "user")}</div>
+<div class=box><h3>invite tokens</h3>{_form("invite", "mint tokens", "count (1–99)", "count")}
+<p class=small>Single-use, self-expiring registration tokens to hand out.</p></div>
+<div class=box><h3>deactivate (irreversible)</h3>
+{_form("deactivate", "deactivate", "localpart or @user:server", "user", danger=True, confirm=True)}
+<p class=small>Closes the account; retype the exact id to confirm.</p></div>
+</div>
+"""
+    return render(f"users — {BRAND} admin", body)
+
+
+@app.route("/users/op", methods=["POST"])
+@login_required
+def users_op():
+    if not ENABLE.get("user-admin"):
+        abort(404)
+    if not csrf_ok():
+        abort(403)
+    op = request.form.get("op", "")
+    spec = _USER_OPS.get(op)
+    if not spec:
+        abort(400, description="unknown user op")
+    script, kind, needs_confirm = spec
+    val = (request.form.get("value", "") or "").strip()
+    pw = request.form.get("password", "")
+
+    # Re-auth on every write op (second factor beyond the session).
+    if not pw or not verify_password(pw):
+        log_audit("user-op", op=op, ok=False, reason="bad-password")
+        flash_msg("password incorrect — re-auth required", "err")
+        return redirect(url_for("users_page"))
+
+    # Validate the value strictly per kind (this is what reaches the script argv).
+    if kind == "localpart":
+        if not _VALID_LOCALPART.fullmatch(val):
+            flash_msg("invalid localpart (a-z 0-9 . _ = -, up to 64)", "err")
+            return redirect(url_for("users_page"))
+    elif kind == "user":
+        if not (_VALID_LOCALPART.fullmatch(val) or _VALID_MXID.fullmatch(val)):
+            flash_msg("invalid user (localpart or @user:server)", "err")
+            return redirect(url_for("users_page"))
+    elif kind == "count":
+        if not re.fullmatch(r"[1-9][0-9]?", val or ""):
+            flash_msg("invite count must be 1–99", "err")
+            return redirect(url_for("users_page"))
+    else:
+        abort(400)
+
+    if needs_confirm:
+        if (request.form.get("confirm", "") or "").strip() != val:
+            log_audit("user-op", op=op, ok=False, reason="confirm-mismatch")
+            flash_msg("retype the exact user id to confirm", "err")
+            return redirect(url_for("users_page"))
+
+    log_audit("user-op-start", op=op, target=val)
+    rc, out = run_user_op(script, val)
+    log_audit("user-op-end", op=op, target=val, rc=rc)
+    icon = "✅" if rc == 0 else "❌"
+    body = f"""
+<div class=box>
+<h2>{icon} {e(op)} {e(val)} → exit={rc}</h2>
+<pre>{e(out)}</pre>
+<p class=small>If a password was generated it is shown above (and in the admin room history).</p>
+<a href="/users">← users</a>
+</div>"""
+    return render(f"user {op} — {BRAND} admin", body)
 
 
 # ---------- danger zone ----------

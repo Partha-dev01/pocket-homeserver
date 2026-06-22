@@ -152,6 +152,13 @@ if [ "$ENABLE_BOOTSTRAP" = "true" ]; then
   ask_yn BOOTSTRAP_AVATARS "Also generate + upload avatars (needs Pillow)?" n
 fi
 
+# ── Matrix user management in the admin panel (optional) ──────────────────────
+printf '\n'; say "── Matrix user management (admin panel) ───────────"
+say "Adds a Users page to the admin panel — list / create / reset-password /"
+say "suspend / deactivate + mint invite tokens — driven through the homeserver's"
+say "admin command room. Needs an admin account (the bootstrap admin). See docs/USERS.md."
+ask_yn ENABLE_USER_ADMIN "Enable Matrix user management in the panel?" n
+
 # ── Optional apps ────────────────────────────────────────────────────────────
 printf '\n'; say "── Optional apps (each on its own subdomain) ──────"
 say "  (Element — the Matrix web client — is part of the core stack on chat.$DOMAIN; always installed.)"
@@ -275,6 +282,50 @@ if [ "$ENABLE_BACKUP_DAEMON" = "true" ]; then
   ask BACKUP_DAEMON_HC_URL "Optional heartbeat URL (e.g. a healthchecks.io ping URL; blank = none)"
 fi
 
+# ── Off-device encrypted backup (optional) ────────────────────────────────────
+printf '\n'; say "── Off-device encrypted backup (optional) ─────────"
+say "Push age-ENCRYPTED backups to an S3-compatible bucket (R2 / B2 / S3 / Wasabi /"
+say "MinIO) so a lost or dead phone is not a lost backup. Requires an age recipient"
+say "(backups are encrypted before they leave the device)."
+ask_yn ENABLE_OFFSITE_BACKUP "Enable off-device encrypted backup?" n
+AGE_RECIPIENT=""
+if [ "$ENABLE_OFFSITE_BACKUP" = "true" ]; then
+  say "Generate a keypair with 'age-keygen' and keep the PRIVATE key OFF the phone."
+  while :; do
+    ask AGE_RECIPIENT "age recipient (PUBLIC key, starts with age1…)"
+    case "$AGE_RECIPIENT" in
+      age1*) break ;;
+      "")    warn "offsite needs an age recipient so backups can be encrypted" ;;
+      *)     warn "an age recipient starts with 'age1'" ;;
+    esac
+  done
+  say "After setup, create ${DATA_DIR}/secrets/offsite.env (0600) with your S3"
+  say "endpoint / bucket / region / keys. See docs/BACKUPS.md."
+fi
+
+# ── Observability + crash-loop alerts (optional) ──────────────────────────────
+printf '\n'; say "── Observability + alerts (optional) ──────────────"
+say "A tiny sampler records CPU/RAM/disk/temp once a minute so the admin panel can"
+say "draw sparklines + a 24h health strip at /metrics. Cheap; recommended."
+ask_yn ENABLE_METRICS "Enable the metrics sampler?" y
+
+say ""
+say "If a service crash-loops, fire ONE alert. Pick a channel:"
+say "  1) none   2) ntfy.sh push   3) healthchecks.io ping   4) Matrix message"
+POCKET_ALERT_CMD=""; _alert_kind=""; _want_matrix_alert=false
+ask _alert_kind "Alert channel [1-4]" "1"
+case "$_alert_kind" in
+  2) ask _ntfy "ntfy topic URL (e.g. https://ntfy.sh/your-topic)"
+     # Single-quote the part with $POCKET_ALERT_* so those stay LITERAL in .env and
+     # expand at alert time; concatenate the (setup-time) topic URL after it.
+     [ -n "$_ntfy" ] && POCKET_ALERT_CMD='curl -fsS -m10 -H "Title: pocket-homeserver DEGRADED" -d "service $POCKET_ALERT_SERVICE crash-looping (rc=$POCKET_ALERT_RC, fails=$POCKET_ALERT_FAILS)" '"$_ntfy" ;;
+  3) ask _hc "healthchecks.io ping URL (e.g. https://hc-ping.com/<uuid>)"
+     [ -n "$_hc" ] && POCKET_ALERT_CMD="curl -fsS -m10 \"${_hc%/}/fail\"" ;;
+  4) POCKET_ALERT_CMD="bash \"$POCKET_ROOT/scripts/ops/alert-matrix.sh\""
+     _want_matrix_alert=true ;;
+  *) POCKET_ALERT_CMD="" ;;
+esac
+
 # ── Write .env ───────────────────────────────────────────────────────────────
 # Quote free-form / secret values so the file sources cleanly; leave derived
 # values (${DOMAIN}, ${DATA_DIR}, $HOME) as references, exactly like the template.
@@ -287,6 +338,7 @@ Q_LANDBRAND=$(envq "$LANDING_BRAND")
 Q_MAILDOMAIN=$(envq "$MAIL_DOMAIN")
 Q_MCPTRANS=$(envq "$MCP_TRANSPORT")
 Q_HPDECOY=$(envq "$HONEYPOT_DECOY_HOSTS"); Q_BDHOUR=$(envq "$BACKUP_DAEMON_HOUR"); Q_BDHC=$(envq "$BACKUP_DAEMON_HC_URL")
+Q_ALERTCMD=$(envq "$POCKET_ALERT_CMD"); Q_AGE_RCPT=$(envq "$AGE_RECIPIENT")
 
 umask 077
 tmp="$ENV_OUT.tmp.$$"
@@ -344,6 +396,8 @@ ENABLE_ADMINBOT=${ENABLE_ADMINBOT}
 ENABLE_BOOTSTRAP=${ENABLE_BOOTSTRAP}
 ADMIN_MATRIX_USER=${ADMIN_MATRIX_USER}
 BOOTSTRAP_AVATARS=${BOOTSTRAP_AVATARS}
+# Matrix user management in the admin panel (drives the admin command room).
+ENABLE_USER_ADMIN=${ENABLE_USER_ADMIN}
 INVITE_TOKEN_DAYS=7
 MATRIX_SPACE_ALIAS=hub
 MATRIX_SPACE_NAME="Community Hub"
@@ -463,10 +517,17 @@ HONEYPOT_DECOY_HOSTS=${Q_HPDECOY}
 BACKUP_DIR=\${DATA_DIR}/backups
 BACKUP_KEEP_DB=3
 BACKUP_KEEP_ROOTFS=4
-BACKUP_AGE_RECIPIENT=
+# age recipient (PUBLIC key) — when set, backups are encrypted; required for offsite.
+BACKUP_AGE_RECIPIENT=${Q_AGE_RCPT}
 # age PRIVATE-key file path, needed only to RESTORE an encrypted backup (kept OFF
 # the backup volume). It is a path, not a secret value. Empty by default.
 BACKUP_AGE_IDENTITY=
+
+# ─── Off-device encrypted backup (optional) ─────────────────────────────────
+# Push the age-encrypted archives to an S3-compatible bucket. Needs a 0600
+# \${DATA_DIR}/secrets/offsite.env (S3 endpoint/bucket/region/keys). Refuses to run
+# unless BACKUP_AGE_RECIPIENT is set. See docs/BACKUPS.md.
+ENABLE_OFFSITE_BACKUP=${ENABLE_OFFSITE_BACKUP}
 
 # ─── Scheduled backups (optional daemon) ────────────────────────────────────
 # When true, start-stack.sh supervises a loop that wakes once a day and snapshots
@@ -476,10 +537,31 @@ ENABLE_BACKUP_DAEMON=${ENABLE_BACKUP_DAEMON}
 BACKUP_DAEMON_HOUR=${Q_BDHOUR}
 # Optional heartbeat URL (e.g. a healthchecks.io ping URL); empty = no heartbeat.
 BACKUP_DAEMON_HC_URL=${Q_BDHC}
+
+# ─── Observability / metrics sampler (optional) ─────────────────────────────
+# Records CPU/mem/disk/temp once a minute into a tiny capped ring on ext4; the
+# admin panel charts it at /metrics. See docs/OBSERVABILITY.md.
+ENABLE_METRICS=${ENABLE_METRICS}
+POCKET_METRICS_POLL_S=60
+POCKET_METRICS_RING=5760
+POCKET_METRICS_BATTERY=true
+
+# ─── Service supervision / crash-loop alert (optional) ──────────────────────
+# Run once via 'sh -c' when ANY service enters DEGRADED, with \$POCKET_ALERT_SERVICE
+# / \$POCKET_ALERT_RC / \$POCKET_ALERT_FAILS in the environment. Empty = no alert.
+POCKET_ALERT_CMD=${Q_ALERTCMD}
 EOF
 mv -f "$tmp" "$ENV_OUT"
 chmod 600 "$ENV_OUT"
 ok "wrote $ENV_OUT (0600)"
+
+if [ "${_want_matrix_alert:-false}" = "true" ]; then
+  printf '\n'; warn "Matrix crash-loop alerts need a 0600 secrets file (token NOT in .env):"
+  say "  mkdir -p \"\$DATA_DIR/secrets\""
+  say "  printf 'ALERT_MATRIX_HS=http://127.0.0.1:8448\\nALERT_MATRIX_TOKEN=<bot token>\\nALERT_MATRIX_ROOM=!roomid:$DOMAIN\\n' > \"\$DATA_DIR/secrets/alert-matrix.env\""
+  say "  chmod 600 \"\$DATA_DIR/secrets/alert-matrix.env\""
+  say "Create the bot account + room AFTER the stack is up. See docs/OBSERVABILITY.md."
+fi
 
 # ── Summary (no secrets) + hand-off ──────────────────────────────────────────
 apps=""
@@ -497,6 +579,7 @@ printf '\n'; ok "configuration summary (no secrets shown):"
   printf '  reboot survive: %s\n'    "$ENABLE_BOOT"
   printf '  sso gateway   : %s\n'    "$ENABLE_AUTH_GATEWAY"
   printf '  bootstrap     : %s%s\n'  "$ENABLE_BOOTSTRAP" "$([ "$ENABLE_BOOTSTRAP" = "true" ] && echo " (admin=$ADMIN_MATRIX_USER)")"
+  printf '  user mgmt     : %s\n'    "$ENABLE_USER_ADMIN"
   printf '  filters       : user=%s media=%s\n' "$ENABLE_USER_FILTER" "$ENABLE_MEDIA_FILTER"
   printf '  cloud bots    : %s\n'    "$ENABLE_CLOUD_BOTS"
   printf '  on-phone bot  : %s%s\n'  "$ENABLE_EXOBOT" "$([ "$ENABLE_EXOBOT" = "true" ] && echo " (ui=$EXOBOT_UI)")"
@@ -507,6 +590,9 @@ printf '\n'; ok "configuration summary (no secrets shown):"
   printf '  mcp server    : %s%s\n'  "$ENABLE_MCP" "$([ "$ENABLE_MCP" = "true" ] && echo " (transport=$MCP_TRANSPORT, operate=$MCP_ALLOW_OPERATE, danger=$MCP_ALLOW_DANGER)")"
   printf '  honeypot      : %s\n'    "$ENABLE_HONEYPOT"
   printf '  backup daemon : %s%s\n'  "$ENABLE_BACKUP_DAEMON" "$([ "$ENABLE_BACKUP_DAEMON" = "true" ] && echo " (hour=$BACKUP_DAEMON_HOUR)")"
+  printf '  metrics       : %s\n'    "$ENABLE_METRICS"
+  printf '  crash alert   : %s\n'    "$([ -n "$POCKET_ALERT_CMD" ] && echo "on" || echo "none")"
+  printf '  offsite backup: %s\n'    "$ENABLE_OFFSITE_BACKUP"
   printf '  apps enabled  :%s\n'     "${apps:- (none)}"
 } >&2
 
