@@ -68,8 +68,13 @@ if [ ! -x "${ADMIN_VENV}/bin/python" ]; then
 fi
 say "installing Flask + gunicorn into the admin venv (first run downloads them)"
 "${ADMIN_VENV}/bin/pip" install --upgrade pip wheel >/dev/null 2>&1 || warn "pip self-upgrade reported a problem (continuing)"
+# segno is a tiny pure-Python QR lib used by the optional Radicale "connect device"
+# card (/dav). The panel lazy-imports it and degrades gracefully if it is absent,
+# so this install is best-effort — never fatal.
 "${ADMIN_VENV}/bin/pip" install flask gunicorn >/dev/null \
   || die "could not install Flask + gunicorn into the admin venv"
+"${ADMIN_VENV}/bin/pip" install segno >/dev/null 2>&1 \
+  || warn "could not install segno into the admin venv — the Radicale /dav QR will degrade to a URL card (non-fatal)"
 "${ADMIN_VENV}/bin/python" -c 'import flask, gunicorn' \
   || die "Flask/gunicorn import failed in the admin venv"
 ok "admin venv ready ($("${ADMIN_VENV}/bin/python" -c 'import flask,importlib.metadata as m; print("flask",m.version("flask"),"gunicorn",m.version("gunicorn"))' 2>/dev/null))"
@@ -158,6 +163,10 @@ export ENABLE_MEDIA_FILTER='${ENABLE_MEDIA_FILTER:-false}'
 export ENABLE_METRICS='${ENABLE_METRICS:-false}'
 export ENABLE_USER_ADMIN='${ENABLE_USER_ADMIN:-false}'
 export ENABLE_OFFSITE_BACKUP='${ENABLE_OFFSITE_BACKUP:-false}'
+export ENABLE_WALLABAG='${ENABLE_WALLABAG:-false}'
+export ENABLE_RADICALE='${ENABLE_RADICALE:-false}'
+export ENABLE_TRILIUM='${ENABLE_TRILIUM:-false}'
+export ENABLE_VAULTWARDEN='${ENABLE_VAULTWARDEN:-false}'
 # Optional Cloudflare Access JWT validation (also reads \${DATA_DIR}/secrets/cf-access.env).
 export CF_ACCESS_MODE='${CF_ACCESS_MODE:-log}'
 export CF_ACCESS_TEAM_DOMAIN='${CF_ACCESS_TEAM_DOMAIN:-}'

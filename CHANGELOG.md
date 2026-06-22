@@ -5,6 +5,71 @@ All notable changes to pocket-homeserver are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] - 2026-06-22
+
+Productivity & security apps. A Bitwarden-compatible password manager, calendar +
+contacts (CalDAV/CardDAV), a notes/wiki, and a read-later service — all opt-in
+(`ENABLE_*`, off by default), loopback-bound, and keeping their database/index on
+**ext4** (`$HOME/.pocket/<app>`), never on the exFAT SD. Clients that speak native
+or token auth (Bitwarden apps, CalDAV/CardDAV, the Wallabag API, Trilium's ETAPI/sync)
+use a Cloudflare Access **service-token exemption**, not the interactive login gate.
+
+### Added
+
+- **Vaultwarden** (`ENABLE_VAULTWARDEN`) — a Bitwarden-compatible password-manager
+  server on `vault.${DOMAIN}` (`scripts/apps/vaultwarden.sh`). Upstream ships **no
+  standalone binary**, only Docker images, and a source build is infeasible on a
+  phone — so the installer **daemonlessly extracts** the `musl`-static binary +
+  version-locked web-vault from the **official** `vaultwarden/server:<ver>-alpine`
+  image, pinned by its **arm64 image-manifest digest** (each layer blob is
+  sha256-verified against the manifest), then verifies the **extracted binary**
+  against a self-derived sha256 (fail-closed). Hardened: `ROCKET_ADDRESS=127.0.0.1`
+  (asserted; default is `0.0.0.0`), `SIGNUPS_ALLOWED=false` (asserted), `ADMIN_TOKEN`
+  unset (the `/admin` panel disabled), `ENABLE_DB_WAL=true`. The notifications
+  WebSocket rides the main port (one `reverse_proxy` line, no `:3012`). DB + WAL +
+  JWT keys on ext4. See [docs/VAULT.md](docs/VAULT.md) for the supply-chain trade-off.
+- **Radicale** (`ENABLE_RADICALE`) — a CalDAV/CardDAV/tasks server on `dav.${DOMAIN}`
+  (`scripts/apps/radicale.sh`). Installed into a Python venv on ext4; **bcrypt is
+  installed from a prebuilt aarch64 wheel only** (`--only-binary`, fail-closed — it
+  can never compile Rust on the phone). `hosts` forced to `127.0.0.1:5232` and
+  asserted; bcrypt `htpasswd` seeded off-argv; `rights = owner_only`. The vhost is
+  **root-mounted** so Radicale's built-in `/.well-known/caldav|carddav` discovery
+  works, with `flush_interval -1` for streaming `REPORT`s. The collection root is
+  **forced to ext4** (the install refuses an SD path — exFAT lacks the
+  rename/locks/mtime/perms DAV needs). See [docs/DAV.md](docs/DAV.md).
+- **Radicale "connect device" card** in the web admin panel (`/dav`) — renders the
+  CalDAV/CardDAV base URL plus a scannable QR (pure-Python `segno`) for DAVx5 /
+  Thunderbird / iOS onboarding. **The QR carries only the public URL + username,
+  never the password.**
+- **Trilium Notes** (`ENABLE_TRILIUM`) — a hierarchical notes/wiki app on
+  `wiki.${DOMAIN}` (`scripts/apps/trilium.sh`), from the **official first-party arm64
+  SERVER tarball** (bundled Node + a prebuilt `better-sqlite3` — **no node-gyp**),
+  sha256-pinned. Forces `TRILIUM_NETWORK_HOST=127.0.0.1` (asserted; default is
+  `0.0.0.0`) and runs a **GLIBCXX boot-smoke** (loads `better-sqlite3` up front, fails
+  closed on an old `libstdc++`). `document.db` on ext4. Native login ON by default
+  (`TRILIUM_NOAUTH=false`); enable `noAuthentication` only behind the SSO gateway.
+  See [docs/NOTES.md](docs/NOTES.md).
+- **Wallabag** (`ENABLE_WALLABAG`) — a read-later / article saver on `read.${DOMAIN}`
+  (`scripts/apps/wallabag.sh`), from the **official bundled tarball** (ships
+  `vendor/` — **no composer** on the phone), reusing php-fpm (+ `php-tidy`,
+  `php-bcmath`). SQLite on ext4; open registration off; the admin password is fed
+  **on stdin** (off-argv). Upgrades **back up the SQLite DB before** running doctrine
+  migrations and always `cache:clear --env=prod`. Upstream ships only an MD5, so the
+  repo pins its **own computed sha256** fail-closed. See [docs/READLATER.md](docs/READLATER.md).
+- **`config/versions.env`** gains the four pins (Wallabag/Trilium sha256, Radicale
+  version, and the Vaultwarden tag + arm64 manifest digest + extracted-binary sha256
+  + web-vault version).
+- **Docs**: `docs/VAULT.md`, `docs/DAV.md`, `docs/NOTES.md`, `docs/READLATER.md`
+  (each with a prominent **Resource & Risk** section); `docs/APP_AUTH.md`,
+  `docs/APPS.md`, and `README.md` updated for the new apps and the service-token
+  auth boundary.
+
+### Changed
+
+- The web admin panel shows health rows + restart buttons for the four new apps
+  (and surfaces a `calendar` nav tab when Radicale is enabled). `setup.sh`,
+  `install.sh`, `.env.example`, and `ops/restart.sh` learn the new `ENABLE_*` apps.
+
 ## [0.6.0] - 2026-06-22
 
 Personal cloud — files & sync. Serve your own files from the phone and sync them

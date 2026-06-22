@@ -41,10 +41,17 @@ their own login.
 | SearXNG (metasearch) | **No** | **CF Access only** | **Required** |
 | IT-Tools (dev tools) | **No** | **CF Access only** | **Required** |
 | Gatus (status page) | **No** | **CF Access only** | **Required** |
+| Wallabag (read-later) | Yes | CF Access + native login (browser) | Recommended for the browser UI; **service token** for the REST API / mobile app / extension |
+| Trilium (notes / wiki) | Yes | CF Access + native login (browser) | Recommended for the browser UI; **service token** for ETAPI + the sync client |
+| Radicale (CalDAV/CardDAV) | Yes (Basic) | **native + service-token edge** | **Service token required** — DAV clients can't do the interactive login |
+| Vaultwarden (password manager) | Yes (master pw + 2FA) | **native + service-token edge** | **Service token required** — Bitwarden apps can't do the interactive login |
 
-For the three apps with no login of their own, **Cloudflare Access is the only
-thing standing between the internet and the app** — do not skip it, or you publish
-an open metasearch proxy / open tools site / open status page.
+For the three apps with no login of their own (SearXNG, IT-Tools, Gatus),
+**Cloudflare Access is the only thing standing between the internet and the app** —
+do not skip it, or you publish an open metasearch proxy / open tools site / open
+status page. For Radicale and Vaultwarden the reverse holds: their hostnames **must
+not** sit behind the interactive Access login (it breaks native clients) — give them
+a **service-token exemption** instead and rely on the app's own auth (see below).
 
 ## Default: Cloudflare Access
 
@@ -73,6 +80,14 @@ and service tokens for automation.
 > client send `CF-Access-Client-Id` / `CF-Access-Client-Secret` headers. The
 > optional Matrix-SSO gateway (below) has **no service-token path**, so it cannot
 > front WebDAV at all. See [FILES.md](FILES.md) for the Dufs WebDAV recipe.
+>
+> The same applies to several v0.7 apps whose clients are **not** browsers:
+> **Vaultwarden** (Bitwarden extension/desktop/mobile/CLI — see [VAULT.md](VAULT.md)),
+> **Radicale** (CalDAV/CardDAV clients like DAVx5/Thunderbird/iOS — see
+> [DAV.md](DAV.md)), **Wallabag's** REST API / mobile app / extension (see
+> [READLATER.md](READLATER.md)), and **Trilium's** ETAPI + sync client (see
+> [NOTES.md](NOTES.md)). Each needs a **service-token exemption** on its hostname,
+> never the interactive login policy.
 
 > Tip: apps that have their own login (the first five above) work fine with *or*
 > without Cloudflare Access, but running both is the recommended default — the

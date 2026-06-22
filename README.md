@@ -38,7 +38,7 @@ You drive the whole thing from **one interactive menu**:
     q) quit
 ```
 
-> **Status: v0.6.0 — pre-release.** Everything below has landed. Interfaces may
+> **Status: v0.7.0 — pre-release.** Everything below has landed. Interfaces may
 > still change before 1.0, and the fresh-phone, zero-to-running walkthrough is
 > still being hardened — expect some rough edges. See the [changelog](CHANGELOG.md).
 
@@ -53,6 +53,13 @@ You drive the whole thing from **one interactive menu**:
   (Dufs, read-only by default) or with multi-user accounts + share links
   (FileBrowser), and sync folders peer-to-peer off the tunnel (Syncthing). All
   opt-in, loopback-bound. ([docs/FILES.md](docs/FILES.md))
+- **Productivity & security apps** — a Bitwarden-compatible password manager
+  (Vaultwarden), calendar + contacts over CalDAV/CardDAV (Radicale, with a QR
+  connect-card in the panel), a notes/wiki (Trilium), and a read-later service
+  (Wallabag). All opt-in; each keeps its DB on ext4. Native-auth clients
+  (Bitwarden / DAV) use a Cloudflare Access service-token, not the login gate.
+  ([docs/VAULT.md](docs/VAULT.md) · [docs/DAV.md](docs/DAV.md) ·
+  [docs/NOTES.md](docs/NOTES.md) · [docs/READLATER.md](docs/READLATER.md))
 - **One interactive control panel** (`./pocket.sh`) for the whole lifecycle —
   configure, install, status, restarts, backups, logs, and a panic stop.
 - **Resumable installs** — every step is recorded, so re-runs are fast and an
@@ -194,7 +201,12 @@ genuinely practical way to self-host.
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — layers, request flow, components, storage.
 - [docs/SECURITY.md](docs/SECURITY.md) — threat model, layered defenses, operator checklist.
 - [docs/APPS.md](docs/APPS.md) — the optional apps: what each is, where its data lives, how to enable/upgrade.
-- [docs/APP_AUTH.md](docs/APP_AUTH.md) — how apps are protected: Cloudflare Access (default) and the optional Matrix-SSO gateway.
+- [docs/APP_AUTH.md](docs/APP_AUTH.md) — how apps are protected: Cloudflare Access (default), service tokens for native clients, and the optional Matrix-SSO gateway.
+- [docs/FILES.md](docs/FILES.md) — personal cloud: files & sync (Dufs / FileBrowser / Syncthing; why not Nextcloud/SMB).
+- [docs/VAULT.md](docs/VAULT.md) — Vaultwarden password manager (incl. the image-extract supply-chain note).
+- [docs/DAV.md](docs/DAV.md) — Radicale calendar + contacts (CalDAV/CardDAV) + the QR connect-card.
+- [docs/NOTES.md](docs/NOTES.md) — Trilium notes / wiki.
+- [docs/READLATER.md](docs/READLATER.md) — Wallabag read-later / article saver.
 - [docs/ADMIN.md](docs/ADMIN.md) — the web admin panel.
 - [docs/BACKUPS.md](docs/BACKUPS.md) — snapshots, retention, encryption, restore.
 - [docs/RESTORE_AND_ROTATION.md](docs/RESTORE_AND_ROTATION.md) — the scripted restore and the credential-rotation scripts.
@@ -250,10 +262,11 @@ tools/       repo tooling (e.g. the leak-scan pre-push guard)
 - [x] Off-device encrypted backup (push age-ciphertext to any S3-compatible bucket)
 - [x] Matrix user management in the panel (list/create/reset/suspend/deactivate + invite tokens)
 - [x] Personal cloud — files & sync (Dufs + WebDAV / FileBrowser accounts / Syncthing P2P; [docs/FILES.md](docs/FILES.md))
+- [x] Productivity & security apps — Vaultwarden (password manager) / Radicale (CalDAV/CardDAV + QR connect-card) / Trilium (notes/wiki) / Wallabag (read-later) ([docs/VAULT.md](docs/VAULT.md) · [docs/DAV.md](docs/DAV.md) · [docs/NOTES.md](docs/NOTES.md) · [docs/READLATER.md](docs/READLATER.md))
 
 ## Status, license, and contributing
 
-Pre-release (v0.6.0) and under active construction — expect breaking changes.
+Pre-release (v0.7.0) and under active construction — expect breaking changes.
 Licensed under the [MIT License](LICENSE). Issues, bug reports, and discussion are
 welcome — see [CONTRIBUTING.md](CONTRIBUTING.md). Because the repo is public, every
 change is scanned for secrets and deployment-specific data by

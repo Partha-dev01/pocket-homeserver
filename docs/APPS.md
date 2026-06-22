@@ -25,6 +25,18 @@ ENABLE_LINKDING=true
 | **SearXNG** | `search.${DOMAIN}` | private metasearch | Python (Flask) + uWSGI | none (stateless) |
 | **IT-Tools** | `tools.${DOMAIN}` | client-side dev toolbox | static site | none (client-side) |
 | **Gatus** | `status.${DOMAIN}` | uptime / health dashboard | single Go binary | config only |
+| **Wallabag** | `read.${DOMAIN}` | read-later / article saver | PHP + php-fpm | `$HOME/.pocket/wallabag` (ext4) |
+| **Radicale** | `dav.${DOMAIN}` | calendar + contacts (CalDAV/CardDAV) | Python venv | `$HOME/.pocket/radicale` (ext4) |
+| **Trilium** | `wiki.${DOMAIN}` | notes / wiki | bundled Node + better-sqlite3 | `$HOME/.pocket/trilium` (ext4) |
+| **Vaultwarden** | `vault.${DOMAIN}` | password manager (Bitwarden-compat) | Rust binary (image-extracted) | `$HOME/.pocket/vaultwarden` (ext4) |
+
+> The last four (the **v0.7 "productivity & security"** set) are heavier and each
+> has a dedicated page with a full **Resource & Risk** section and the auth details:
+> [READLATER.md](READLATER.md), [DAV.md](DAV.md), [NOTES.md](NOTES.md),
+> [VAULT.md](VAULT.md). Unlike the apps above (which bind-mount data from the exFAT
+> SD), these keep their DB/index on **ext4** at `$HOME/.pocket/<app>`. **Vaultwarden
+> and Radicale speak native/token auth** and need a Cloudflare Access **service-token**
+> exemption, not the interactive login gate (see [APP_AUTH.md](APP_AUTH.md)).
 
 ## How they all work (the common pattern)
 

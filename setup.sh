@@ -193,6 +193,23 @@ say "upload cap does not apply); its web GUI stays loopback-only — reach it wi
 say "  ssh -L 8384:127.0.0.1:8384 <phone>"
 ask_yn ENABLE_SYNCTHING "Enable Syncthing P2P file sync (no public hostname)?" n
 
+# ── Productivity & security apps ───────────────────────────────────────────────
+printf '\n'; say "── Productivity & security (optional) ─────────────"
+say "NOTE: Vaultwarden + Radicale use NATIVE/token auth (Bitwarden apps, CalDAV/"
+say "CardDAV clients) and CANNOT complete the interactive Cloudflare Access login —"
+say "give those hostnames a CF Access SERVICE-TOKEN exemption (set in the Cloudflare"
+say "dashboard; this installer wires nothing for it). Wallabag + Trilium browser UIs"
+say "work behind normal Access. See docs/APP_AUTH.md."
+ask_yn EN_WALLABAG    "Read-later / article saver, Wallabag (read.$DOMAIN)?"          n
+ask_yn EN_RADICALE    "Calendar + contacts (CalDAV/CardDAV), Radicale (dav.$DOMAIN)?" n
+ask_yn EN_TRILIUM     "Notes / wiki, Trilium (wiki.$DOMAIN)?"                          n
+ask_yn EN_VAULTWARDEN "Password manager, Vaultwarden (vault.$DOMAIN)?"                n
+if [ "$EN_VAULTWARDEN" = "true" ]; then
+  warn "Vaultwarden ships NO official binary — it is extracted from the OFFICIAL Docker"
+  warn "image @ a pinned digest, with a self-derived sha256 (a documented supply-chain"
+  warn "trade-off). Each upgrade must re-derive those pins. See docs/VAULT.md."
+fi
+
 # ── Privacy & media filters ───────────────────────────────────────────────────
 printf '\n'; say "── Privacy & media filters (optional) ─────────────"
 say "Two small loopback proxies in front of Matrix (both off by default)."
@@ -442,6 +459,17 @@ ENABLE_DUFS=${EN_DUFS}
 ENABLE_FILEBROWSER=${EN_FILEBROWSER}
 ENABLE_SYNCTHING=${ENABLE_SYNCTHING}
 
+# ─── Productivity & security apps (optional) ────────────────────────────────
+# Wallabag/Trilium browser UIs sit behind normal Cloudflare Access. Vaultwarden +
+# Radicale use native/token auth and need a CF Access SERVICE-TOKEN exemption on
+# their hostname (not wired here). Vaultwarden's first account, Radicale's bcrypt
+# htpasswd, and Wallabag's admin are seeded from ADMIN_USER/ADMIN_PASSWORD — no
+# extra secrets here. See docs/VAULT.md, docs/DAV.md, docs/NOTES.md, docs/READLATER.md.
+ENABLE_WALLABAG=${EN_WALLABAG}
+ENABLE_RADICALE=${EN_RADICALE}
+ENABLE_TRILIUM=${EN_TRILIUM}
+ENABLE_VAULTWARDEN=${EN_VAULTWARDEN}
+
 # ─── Privacy & media filters (optional) ─────────────────────────────────────
 ENABLE_USER_FILTER=${ENABLE_USER_FILTER}
 USER_FILTER_PORT=8449
@@ -595,7 +623,8 @@ apps=""
 for kv in linkding:$EN_LINKDING pingvin:$EN_PINGVIN \
           freshrss:$EN_FRESHRSS memos:$EN_MEMOS vikunja:$EN_VIKUNJA \
           searxng:$EN_SEARXNG ittools:$EN_ITTOOLS gatus:$EN_GATUS \
-          dufs:$EN_DUFS filebrowser:$EN_FILEBROWSER; do
+          dufs:$EN_DUFS filebrowser:$EN_FILEBROWSER \
+          wallabag:$EN_WALLABAG radicale:$EN_RADICALE trilium:$EN_TRILIUM vaultwarden:$EN_VAULTWARDEN; do
   [ "${kv#*:}" = "true" ] && apps="$apps ${kv%%:*}"
 done
 printf '\n'; ok "configuration summary (no secrets shown):"

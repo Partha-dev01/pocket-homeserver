@@ -103,6 +103,10 @@ ENABLE = {
     "searxng":  _flag("ENABLE_SEARXNG"),
     "ittools":  _flag("ENABLE_ITTOOLS"),
     "gatus":    _flag("ENABLE_GATUS"),
+    "wallabag":   _flag("ENABLE_WALLABAG"),
+    "radicale":   _flag("ENABLE_RADICALE"),
+    "trilium":    _flag("ENABLE_TRILIUM"),
+    "vaultwarden":_flag("ENABLE_VAULTWARDEN"),
     "backup-daemon": _flag("ENABLE_BACKUP_DAEMON"),
     "honeypot": _flag("ENABLE_HONEYPOT"),
     "user-filter":  _flag("ENABLE_USER_FILTER"),
@@ -145,6 +149,10 @@ SCRIPTS_OK = {
     "restart-memos":       {"argv": ["ops/restart.sh", "memos"],           "kind": "restart"},
     "restart-vikunja":     {"argv": ["ops/restart.sh", "vikunja"],         "kind": "restart"},
     "restart-gatus":       {"argv": ["ops/restart.sh", "gatus"],           "kind": "restart"},
+    "restart-wallabag":    {"argv": ["ops/restart.sh", "wallabag"],        "kind": "restart"},
+    "restart-radicale":    {"argv": ["ops/restart.sh", "radicale"],        "kind": "restart"},
+    "restart-trilium":     {"argv": ["ops/restart.sh", "trilium"],         "kind": "restart"},
+    "restart-vaultwarden": {"argv": ["ops/restart.sh", "vaultwarden"],     "kind": "restart"},
     "restart-backup-daemon": {"argv": ["ops/restart.sh", "backup-daemon"], "kind": "restart"},
     "restart-honeypot-watcher": {"argv": ["ops/restart.sh", "honeypot-watcher"], "kind": "restart"},
     "restart-metrics-sampler": {"argv": ["ops/restart.sh", "metrics-sampler"], "kind": "restart"},
@@ -639,6 +647,14 @@ def _build_http_probes():
     if ENABLE["pingvin"]:
         probes.append({"name": "pingvin /api/health", "host": f"share.{DOMAIN}",
                        "path": "/api/health", "expect": 200, "scheme": "loopback"})
+    if ENABLE["vaultwarden"]:
+        # /alive is an unauthenticated liveness endpoint (returns a timestamp).
+        probes.append({"name": "vaultwarden /alive", "host": f"vault.{DOMAIN}",
+                       "path": "/alive", "expect": 200, "scheme": "loopback"})
+    # NB: Radicale is intentionally NOT HTTP-probed here — GET / returns a 302
+    # (root → /.well-known/caldav) and the probe opener follows redirects, so there
+    # is no single stable status to assert. Its liveness is covered by the process
+    # check in _build_health_procs (same approach as memos/vikunja).
     return probes
 
 HEALTH_HTTP_PROBES = _build_http_probes()
@@ -671,6 +687,14 @@ def _build_health_procs():
         procs.append({"name": "vikunja", "pattern": "/opt/vikunja/run.sh"})
     if ENABLE["gatus"]:
         procs.append({"name": "gatus", "pattern": "/opt/gatus"})
+    if ENABLE["wallabag"]:
+        procs.append({"name": "wallabag", "pattern": "wallabag/php-fpm.conf"})
+    if ENABLE["radicale"]:
+        procs.append({"name": "radicale", "pattern": "/opt/radicale/venv/bin/radicale"})
+    if ENABLE["trilium"]:
+        procs.append({"name": "trilium", "pattern": "/opt/trilium/main.cjs"})
+    if ENABLE["vaultwarden"]:
+        procs.append({"name": "vaultwarden", "pattern": "vaultwarden/run.sh"})
     if ENABLE["backup-daemon"]:
         procs.append({"name": "backup-daemon", "pattern": "ops/backup-daemon.sh"})
     if ENABLE["honeypot"]:
@@ -1238,6 +1262,8 @@ def render(title, body_html, hide_nav=False):
             items.append(("/metrics", "metrics"))
         if ENABLE.get("user-admin"):
             items.append(("/users", "users"))
+        if ENABLE.get("radicale"):
+            items.append(("/dav", "calendar"))
         if ENABLE["honeypot"]:
             items.append(("/honeypot", "security"))
         # Surface a loud 'problems' tab only when something is crash-looping, so the
@@ -2411,6 +2437,81 @@ into a tiny capped file the panel charts here. See docs/OBSERVABILITY.md.</p>
 (~{span_h:.1f}h shown, {len(samples)} samples). See docs/OBSERVABILITY.md.</p>
 """
     return render(f"metrics — {BRAND} admin", body)
+
+
+# ---------- Radicale "connect device" card (optional — ENABLE_RADICALE) ----------
+# A READ-ONLY onboarding helper for the CalDAV/CardDAV server: it renders the
+# base URL + a scannable QR so a phone (DAVx5) or desktop (Thunderbird/iOS/Apple)
+# can be pointed at dav.<domain> without typing the URL by hand. The PASSWORD is
+# NEVER embedded — the QR carries only the public service URL + username; the user
+# still types their own password in the client. The QR is built server-side with
+# the pure-Python `segno` lib (lazy import → graceful degrade to the plain URL card
+# if it is not installed).
+_DAV_USER_RE = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
+
+
+@app.route("/dav")
+@login_required
+def dav_connect_page():
+    if not ENABLE.get("radicale"):
+        body = """
+<div class=box>
+<h2>calendar &amp; contacts</h2>
+<p>Radicale (CalDAV/CardDAV) is not enabled. Set <code>ENABLE_RADICALE=true</code>
+in <code>.env</code> and re-run <code>scripts/install.sh --force</code> (or pick it
+in <code>./setup.sh</code>). See docs/DAV.md.</p>
+</div>"""
+        return render(f"calendar — {BRAND} admin", body)
+
+    # Username: from ?user= (validated) else the configured admin user. NOT a secret.
+    user = request.args.get("user", "").strip() or ADMIN_USER
+    if not _DAV_USER_RE.match(user):
+        user = ADMIN_USER
+
+    base_url = f"https://dav.{DOMAIN}/{user}/"
+    discovery = f"https://dav.{DOMAIN}/"
+
+    # QR encodes ONLY the public base URL (no password). Lazy import so a missing
+    # segno never breaks the panel — we just show the URL card instead.
+    qr_html = ""
+    try:
+        import segno  # type: ignore
+        src = segno.make(base_url, error="m").svg_data_uri(scale=5, border=2)
+        qr_html = (
+            f'<div style="text-align:center;margin:.6rem 0">'
+            f'<img src="{src}" alt="CalDAV/CardDAV QR for {e(user)}" '
+            f'style="width:220px;height:220px;background:#fff;padding:8px;border-radius:10px">'
+            f'</div>'
+        )
+    except Exception:
+        qr_html = (
+            '<div class=warn-box>QR rendering needs the <code>segno</code> Python '
+            'package (it is installed with the admin panel by default). Use the URL '
+            'below to set up your client manually.</div>'
+        )
+
+    body = f"""
+<div class=box>
+<h2><span class=ico>\U0001F4C5</span> connect a calendar / contacts client</h2>
+<p class=small>For DAVx5 (Android), Thunderbird, iOS/macOS Calendar &amp; Contacts.
+The QR and URL carry only the public service address and your username —
+<strong>never your password</strong>. You still type your password in the client.</p>
+{qr_html}
+<table>
+<tr><td>Username</td><td><code>{e(user)}</code></td></tr>
+<tr><td>CalDAV / CardDAV URL</td><td><code>{e(base_url)}</code></td></tr>
+<tr><td>Auto-discovery (DAVx5)</td><td><code>{e(discovery)}</code></td></tr>
+</table>
+<p class=small><strong>DAVx5 (Android):</strong> Add account → "Login with URL and user
+name" → scan this QR (or paste the auto-discovery URL) → enter your password.
+<br><strong>iOS / macOS / Thunderbird:</strong> add a CalDAV (and a CardDAV) account
+using the CalDAV/CardDAV URL above, username <code>{e(user)}</code>, and your password.</p>
+<p class=small>Show the card for another user: <code>/dav?user=&lt;name&gt;</code>.
+Reminder: Cloudflare Access must allow native clients on <code>dav.{e(DOMAIN)}</code>
+via a SERVICE-TOKEN exemption (DAV clients cannot complete an interactive login).
+See docs/DAV.md.</p>
+</div>"""
+    return render(f"calendar — {BRAND} admin", body)
 
 
 @app.route("/problems")
