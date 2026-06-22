@@ -193,4 +193,16 @@ if [ "$CHECK" -eq 0 ] && [ "${ENABLE_BOOTSTRAP:-false}" = "true" ] && [ -f "$HER
 fi
 
 ok "install plan complete (check=$CHECK force=$FORCE)"
-[ "$CHECK" -eq 0 ] && say "tip: 'scripts/install.sh --status' shows what's installed and running."
+# Note: keep this as an `if` (not `cond && cmd`) so the script always exits 0 on a
+# successful run — `--check` must return success for CI's smoke gate.
+if [ "$CHECK" -eq 0 ]; then
+  say "tip: 'scripts/install.sh --status' shows what's installed and running."
+fi
+
+# Advisory: a read-only health + preflight pass at the end of a real run. Never
+# fatal — it only reports; address any FAIL items it prints. Skipped for --check.
+if [ "$CHECK" -eq 0 ] && [ -f "$HERE/ops/doctor.sh" ]; then
+  echo
+  say "running doctor (read-only health check)…"
+  bash "$HERE/ops/doctor.sh" || true
+fi

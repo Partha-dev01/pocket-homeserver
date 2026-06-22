@@ -1,0 +1,30 @@
+name: Feature request
+description: Suggest a new module or an improvement
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem would this solve?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+  - type: dropdown
+    id: kind
+    attributes:
+      label: Kind
+      options:
+        - New app / module
+        - Platform / quality-of-life
+        - Docs
+        - Other
+  - type: markdown
+    attributes:
+      value: |
+        Heads up: this project runs on **one phone** — limited RAM/CPU, CGNAT (tunnel-only,
+        no public inbound), and an ext4 + exFAT storage split. Resource-heavy services
+        (full Nextcloud, video transcoding, multi-container stacks) are usually out of
+        scope; see [docs/ARCHITECTURE.md](../../docs/ARCHITECTURE.md).

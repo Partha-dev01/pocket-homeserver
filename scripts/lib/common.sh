@@ -7,6 +7,10 @@
 # idempotency markers, and a small process supervisor. Pure bash — no Termux or
 # Android dependency at source time, so it can be exercised on any machine.
 
+# This file is SOURCED, not executed, so it has no shebang; tell ShellCheck the
+# dialect explicitly instead.
+# shellcheck shell=bash
+
 # Guard against double-sourcing.
 [ -n "${_POCKET_COMMON_LOADED:-}" ] && return 0
 _POCKET_COMMON_LOADED=1
@@ -35,6 +39,14 @@ load_env() {
   set -a
   # shellcheck disable=SC1090
   . "$envf"
+  # Central version/checksum manifest (config/versions.env): sourced AFTER .env so
+  # an explicit .env pin still wins, and BEFORE any install step runs so every
+  # step/app reads its pin from one place. Absent is fine — each step keeps an
+  # inline ${VAR:-default} fallback. See docs/UPDATING.md + scripts/ops/update.sh.
+  if [ -f "$POCKET_ROOT/config/versions.env" ]; then
+    # shellcheck disable=SC1091
+    . "$POCKET_ROOT/config/versions.env"
+  fi
   set +a
   _apply_env_defaults
 }

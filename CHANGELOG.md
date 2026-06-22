@@ -5,6 +5,44 @@ All notable changes to pocket-homeserver are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-06-22
+
+### Added
+
+- **Central version manifest** `config/versions.env` — every fetched/built
+  component's pinned version + `sha256` in one place, sourced by `load_env` after
+  `.env` (your `.env` still overrides; each step keeps an inline fallback). Replaces
+  ~20 scattered "hand-edit two lines and re-hash" pins.
+- **Safe updates** `scripts/ops/update.sh` — **dry-run by default**; on `--confirm`
+  it backs up the manifest, snapshots the DB for Matrix, re-runs the install step
+  (sha256-verified fail-closed), restarts, watches the service, and **rolls back
+  automatically** if it crash-loops. `--list` shows every pin + tier; tier-aware
+  (binary / source / app / static / schema). See `docs/UPDATING.md`.
+- **Diagnostics** `scripts/ops/doctor.sh` — read-only preflight / self-test:
+  required config, exFAT-vs-ext4 storage tiers, the proot userland, Termux:Boot/API
+  addons, duplicate ports, loopback reachability, and crash-loop (`DEGRADED`)
+  markers. Never prints secret values. Runs advisory at the end of `install.sh` and
+  from `./pocket.sh`.
+- **Continuous integration** `.github/workflows/ci.yml` — ShellCheck (error level),
+  Python `py_compile`, a **blocking `leak-scan` gate**, and an `install --check`
+  plan smoke on every push and pull request.
+- **Repo governance** — `SECURITY.md` (private vulnerability reporting + the
+  security model), GitHub issue forms, a PR checklist, and a versioning / release
+  policy in `CONTRIBUTING.md`.
+- `./pocket.sh` gains **Update components** and **Doctor / diagnostics** menu items.
+
+### Changed
+
+- Component version pins moved out of the individual install steps into
+  `config/versions.env` (the steps' inline `${VAR:-default}` stays as a last-resort
+  fallback if the manifest is ever absent).
+
+### Fixed
+
+- `scripts/install.sh --check` now exits `0` on success — it previously inherited a
+  non-zero status from its final conditional, which would have failed the CI smoke
+  gate on a green run.
+
 ## [0.3.3] - 2026-06-22
 
 ### Added
@@ -391,6 +429,7 @@ productized from a real deployment that has run for ~20 users for months.
   for now (see the setup guide), and the watchdog is on the roadmap. The
   per-service supervisor (crash-respawn) does ship.
 
+[0.4.0]: https://github.com/Partha-dev01/pocket-homeserver/releases/tag/v0.4.0
 [0.3.3]: https://github.com/Partha-dev01/pocket-homeserver/releases/tag/v0.3.3
 [0.3.2]: https://github.com/Partha-dev01/pocket-homeserver/releases/tag/v0.3.2
 [0.3.1]: https://github.com/Partha-dev01/pocket-homeserver/releases/tag/v0.3.1

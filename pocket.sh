@@ -222,6 +222,18 @@ panic_menu() {
   esac
 }
 
+update_menu() {
+  load_cfg
+  screen; banner
+  printf '  Update components  (pins in config/versions.env — snapshots + rolls back on failure)\n\n'
+  bash "$POCKET_ROOT/scripts/ops/update.sh" --list
+  printf '\n  Type a component to preview its update plan (it prints the exact apply\n'
+  printf '  command, incl. the --sha256 you need). Blank = back.\n'
+  local c=""; read -r -p "  Component: " c || c=""
+  [ -z "$c" ] && return
+  run_action bash "$POCKET_ROOT/scripts/ops/update.sh" "$c"
+}
+
 # ── Main menu ─────────────────────────────────────────────────────────────────
 main_menu() {
   while :; do
@@ -247,6 +259,8 @@ main_menu() {
     printf '   7) View logs\n'
     printf '   8) Stop / panic\n'
     printf '   9) Rotate credentials\n'
+    printf '  10) Update components            (versions + safe rollback)\n'
+    printf '  11) Doctor / diagnostics         (read-only health + preflight)\n'
     printf '    q) quit\n\n'
     local c=""; read -r -p "  Choose: " c || c=""
     case "$c" in
@@ -260,6 +274,8 @@ main_menu() {
       7) logs_menu ;;
       8) panic_menu ;;
       9) rotate_menu ;;
+      10) update_menu ;;
+      11) run_action bash "$POCKET_ROOT/scripts/ops/doctor.sh" ;;
       q|Q|"") clear 2>/dev/null || true; exit 0 ;;
       *) warn "not a valid choice: $c"; pause ;;
     esac

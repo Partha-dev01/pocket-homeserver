@@ -38,7 +38,7 @@ You drive the whole thing from **one interactive menu**:
     q) quit
 ```
 
-> **Status: v0.3.3 — pre-release.** Everything below has landed. Interfaces may
+> **Status: v0.4.0 — pre-release.** Everything below has landed. Interfaces may
 > still change before 1.0, and the fresh-phone, zero-to-running walkthrough is
 > still being hardened — expect some rough edges. See the [changelog](CHANGELOG.md).
 
@@ -238,7 +238,7 @@ tools/       repo tooling (e.g. the leak-scan pre-push guard)
 
 ## Status, license, and contributing
 
-Pre-release (v0.3.3) and under active construction — expect breaking changes.
+Pre-release (v0.4.0) and under active construction — expect breaking changes.
 Licensed under the [MIT License](LICENSE). Issues, bug reports, and discussion are
 welcome — see [CONTRIBUTING.md](CONTRIBUTING.md). Because the repo is public, every
 change is scanned for secrets and deployment-specific data by

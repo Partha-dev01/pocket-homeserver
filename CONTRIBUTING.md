@@ -24,9 +24,14 @@ A clean install on a brand-new phone hasn't been exhaustively shaken out yet, so
    of the script you're editing.
 3. Keep everything **idempotent** (safe to re-run) and **loopback-bound** — no
    service should ever listen on anything but `127.0.0.1` / `${CADDY_BIND}`.
-4. Downloads are **pinned and `sha256`-verified** fail-closed (see
-   [`docs/SECURITY.md`](docs/SECURITY.md)); never add an unverified fetch.
-5. `bash -n` your scripts and, for the admin panel, `python3 -m py_compile admin/app.py`.
+4. Downloads are **pinned and `sha256`-verified** fail-closed; every version pin
+   lives in one place — [`config/versions.env`](config/versions.env) — and is
+   bumped safely with [`scripts/ops/update.sh`](scripts/ops/update.sh) (snapshot →
+   verify → health-check → rollback; see [`docs/UPDATING.md`](docs/UPDATING.md)).
+   Never add an unverified fetch.
+5. `bash -n` your scripts (and `shellcheck` if you have it); for Python,
+   `python3 -m py_compile <file>`. [`scripts/ops/doctor.sh`](scripts/ops/doctor.sh)
+   runs a quick read-only health/preflight check.
 
 ## Before you push (required)
 
@@ -41,6 +46,29 @@ deployment-specific data. A guard script enforces this:
 Run it before every push and make sure it reports `clean`. Keep real
 hostnames, tokens, keys, public IPs, and personal data out of commits — use the
 placeholders from `.env.example` in examples and docs.
+
+## Continuous integration
+
+Every push and pull request runs [`.github/workflows/ci.yml`](.github/workflows/ci.yml),
+which must pass:
+
+- **leak-scan** — `tools/leak-scan.sh` as a blocking secret/IP gate;
+- **shellcheck** — `--severity=error` on all shell scripts;
+- **python** — `py_compile` of every tracked `.py`;
+- **install --check** — validates the install plan from a synthetic `.env`.
+
+Run the equivalents locally before pushing so CI stays green.
+
+## Versioning & releases
+
+The project follows [Semantic Versioning](https://semver.org/) (`MAJOR.MINOR.PATCH`)
+with a [Keep a Changelog](https://keepachangelog.com/) `CHANGELOG.md`. While we are
+`0.x`, minor versions may include breaking changes — each is called out in the
+changelog. Add user-facing changes under `## [Unreleased]` as you go.
+
+Releases are cut from `main`: move `[Unreleased]` to the new version, tag
+`vX.Y.Z`, and publish a GitHub release. `0.x` tags are prereleases; `1.0.0` will
+be the first stable release.
 
 ## Commit style
 

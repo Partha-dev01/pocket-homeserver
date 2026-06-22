@@ -1,0 +1,71 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Least privilege: the gates only need to read the checkout.
+permissions:
+  contents: read
+
+jobs:
+  leak-scan:
+    name: leak-scan (secret gate)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # The blocking gate: refuse to merge anything that trips the secret/IP scan.
+      # (.leak-deny is local-only/gitignored, so CI runs the generic patterns.)
+      - name: Scan tracked files for secrets
+        run: bash tools/leak-scan.sh
+
+  shellcheck:
+    name: shellcheck (error level)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install ShellCheck 0.10.0 (pinned)
+        run: |
+          curl -fsSL --retry 3 \
+            https://github.com/koalaman/shellcheck/releases/download/v0.10.0/shellcheck-v0.10.0.linux.x86_64.tar.xz \
+            | tar -xJ
+          echo "$PWD/shellcheck-v0.10.0" >> "$GITHUB_PATH"
+      - name: Run ShellCheck
+        run: |
+          mapfile -t files < <(git ls-files '*.sh')
+          printf 'checking %d shell files\n' "${#files[@]}"
+          # SC1090/SC1091: dynamic `source` targets we cannot follow statically.
+          shellcheck --severity=error --exclude=SC1090,SC1091 "${files[@]}"
+
+  python:
+    name: python (py_compile)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      - name: Byte-compile every tracked .py
+        run: |
+          mapfile -t files < <(git ls-files '*.py')
+          printf 'compiling %d python files\n' "${#files[@]}"
+          python -m py_compile "${files[@]}"
+
+  install-check:
+    name: install --check (plan smoke)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # A full install needs Termux/proot/a tunnel, which CI can't provide — so we
+      # validate the dispatch + config loading with the built-in dry-run instead.
+      - name: Validate the install plan from a synthetic .env
+        run: |
+          mkdir -p /tmp/pocket-data
+          cat > .env <<'ENV'
+          DOMAIN=ci.example.org
+          DATA_DIR=/tmp/pocket-data
+          CF_TUNNEL_TOKEN=ci-dummy-tunnel-value
+          ADMIN_PASSWORD=ci-dummy-admin-value
+          ENV
+          bash scripts/install.sh --check

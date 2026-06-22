@@ -1,0 +1,40 @@
+name: Bug report
+description: Something doesn't work as documented
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. **Do not paste secrets** — redact `.env` values, the
+        Cloudflare Tunnel token, registration tokens, and anything sensitive.
+  - type: input
+    id: version
+    attributes:
+      label: pocket-homeserver version / commit
+      placeholder: "v0.4.0 or a commit sha"
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What you did, what you expected, and what actually happened.
+    validations:
+      required: true
+  - type: textarea
+    id: doctor
+    attributes:
+      label: scripts/ops/doctor.sh output
+      description: Paste the output — it reports config as set/MISSING and never prints secret values.
+      render: shell
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: From ${DATA_DIR}/logs/. Redact anything sensitive.
+      render: shell
+  - type: input
+    id: device
+    attributes:
+      label: Device / Android / Termux versions
+      placeholder: "e.g. Realme 3 Pro, Android 11, Termux 0.118, proot-distro Debian"
