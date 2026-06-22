@@ -5,6 +5,55 @@ All notable changes to pocket-homeserver are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 2026-06-22
+
+Personal cloud — files & sync. Serve your own files from the phone and sync them
+peer-to-peer. Every module is opt-in (`ENABLE_*`, off by default), loopback-bound,
+and keeps its secrets in 0600 files (or Syncthing's own config), never in `.env`.
+
+### Added
+
+- **Dufs** (`ENABLE_DUFS`) — a tiny stateless Rust file server (browser UI +
+  WebDAV) on `files.${DOMAIN}` (`scripts/apps/dufs.sh`). **Read-only by default.**
+  It pins the binary by sha256, forces the listener to `127.0.0.1` (dufs defaults
+  to `0.0.0.0`) and **asserts the loopback bind fail-closed** after rendering its
+  config, generates a per-deploy HTTP Basic credential (the `$6$` hash goes in the
+  0600 config; cleartext only in `${DATA_DIR}/secrets/dufs.env`, never on argv).
+- **FileBrowser** (`ENABLE_FILEBROWSER`) — the classic v2 web file manager
+  (multi-user accounts + share links, no WebDAV) on `files.${DOMAIN}`
+  (`scripts/apps/filebrowser.sh`). Its **BoltDB is pinned to ext4** (never the
+  exFAT SD), and the admin is **seeded deterministically** from `.env`
+  `ADMIN_USER`/`ADMIN_PASSWORD` off-argv (a pre-hashed bcrypt import) — no
+  print-a-random-password-once lockout trap.
+- **Mutually exclusive on `files.${DOMAIN}`** — Dufs and FileBrowser share the
+  hostname, so enabling both **dies fail-closed**; `./setup.sh` keeps Dufs and
+  disables the other if you pick both.
+- **Syncthing** (`ENABLE_SYNCTHING`) — peer-to-peer folder sync
+  (`scripts/steps/89-install-syncthing.sh`). It **sidesteps the Cloudflare tunnel
+  entirely** (so the ~100 MB body cap is irrelevant — the large-data path); its web
+  GUI stays **loopback-only** (no public vhost; reach it via
+  `ssh -L 8384:127.0.0.1:8384`). The `HOME` (config + cert + **SQLite index DB**)
+  is forced to ext4 with a fail-closed assert against an SD path, and a random GUI
+  password is set off-argv (`syncthing generate` reads it from stdin, never on the
+  command line).
+- **`docs/FILES.md`** — the files & sync guide, including the mandated **why-not-
+  Nextcloud / why-no-SMB** rationale, the Dufs-vs-FileBrowser chooser, the
+  Cloudflare Tunnel **~100 MB upload cap** + workarounds, the WebDAV service-token
+  recipe, the ext4-vs-exFAT storage split, the Quantum-fork note, and a Resource &
+  Risk section. Cross-linked from `docs/SECURITY.md` (the edge body cap) and
+  `docs/APP_AUTH.md` (non-browser clients need a service token).
+- Version pins for all three in `config/versions.env` (`DUFS_*`, `FILEBROWSER_*`,
+  `SYNCTHING_*`), each sha256-verified fail-closed.
+
+### Fixed
+
+- **`config/versions.env` now actually ships.** The central version/checksum
+  manifest (added in 0.4.0) was caught by the `*.env` line in `.gitignore` and was
+  never committed, so a fresh clone had no manifest for `common.sh`, `ops/update.sh`,
+  `ops/doctor.sh`, and `docs/UPDATING.md` to operate on (installs still worked via
+  each step's inline `${VAR:-default}` fallback). It is now un-ignored and tracked —
+  public version pins + sha256s only, no secrets.
+
 ## [0.5.0] - 2026-06-22
 
 Reliability & ops: see your phone's health over time, get told when something
@@ -466,6 +515,7 @@ productized from a real deployment that has run for ~20 users for months.
   for now (see the setup guide), and the watchdog is on the roadmap. The
   per-service supervisor (crash-respawn) does ship.
 
+[0.6.0]: https://github.com/Partha-dev01/pocket-homeserver/releases/tag/v0.6.0
 [0.5.0]: https://github.com/Partha-dev01/pocket-homeserver/releases/tag/v0.5.0
 [0.4.0]: https://github.com/Partha-dev01/pocket-homeserver/releases/tag/v0.4.0
 [0.3.3]: https://github.com/Partha-dev01/pocket-homeserver/releases/tag/v0.3.3

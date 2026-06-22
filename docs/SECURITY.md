@@ -55,6 +55,11 @@ panel**.
 - Strict TLS end-to-end; HSTS with a long max-age.
 - WAF managed rules; a rate-limit rule on the login endpoint to blunt brute
   force; bot-fight / browser-integrity checks on non-client paths.
+- **Request-body cap (~100 MB on the free plan).** Proxied requests through the
+  tunnel cap the body at roughly 100 MB, so a single-request upload larger than
+  that fails at the edge (downloads are unaffected). This shapes the file apps —
+  see [FILES.md](FILES.md) for the cap and its workarounds (chunked WebDAV, the
+  off-tunnel Syncthing path, or a LAN session).
 
 ### Matrix homeserver
 - `allow_federation = false` — the single most important setting.

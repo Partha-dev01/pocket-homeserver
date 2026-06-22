@@ -63,10 +63,13 @@ core_steps=(
   "webmail:steps/86-install-webmail.sh"
   "mcp:steps/87-install-mcp.sh"
   "metrics:steps/88-install-metrics.sh"
+  "syncthing:steps/89-install-syncthing.sh"
 )
 
 # Optional apps, in install order, each gated by ENABLE_<APP>.
-app_order=(LINKDING PINGVIN FRESHRSS MEMOS VIKUNJA SEARXNG ITTOOLS GATUS)
+# DUFS and FILEBROWSER both serve files.${DOMAIN} and are MUTUALLY EXCLUSIVE —
+# each script dies fail-closed if the other is also enabled.
+app_order=(LINKDING PINGVIN FRESHRSS MEMOS VIKUNJA SEARXNG ITTOOLS GATUS DUFS FILEBROWSER)
 declare -A app_step=(
   [LINKDING]="apps/linkding.sh"
   [PINGVIN]="apps/pingvin.sh"
@@ -76,6 +79,8 @@ declare -A app_step=(
   [SEARXNG]="apps/searxng.sh"
   [ITTOOLS]="apps/ittools.sh"
   [GATUS]="apps/gatus.sh"
+  [DUFS]="apps/dufs.sh"
+  [FILEBROWSER]="apps/filebrowser.sh"
 )
 
 # ── Persistence helpers ───────────────────────────────────────────────────────

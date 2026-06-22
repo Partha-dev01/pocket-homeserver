@@ -176,6 +176,23 @@ if [ "$EN_SEARXNG" = "true" ] || [ "$EN_ITTOOLS" = "true" ] || [ "$EN_GATUS" = "
   warn "an open metasearch proxy / open tools site / open status page. See docs/APP_AUTH.md."
 fi
 
+# ── Files & sync ──────────────────────────────────────────────────────────────
+printf '\n'; say "── Files & sync (optional) ────────────────────────"
+say "Serve + sync your own files. Dufs and FileBrowser BOTH serve files.$DOMAIN, so"
+say "pick at most ONE (Dufs is the lighter default: browser UI + mountable WebDAV;"
+say "FileBrowser adds multi-user accounts + share links but has no WebDAV). See docs/FILES.md."
+ask_yn EN_DUFS        "Files: browse + WebDAV mount, Dufs (files.$DOMAIN)?"              n
+ask_yn EN_FILEBROWSER "Files: multi-user accounts + shares, FileBrowser (alt to Dufs)?" n
+if [ "$EN_DUFS" = "true" ] && [ "$EN_FILEBROWSER" = "true" ]; then
+  warn "Dufs and FileBrowser share files.$DOMAIN — keeping Dufs, disabling FileBrowser."
+  warn "Re-run setup and pick only FileBrowser if you want it instead."
+  EN_FILEBROWSER=false
+fi
+say "Syncthing syncs files peer-to-peer (it sidesteps the tunnel, so the ~100MB"
+say "upload cap does not apply); its web GUI stays loopback-only — reach it with"
+say "  ssh -L 8384:127.0.0.1:8384 <phone>"
+ask_yn ENABLE_SYNCTHING "Enable Syncthing P2P file sync (no public hostname)?" n
+
 # ── Privacy & media filters ───────────────────────────────────────────────────
 printf '\n'; say "── Privacy & media filters (optional) ─────────────"
 say "Two small loopback proxies in front of Matrix (both off by default)."
@@ -415,6 +432,16 @@ ENABLE_SEARXNG=${EN_SEARXNG}
 ENABLE_ITTOOLS=${EN_ITTOOLS}
 ENABLE_GATUS=${EN_GATUS}
 
+# ─── Files & sync (optional) ────────────────────────────────────────────────
+# Dufs and FileBrowser both serve files.\${DOMAIN} and are MUTUALLY EXCLUSIVE
+# (each install script dies fail-closed if the other is also enabled). Dufs is
+# read-only by default; its Basic-auth credential + FileBrowser's admin seed +
+# Syncthing's GUI password are generated into 0600 files, never here. Syncthing
+# has no public hostname (GUI is loopback-only). See docs/FILES.md.
+ENABLE_DUFS=${EN_DUFS}
+ENABLE_FILEBROWSER=${EN_FILEBROWSER}
+ENABLE_SYNCTHING=${ENABLE_SYNCTHING}
+
 # ─── Privacy & media filters (optional) ─────────────────────────────────────
 ENABLE_USER_FILTER=${ENABLE_USER_FILTER}
 USER_FILTER_PORT=8449
@@ -567,7 +594,8 @@ fi
 apps=""
 for kv in linkding:$EN_LINKDING pingvin:$EN_PINGVIN \
           freshrss:$EN_FRESHRSS memos:$EN_MEMOS vikunja:$EN_VIKUNJA \
-          searxng:$EN_SEARXNG ittools:$EN_ITTOOLS gatus:$EN_GATUS; do
+          searxng:$EN_SEARXNG ittools:$EN_ITTOOLS gatus:$EN_GATUS \
+          dufs:$EN_DUFS filebrowser:$EN_FILEBROWSER; do
   [ "${kv#*:}" = "true" ] && apps="$apps ${kv%%:*}"
 done
 printf '\n'; ok "configuration summary (no secrets shown):"
@@ -593,6 +621,7 @@ printf '\n'; ok "configuration summary (no secrets shown):"
   printf '  metrics       : %s\n'    "$ENABLE_METRICS"
   printf '  crash alert   : %s\n'    "$([ -n "$POCKET_ALERT_CMD" ] && echo "on" || echo "none")"
   printf '  offsite backup: %s\n'    "$ENABLE_OFFSITE_BACKUP"
+  printf '  syncthing     : %s\n'    "$ENABLE_SYNCTHING"
   printf '  apps enabled  :%s\n'     "${apps:- (none)}"
 } >&2
 

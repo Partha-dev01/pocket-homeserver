@@ -1,6 +1,9 @@
 # ── Secrets: NEVER commit (this repo is public-bound) ─────────────────
 *.env
 !*.env.example
+# config/versions.env is the central VERSION/CHECKSUM manifest (public pins +
+# sha256s, no secrets) — it is meant to ship, so un-ignore it from the *.env rule.
+!config/versions.env
 # local-only leak-scan deny-list (deployment-specific strings; see tools/leak-scan.sh)
 .leak-deny
 *.key

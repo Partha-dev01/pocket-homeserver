@@ -38,7 +38,7 @@ You drive the whole thing from **one interactive menu**:
     q) quit
 ```
 
-> **Status: v0.5.0 — pre-release.** Everything below has landed. Interfaces may
+> **Status: v0.6.0 — pre-release.** Everything below has landed. Interfaces may
 > still change before 1.0, and the fresh-phone, zero-to-running walkthrough is
 > still being hardened — expect some rough edges. See the [changelog](CHANGELOG.md).
 
@@ -49,6 +49,10 @@ You drive the whole thing from **one interactive menu**:
 - **Eight optional web apps**, each on its own subdomain, all loopback-bound
   behind the single tunnel — bookmarks, file sharing, RSS, notes, tasks,
   metasearch, a developer toolbox, and a status page. ([docs/APPS.md](docs/APPS.md))
+- **Personal cloud — files & sync** — serve your files over the web + WebDAV
+  (Dufs, read-only by default) or with multi-user accounts + share links
+  (FileBrowser), and sync folders peer-to-peer off the tunnel (Syncthing). All
+  opt-in, loopback-bound. ([docs/FILES.md](docs/FILES.md))
 - **One interactive control panel** (`./pocket.sh`) for the whole lifecycle —
   configure, install, status, restarts, backups, logs, and a panic stop.
 - **Resumable installs** — every step is recorded, so re-runs are fast and an
@@ -245,10 +249,11 @@ tools/       repo tooling (e.g. the leak-scan pre-push guard)
 - [x] Observability — metrics sampler + admin sparklines / 24h health strip / problems view + crash-loop alerts
 - [x] Off-device encrypted backup (push age-ciphertext to any S3-compatible bucket)
 - [x] Matrix user management in the panel (list/create/reset/suspend/deactivate + invite tokens)
+- [x] Personal cloud — files & sync (Dufs + WebDAV / FileBrowser accounts / Syncthing P2P; [docs/FILES.md](docs/FILES.md))
 
 ## Status, license, and contributing
 
-Pre-release (v0.5.0) and under active construction — expect breaking changes.
+Pre-release (v0.6.0) and under active construction — expect breaking changes.
 Licensed under the [MIT License](LICENSE). Issues, bug reports, and discussion are
 welcome — see [CONTRIBUTING.md](CONTRIBUTING.md). Because the repo is public, every
 change is scanned for secrets and deployment-specific data by

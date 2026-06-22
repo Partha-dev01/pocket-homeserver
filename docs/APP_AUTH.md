@@ -66,6 +66,14 @@ Repeat per app hostname. A policy that lists the specific people you trust is th
 simplest robust choice; Cloudflare also supports one-time PINs, social/IdP logins,
 and service tokens for automation.
 
+> **Non-browser clients (WebDAV, sync, API) cannot do the interactive login.** A
+> WebDAV client (e.g. mounting Dufs in Finder / Explorer / `rclone`) cannot follow
+> the Access 302-redirect to a login page. To reach such a hostname without a
+> browser, attach a **Cloudflare Access service-token** policy to it and have the
+> client send `CF-Access-Client-Id` / `CF-Access-Client-Secret` headers. The
+> optional Matrix-SSO gateway (below) has **no service-token path**, so it cannot
+> front WebDAV at all. See [FILES.md](FILES.md) for the Dufs WebDAV recipe.
+
 > Tip: apps that have their own login (the first five above) work fine with *or*
 > without Cloudflare Access, but running both is the recommended default — the
 > edge gate stops unauthenticated traffic from reaching the app's login form at
