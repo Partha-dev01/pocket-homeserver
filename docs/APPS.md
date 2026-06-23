@@ -29,14 +29,21 @@ ENABLE_LINKDING=true
 | **Radicale** | `dav.${DOMAIN}` | calendar + contacts (CalDAV/CardDAV) | Python venv | `$HOME/.pocket/radicale` (ext4) |
 | **Trilium** | `wiki.${DOMAIN}` | notes / wiki | bundled Node + better-sqlite3 | `$HOME/.pocket/trilium` (ext4) |
 | **Vaultwarden** | `vault.${DOMAIN}` | password manager (Bitwarden-compat) | Rust binary (image-extracted) | `$HOME/.pocket/vaultwarden` (ext4) |
+| **Navidrome** | `music.${DOMAIN}` | music streaming (Subsonic) | single Go binary | `$HOME/.pocket/navidrome` (ext4) + SD library |
+| **Kavita** | `books.${DOMAIN}` | manga / comics / ebooks | .NET binary (+libicu) | `$HOME/.pocket/kavita` (ext4) + SD library |
+| **Audiobookshelf** | `audiobooks.${DOMAIN}` | audiobooks / podcasts | Node (built from source) | `$HOME/.pocket/audiobookshelf` (ext4) + SD library |
 
-> The last four (the **v0.7 "productivity & security"** set) are heavier and each
-> has a dedicated page with a full **Resource & Risk** section and the auth details:
-> [READLATER.md](READLATER.md), [DAV.md](DAV.md), [NOTES.md](NOTES.md),
-> [VAULT.md](VAULT.md). Unlike the apps above (which bind-mount data from the exFAT
-> SD), these keep their DB/index on **ext4** at `$HOME/.pocket/<app>`. **Vaultwarden
-> and Radicale speak native/token auth** and need a Cloudflare Access **service-token**
-> exemption, not the interactive login gate (see [APP_AUTH.md](APP_AUTH.md)).
+> The **v0.7 "productivity & security"** set (Wallabag/Radicale/Trilium/Vaultwarden)
+> and the **v0.8 "media"** set (Navidrome/Kavita/Audiobookshelf) are heavier
+> and each has a dedicated page with a full **Resource & Risk** section and the auth
+> details: [READLATER.md](READLATER.md), [DAV.md](DAV.md), [NOTES.md](NOTES.md),
+> [VAULT.md](VAULT.md), and [MEDIA.md](MEDIA.md) (the three media apps + a photo-gallery
+> roadmap note + the Jellyfin "why docs-only" note). Unlike the first batch of apps (which bind-mount data from the
+> exFAT SD), these keep their DB/index on **ext4** at `$HOME/.pocket/<app>` and only the
+> bulk media **library** sits on the SD. Several speak **native/token auth** —
+> **Vaultwarden, Radicale**, and the media apps' **Subsonic / OPDS / mobile** clients —
+> and need a Cloudflare Access **service-token** (or a per-path bypass) rather than the
+> interactive login gate (see [APP_AUTH.md](APP_AUTH.md)).
 
 ## How they all work (the common pattern)
 

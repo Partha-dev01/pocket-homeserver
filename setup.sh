@@ -210,6 +210,27 @@ if [ "$EN_VAULTWARDEN" = "true" ]; then
   warn "trade-off). Each upgrade must re-derive those pins. See docs/VAULT.md."
 fi
 
+# ── Media apps ─────────────────────────────────────────────────────────────────
+printf '\n'; say "── Media (optional) ───────────────────────────────"
+say "Stream your own music, read comics/ebooks, play audiobooks. Each app's DB + cache"
+say "stays on ext4 (\$HOME/.pocket); the bulk LIBRARY may live on the SD card. Direct-play"
+say "by default (no transcoding); the first library scan is heavy on a phone. Subsonic"
+say "(Navidrome) + OPDS (Kavita) + the Audiobookshelf apps use token auth — gate their UI"
+say "but EXEMPT the API paths in Cloudflare Access. Audiobookshelf is built from source"
+say "(first build 15-40+ min). See docs/MEDIA.md + docs/APP_AUTH.md."
+# Pre-initialize the library-path vars (set -u; always present in the .env heredoc).
+NAVIDROME_MUSIC_DIR="$DATA_DIR/music"; KAVITA_LIBRARY_DIR="$DATA_DIR/books"
+ABS_LIBRARY_DIR="$DATA_DIR/audiobooks"
+ask_yn EN_NAVIDROME     "Music streaming (Subsonic-compatible), Navidrome (music.$DOMAIN)?"  n
+[ "$EN_NAVIDROME" = "true" ]   && ask NAVIDROME_MUSIC_DIR  "Path to your music library (SD card ok)"     "$DATA_DIR/music"
+ask_yn EN_KAVITA        "Manga / comics / ebooks reader, Kavita (books.$DOMAIN)?"            n
+[ "$EN_KAVITA" = "true" ]      && ask KAVITA_LIBRARY_DIR   "Path to your books/comics library (SD card ok)" "$DATA_DIR/books"
+ask_yn EN_AUDIOBOOKSHELF "Audiobooks + podcasts, Audiobookshelf (audiobooks.$DOMAIN)?"       n
+if [ "$EN_AUDIOBOOKSHELF" = "true" ]; then
+  warn "Audiobookshelf is BUILT FROM SOURCE on-device (first build 15-40+ min, like Pingvin)."
+  ask ABS_LIBRARY_DIR "Path to your audiobook library (SD card ok)" "$DATA_DIR/audiobooks"
+fi
+
 # ── Privacy & media filters ───────────────────────────────────────────────────
 printf '\n'; say "── Privacy & media filters (optional) ─────────────"
 say "Two small loopback proxies in front of Matrix (both off by default)."
@@ -373,6 +394,8 @@ Q_MAILDOMAIN=$(envq "$MAIL_DOMAIN")
 Q_MCPTRANS=$(envq "$MCP_TRANSPORT")
 Q_HPDECOY=$(envq "$HONEYPOT_DECOY_HOSTS"); Q_BDHOUR=$(envq "$BACKUP_DAEMON_HOUR"); Q_BDHC=$(envq "$BACKUP_DAEMON_HC_URL")
 Q_ALERTCMD=$(envq "$POCKET_ALERT_CMD"); Q_AGE_RCPT=$(envq "$AGE_RECIPIENT")
+Q_NDMUSIC=$(envq "$NAVIDROME_MUSIC_DIR"); Q_KAVLIB=$(envq "$KAVITA_LIBRARY_DIR")
+Q_ABSLIB=$(envq "$ABS_LIBRARY_DIR")
 
 umask 077
 tmp="$ENV_OUT.tmp.$$"
@@ -469,6 +492,24 @@ ENABLE_WALLABAG=${EN_WALLABAG}
 ENABLE_RADICALE=${EN_RADICALE}
 ENABLE_TRILIUM=${EN_TRILIUM}
 ENABLE_VAULTWARDEN=${EN_VAULTWARDEN}
+
+# ─── Media (optional) ───────────────────────────────────────────────────────
+# Each app's DB/index/cache stays on ext4 (\$HOME/.pocket/<app> — the install
+# scripts REFUSE DATA_DIR/exFAT fail-closed); only the bulk LIBRARY path below may
+# live on the SD card (read-mostly media). Direct-play by default (no transcode).
+# Navidrome (Subsonic /rest), Kavita (OPDS /api/opds) + the Audiobookshelf apps use
+# token auth — gate the UI but EXEMPT those API paths in Cloudflare Access.
+# Audiobookshelf builds from source on first run (15-40+ min).
+# See docs/MEDIA.md + docs/APP_AUTH.md.
+ENABLE_NAVIDROME=${EN_NAVIDROME}
+NAVIDROME_PORT=9123
+NAVIDROME_MUSIC_DIR=${Q_NDMUSIC}
+ENABLE_KAVITA=${EN_KAVITA}
+KAVITA_PORT=9124
+KAVITA_LIBRARY_DIR=${Q_KAVLIB}
+ENABLE_AUDIOBOOKSHELF=${EN_AUDIOBOOKSHELF}
+AUDIOBOOKSHELF_PORT=9127
+ABS_LIBRARY_DIR=${Q_ABSLIB}
 
 # ─── Privacy & media filters (optional) ─────────────────────────────────────
 ENABLE_USER_FILTER=${ENABLE_USER_FILTER}
@@ -624,7 +665,8 @@ for kv in linkding:$EN_LINKDING pingvin:$EN_PINGVIN \
           freshrss:$EN_FRESHRSS memos:$EN_MEMOS vikunja:$EN_VIKUNJA \
           searxng:$EN_SEARXNG ittools:$EN_ITTOOLS gatus:$EN_GATUS \
           dufs:$EN_DUFS filebrowser:$EN_FILEBROWSER \
-          wallabag:$EN_WALLABAG radicale:$EN_RADICALE trilium:$EN_TRILIUM vaultwarden:$EN_VAULTWARDEN; do
+          wallabag:$EN_WALLABAG radicale:$EN_RADICALE trilium:$EN_TRILIUM vaultwarden:$EN_VAULTWARDEN \
+          navidrome:$EN_NAVIDROME kavita:$EN_KAVITA audiobookshelf:$EN_AUDIOBOOKSHELF; do
   [ "${kv#*:}" = "true" ] && apps="$apps ${kv%%:*}"
 done
 printf '\n'; ok "configuration summary (no secrets shown):"

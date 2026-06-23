@@ -45,6 +45,9 @@ their own login.
 | Trilium (notes / wiki) | Yes | CF Access + native login (browser) | Recommended for the browser UI; **service token** for ETAPI + the sync client |
 | Radicale (CalDAV/CardDAV) | Yes (Basic) | **native + service-token edge** | **Service token required** — DAV clients can't do the interactive login |
 | Vaultwarden (password manager) | Yes (master pw + 2FA) | **native + service-token edge** | **Service token required** — Bitwarden apps can't do the interactive login |
+| Navidrome (music) | Yes | CF Access + native login (browser) | Recommended for the UI; **exempt `/rest/*` + `/share/*`** (path bypass or service token) for Subsonic clients |
+| Kavita (comics / ebooks) | Yes | CF Access + native login (browser) | Recommended for the UI; **exempt `/api/opds/*`** for OPDS readers (api-key in URL) |
+| Audiobookshelf (audiobooks) | Yes | CF Access + native login (browser) | Recommended for the UI; **exempt `/api/*`,`/public/*`,`/feed/*`,`/status`,`/healthcheck`,`/ping`,`/hls/*`** for the mobile apps |
 
 For the three apps with no login of their own (SearXNG, IT-Tools, Gatus),
 **Cloudflare Access is the only thing standing between the internet and the app** —
@@ -88,6 +91,15 @@ and service tokens for automation.
 > [READLATER.md](READLATER.md)), and **Trilium's** ETAPI + sync client (see
 > [NOTES.md](NOTES.md)). Each needs a **service-token exemption** on its hostname,
 > never the interactive login policy.
+>
+> The **v0.8 media apps** are a milder variant: their *browser UI* sits behind a normal
+> Access login, but specific **API paths** used by non-browser clients must be exempted
+> (a per-path Access **bypass** is usually easier than a service token, since many
+> mobile Subsonic/OPDS apps can't send the `CF-Access-*` headers). Each vhost already
+> reverse-proxies those paths ahead of the optional gate; mirror that at the edge —
+> **Navidrome** `/rest/*` + `/share/*`, **Kavita** `/api/opds/*`, **Audiobookshelf**
+> `/api/*` `/public/*` `/feed/*` `/status` `/healthcheck` `/ping` `/hls/*`. See
+> [MEDIA.md](MEDIA.md).
 
 > Tip: apps that have their own login (the first five above) work fine with *or*
 > without Cloudflare Access, but running both is the recommended default — the

@@ -69,7 +69,7 @@ core_steps=(
 # Optional apps, in install order, each gated by ENABLE_<APP>.
 # DUFS and FILEBROWSER both serve files.${DOMAIN} and are MUTUALLY EXCLUSIVE —
 # each script dies fail-closed if the other is also enabled.
-app_order=(LINKDING PINGVIN FRESHRSS MEMOS VIKUNJA SEARXNG ITTOOLS GATUS DUFS FILEBROWSER WALLABAG RADICALE TRILIUM VAULTWARDEN)
+app_order=(LINKDING PINGVIN FRESHRSS MEMOS VIKUNJA SEARXNG ITTOOLS GATUS DUFS FILEBROWSER WALLABAG RADICALE TRILIUM VAULTWARDEN NAVIDROME KAVITA AUDIOBOOKSHELF)
 declare -A app_step=(
   [LINKDING]="apps/linkding.sh"
   [PINGVIN]="apps/pingvin.sh"
@@ -85,6 +85,9 @@ declare -A app_step=(
   [RADICALE]="apps/radicale.sh"
   [TRILIUM]="apps/trilium.sh"
   [VAULTWARDEN]="apps/vaultwarden.sh"
+  [NAVIDROME]="apps/navidrome.sh"
+  [KAVITA]="apps/kavita.sh"
+  [AUDIOBOOKSHELF]="apps/audiobookshelf.sh"
 )
 
 # ── Persistence helpers ───────────────────────────────────────────────────────

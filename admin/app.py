@@ -107,6 +107,9 @@ ENABLE = {
     "radicale":   _flag("ENABLE_RADICALE"),
     "trilium":    _flag("ENABLE_TRILIUM"),
     "vaultwarden":_flag("ENABLE_VAULTWARDEN"),
+    "navidrome":     _flag("ENABLE_NAVIDROME"),
+    "kavita":        _flag("ENABLE_KAVITA"),
+    "audiobookshelf":_flag("ENABLE_AUDIOBOOKSHELF"),
     "backup-daemon": _flag("ENABLE_BACKUP_DAEMON"),
     "honeypot": _flag("ENABLE_HONEYPOT"),
     "user-filter":  _flag("ENABLE_USER_FILTER"),
@@ -153,6 +156,9 @@ SCRIPTS_OK = {
     "restart-radicale":    {"argv": ["ops/restart.sh", "radicale"],        "kind": "restart"},
     "restart-trilium":     {"argv": ["ops/restart.sh", "trilium"],         "kind": "restart"},
     "restart-vaultwarden": {"argv": ["ops/restart.sh", "vaultwarden"],     "kind": "restart"},
+    "restart-navidrome":     {"argv": ["ops/restart.sh", "navidrome"],      "kind": "restart"},
+    "restart-kavita":        {"argv": ["ops/restart.sh", "kavita"],         "kind": "restart"},
+    "restart-audiobookshelf":{"argv": ["ops/restart.sh", "audiobookshelf"], "kind": "restart"},
     "restart-backup-daemon": {"argv": ["ops/restart.sh", "backup-daemon"], "kind": "restart"},
     "restart-honeypot-watcher": {"argv": ["ops/restart.sh", "honeypot-watcher"], "kind": "restart"},
     "restart-metrics-sampler": {"argv": ["ops/restart.sh", "metrics-sampler"], "kind": "restart"},
@@ -651,6 +657,18 @@ def _build_http_probes():
         # /alive is an unauthenticated liveness endpoint (returns a timestamp).
         probes.append({"name": "vaultwarden /alive", "host": f"vault.{DOMAIN}",
                        "path": "/alive", "expect": 200, "scheme": "loopback"})
+    if ENABLE["navidrome"]:
+        # /ping is an unauthenticated heartbeat (chi middleware.Heartbeat) → 200.
+        probes.append({"name": "navidrome /ping", "host": f"music.{DOMAIN}",
+                       "path": "/ping", "expect": 200, "scheme": "loopback"})
+    if ENABLE["kavita"]:
+        # /api/health is [AllowAnonymous] → 200 "Ok".
+        probes.append({"name": "kavita /api/health", "host": f"books.{DOMAIN}",
+                       "path": "/api/health", "expect": 200, "scheme": "loopback"})
+    if ENABLE["audiobookshelf"]:
+        # /healthcheck is an unauthenticated 200 liveness endpoint.
+        probes.append({"name": "audiobookshelf /healthcheck", "host": f"audiobooks.{DOMAIN}",
+                       "path": "/healthcheck", "expect": 200, "scheme": "loopback"})
     # NB: Radicale is intentionally NOT HTTP-probed here — GET / returns a 302
     # (root → /.well-known/caldav) and the probe opener follows redirects, so there
     # is no single stable status to assert. Its liveness is covered by the process
@@ -695,6 +713,13 @@ def _build_health_procs():
         procs.append({"name": "trilium", "pattern": "/opt/trilium/main.cjs"})
     if ENABLE["vaultwarden"]:
         procs.append({"name": "vaultwarden", "pattern": "vaultwarden/run.sh"})
+    if ENABLE["navidrome"]:
+        procs.append({"name": "navidrome", "pattern": "/opt/navidrome/navidrome"})
+    if ENABLE["kavita"]:
+        procs.append({"name": "kavita", "pattern": "/opt/Kavita/run.sh"})
+    if ENABLE["audiobookshelf"]:
+        # matches the proot-distro launcher argv (`bash …/run.sh`), as pgrep -f sees it
+        procs.append({"name": "audiobookshelf", "pattern": "audiobookshelf/run.sh"})
     if ENABLE["backup-daemon"]:
         procs.append({"name": "backup-daemon", "pattern": "ops/backup-daemon.sh"})
     if ENABLE["honeypot"]:

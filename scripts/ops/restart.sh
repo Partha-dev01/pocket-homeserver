@@ -11,7 +11,8 @@
 # Known services: matrix, caddy, cloudflared, auth-gw, adminweb, backup-daemon,
 # honeypot-watcher, user-filter, media-filter, and any enabled app (linkding,
 # linkding-tasks, pingvin, freshrss, freshrss-refresh, searxng, memos, vikunja,
-# gatus, wallabag, radicale, trilium, vaultwarden). A service that has
+# gatus, wallabag, radicale, trilium, vaultwarden, navidrome, kavita,
+# audiobookshelf). A service that has
 # never been started has no recorded command; this script then points you at the
 # step/app script that first brings it up.
 #

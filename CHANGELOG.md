@@ -5,6 +5,52 @@ All notable changes to pocket-homeserver are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0] - 2026-06-23
+
+Media tier. Three optional, self-hosted media servers — music, comics/ebooks, and
+audiobooks — all opt-in (`ENABLE_*`, off by default), loopback-bound, keeping their
+database/index/cache on **ext4** (`$HOME/.pocket/<app>`) while the bulk **library** may
+live on the exFAT SD. **Direct-play by default** (no on-the-fly transcoding — the
+phone has no usable hardware transcode path; software transcode is the thermal/LMK
+heavy path and stays opt-in). Subsonic / OPDS / mobile API paths are reverse-proxied
+ahead of the optional auth gate and get a Cloudflare Access **path exemption** (or
+service token), since those clients can't complete the interactive login.
+
+A photo gallery was scoped for this tier but is **deferred to the roadmap**: the
+candidate (Photoview) ships only a Go server that hardcodes a `0.0.0.0` bind, and no
+userland mechanism available on this stack (proot on unrooted Android) can safely force
+it to loopback — Go issues `bind()` as a raw syscall that an `LD_PRELOAD` shim cannot
+intercept, and `ptrace`/user-namespace/seccomp-notify rewriting is unavailable or
+unvalidatable here. See [docs/MEDIA.md](docs/MEDIA.md) for the full rationale.
+
+### Added
+
+- **Navidrome** (`ENABLE_NAVIDROME`) — a music-streaming server with its own web
+  player and a Subsonic-compatible API on `music.${DOMAIN}` (`scripts/apps/navidrome.sh`).
+  A single static Go binary, sha256-pinned. Forces `ND_ADDRESS=127.0.0.1` (Navidrome
+  defaults to `0.0.0.0`) and asserts it; DB + cache on ext4, the music library on the
+  SD. The vhost reverse-proxies `/rest/*` (Subsonic) and `/share/*` ahead of the
+  optional gate. See [docs/MEDIA.md](docs/MEDIA.md).
+- **Kavita** (`ENABLE_KAVITA`) — a manga/comic/ebook server on `books.${DOMAIN}`
+  (`scripts/apps/kavita.sh`). A self-contained .NET arm64 build (sha256-pinned, needs
+  system `libicu72`). **Pre-seeds** `appsettings.json` with `IpAddresses=127.0.0.1`
+  before first start (Kavita defaults to `0.0.0.0,::`) and asserts it; the JWT
+  `TokenKey` is generated off-argv. OPDS (`/api/opds/*`) is exempted from the gate.
+- **Audiobookshelf** (`ENABLE_AUDIOBOOKSHELF`) — an audiobook/podcast server on
+  `audiobooks.${DOMAIN}` (`scripts/apps/audiobookshelf.sh`), **built from source** from
+  a pinned git tag (no arm64 release binary; first build is 15–40+ min, like Pingvin).
+  Forces `HOST=127.0.0.1` and asserts it; pins the native `ffmpeg` + nunicode SQLite
+  extension (`SKIP_BINARIES_CHECK=1`, no first-boot auto-download). The mobile-app API
+  paths are exempted from the gate.
+- **docs/MEDIA.md** — the three media apps with a per-app **Resource & Risk** section,
+  the storage-tier and direct-play rules, the per-app Cloudflare Access exemptions, a
+  **photo-gallery roadmap note** (the loopback-bind blocker above), and an honest
+  **"why Jellyfin is docs-only"** note (no hardware transcode on a phone; the CF tunnel
+  is the wrong pipe for video) with a manual escape hatch.
+- Central pins for all three in `config/versions.env`; `setup.sh` prompts (with library
+  paths); `.env.example`, `scripts/install.sh`, the admin panel (health rows +
+  per-service restart), and `docs/APPS.md` / `docs/APP_AUTH.md` updated.
+
 ## [0.7.0] - 2026-06-22
 
 Productivity & security apps. A Bitwarden-compatible password manager, calendar +

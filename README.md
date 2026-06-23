@@ -38,7 +38,7 @@ You drive the whole thing from **one interactive menu**:
     q) quit
 ```
 
-> **Status: v0.7.0 — pre-release.** Everything below has landed. Interfaces may
+> **Status: v0.8.0 — pre-release.** Everything below has landed. Interfaces may
 > still change before 1.0, and the fresh-phone, zero-to-running walkthrough is
 > still being hardened — expect some rough edges. See the [changelog](CHANGELOG.md).
 
@@ -60,6 +60,12 @@ You drive the whole thing from **one interactive menu**:
   (Bitwarden / DAV) use a Cloudflare Access service-token, not the login gate.
   ([docs/VAULT.md](docs/VAULT.md) · [docs/DAV.md](docs/DAV.md) ·
   [docs/NOTES.md](docs/NOTES.md) · [docs/READLATER.md](docs/READLATER.md))
+- **Media apps** — stream your own music (Navidrome, Subsonic-compatible), read
+  comics/manga/ebooks (Kavita), and play audiobooks + podcasts (Audiobookshelf). All
+  opt-in; DB/cache on ext4, the bulk library on the SD; **direct-play by default** (no
+  phone-melting transcode). Subsonic/OPDS/mobile API paths get a Cloudflare Access
+  path-exemption. (A photo gallery is on the roadmap; Jellyfin is intentionally
+  docs-only.) ([docs/MEDIA.md](docs/MEDIA.md))
 - **One interactive control panel** (`./pocket.sh`) for the whole lifecycle —
   configure, install, status, restarts, backups, logs, and a panic stop.
 - **Resumable installs** — every step is recorded, so re-runs are fast and an
@@ -207,6 +213,7 @@ genuinely practical way to self-host.
 - [docs/DAV.md](docs/DAV.md) — Radicale calendar + contacts (CalDAV/CardDAV) + the QR connect-card.
 - [docs/NOTES.md](docs/NOTES.md) — Trilium notes / wiki.
 - [docs/READLATER.md](docs/READLATER.md) — Wallabag read-later / article saver.
+- [docs/MEDIA.md](docs/MEDIA.md) — media apps (Navidrome / Kavita / Audiobookshelf), the photo-gallery roadmap note, and why Jellyfin is docs-only.
 - [docs/ADMIN.md](docs/ADMIN.md) — the web admin panel.
 - [docs/BACKUPS.md](docs/BACKUPS.md) — snapshots, retention, encryption, restore.
 - [docs/RESTORE_AND_ROTATION.md](docs/RESTORE_AND_ROTATION.md) — the scripted restore and the credential-rotation scripts.
@@ -263,10 +270,12 @@ tools/       repo tooling (e.g. the leak-scan pre-push guard)
 - [x] Matrix user management in the panel (list/create/reset/suspend/deactivate + invite tokens)
 - [x] Personal cloud — files & sync (Dufs + WebDAV / FileBrowser accounts / Syncthing P2P; [docs/FILES.md](docs/FILES.md))
 - [x] Productivity & security apps — Vaultwarden (password manager) / Radicale (CalDAV/CardDAV + QR connect-card) / Trilium (notes/wiki) / Wallabag (read-later) ([docs/VAULT.md](docs/VAULT.md) · [docs/DAV.md](docs/DAV.md) · [docs/NOTES.md](docs/NOTES.md) · [docs/READLATER.md](docs/READLATER.md))
+- [x] Media apps — Navidrome (music/Subsonic) / Kavita (comics/ebooks) / Audiobookshelf (audiobooks/podcasts); Jellyfin docs-only ([docs/MEDIA.md](docs/MEDIA.md))
+- [ ] Photo gallery — on the roadmap (the candidate's Go server hardcodes a `0.0.0.0` bind that can't be safely forced to loopback on this stack; see [docs/MEDIA.md](docs/MEDIA.md))
 
 ## Status, license, and contributing
 
-Pre-release (v0.7.0) and under active construction — expect breaking changes.
+Pre-release (v0.8.0) and under active construction — expect breaking changes.
 Licensed under the [MIT License](LICENSE). Issues, bug reports, and discussion are
 welcome — see [CONTRIBUTING.md](CONTRIBUTING.md). Because the repo is public, every
 change is scanned for secrets and deployment-specific data by
