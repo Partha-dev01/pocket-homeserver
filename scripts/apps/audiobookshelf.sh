@@ -119,10 +119,7 @@ ABS_NUSQLITE_ZIP="${CACHE_DIR}/libnusqlite3-linux-arm64-${ABS_NUSQLITE_VER}.zip"
 
 # ── HARD RULE: writable state must be on ext4 — REFUSE DATA_DIR (exFAT) ───────
 # fail-closed: the DB + WAL + config + metadata MUST NOT land on the exFAT SD card.
-case "${ABS_DATA_BACKING}" in
-  "${DATA_DIR}"|"${DATA_DIR}/"*)
-    die "refusing to put the Audiobookshelf data dir under DATA_DIR (${DATA_DIR}) — it is exFAT and would corrupt the SQLite DB + WAL + config; it must stay on ext4 at \$HOME/.pocket/audiobookshelf" ;;
-esac
+assert_ext4 "${ABS_DATA_BACKING}" "Audiobookshelf data dir"
 mkdir -p "${ABS_DATA_BACKING}" "${CACHE_DIR}" || die "cannot create ${ABS_DATA_BACKING} on ext4"
 chmod 700 "${ABS_DATA_BACKING}" 2>/dev/null || true
 mkdir -p "${ABS_LIBRARY_DIR}" 2>/dev/null || warn "could not create the library dir ${ABS_LIBRARY_DIR} (add it yourself; bind-mounted read-only)"
@@ -332,24 +329,26 @@ http://${ABS_HOST}:${CADDY_PORT} {
 
 	# OPTIONAL Matrix-SSO gateway add-on (single sign-on across apps). Disabled by
 	# default — the default front door is ABS's own login + Cloudflare Access at the
-	# edge. To enable, run the optional Matrix-auth gateway and uncomment this block
-	# (see docs/APP_AUTH.md). It gates ONLY the browser UI (the API @absapi handle
-	# above already bypassed it). The /authgw/* handler keeps the login form reachable
-	# (else the 302-to-login loops), request_header strips any client-forged
+	# edge. To enable, run the optional Matrix-auth gateway and uncomment the block
+	# INSIDE the catch-all `handle` below (see docs/APP_AUTH.md). It lives inside that
+	# handle (NOT at site level) so Caddy's directive ordering cannot hoist forward_auth
+	# ahead of the @absapi handle above — the ABS token API stays exempt regardless of
+	# ordering. It gates ONLY the browser UI. The /authgw/* handler keeps the login form
+	# reachable (else the 302-to-login loops), request_header strips any client-forged
 	# Remote-User before the gate, and forward_auth then gates the catch-all:
-	# handle /authgw/* {
-	# 	reverse_proxy 127.0.0.1:9095 {
-	# 		header_up X-Real-IP {client_ip}
-	# 	}
-	# }
-	# request_header -Remote-User
-	# forward_auth 127.0.0.1:9095 {
-	# 	uri /authgw/verify
-	# 	copy_headers Remote-User
-	# }
 
 	# ── Browser UI (the gateable catch-all) ──
 	handle {
+		# handle /authgw/* {
+		# 	reverse_proxy 127.0.0.1:9095 {
+		# 		header_up X-Real-IP {client_ip}
+		# 	}
+		# }
+		# request_header -Remote-User
+		# forward_auth 127.0.0.1:9095 {
+		# 	uri /authgw/verify
+		# 	copy_headers Remote-User
+		# }
 		reverse_proxy 127.0.0.1:${ABS_PORT} {
 			flush_interval -1
 			transport http {

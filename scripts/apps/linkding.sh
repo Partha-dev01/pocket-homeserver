@@ -71,13 +71,21 @@ LINKDING_TAG="${LINKDING_TAG:-v${LINKDING_VERSION}}"
 LD_DIR="/opt/linkding"                 # install dir INSIDE the userland (git tree + .venv)
 LD_PORT="${LINKDING_PORT:-9090}"       # loopback bind; Caddy fronts the TLS edge
 LD_HOST="links.${DOMAIN}"              # public hostname
-LD_DATA_HOST="${DATA_DIR}/linkding"    # SQLite DB + SECRET_KEY + favicons/previews (large volume)
+LD_DATA_HOST="${HOME}/.pocket/linkding" # SQLite DB + -wal/-shm + SECRET_KEY + favicon/preview cache — ext4 (NEVER exFAT)
+LD_DATA_OLD="${DATA_DIR}/linkding"     # pre-v1.0 location on the exFAT SD (auto-migrated below)
 LD_DATA_USERLAND="${LD_DIR}/data"      # bind target inside the userland (Linkding's fixed data dir)
 SECRETS_FILE="${DATA_DIR}/secrets/linkding.env"
 
 # Linkding's prod settings module + the canonical superuser env contract.
 LD_SETTINGS="bookmarks.settings.prod"
 
+# Storage tier: the data dir holds the SQLite DB (+ -wal/-shm), the Django
+# SECRET_KEY, and the favicon/preview thumbnail cache. SQLite needs ext4 (POSIX
+# locks + atomic rename + durable fsync — exFAT silently corrupts it), so the whole
+# dir lives on ext4. Refuse a DATA_DIR (exFAT) location fail-closed, and one-time
+# auto-migrate any pre-v1.0 data dir that still sits on the SD.
+assert_ext4 "${LD_DATA_HOST}" "Linkding data dir"
+migrate_backing_to_ext4 "${LD_DATA_OLD}" "${LD_DATA_HOST}" "Linkding data"
 mkdir -p "${DATA_DIR}/secrets" "${LD_DATA_HOST}/favicons" "${LD_DATA_HOST}/previews"
 
 # ── Preflight: the userland must exist ───────────────────────────────────────

@@ -94,10 +94,7 @@ NAVIDROME_LOCAL="${CACHE_DIR}/${NAVIDROME_TARBALL}"
 # The SQLite DB (navidrome.db) + its -wal/-shm need real fsync + atomic rename +
 # POSIX locks; the artwork/transcode cache + scan index live here too. exFAT can
 # silently corrupt all of that. Refuse it the same way vaultwarden.sh does.
-case "${DATA_BACKING}" in
-  "${DATA_DIR}"|"${DATA_DIR}/"*)
-    die "refusing to put the Navidrome DATA_FOLDER under DATA_DIR (${DATA_DIR}) — it is exFAT and would corrupt the SQLite DB + WAL + cache; it must stay on ext4 at \$HOME/.pocket/navidrome" ;;
-esac
+assert_ext4 "${DATA_BACKING}" "Navidrome data dir"
 mkdir -p "${DATA_BACKING}" "${CACHE_DIR}" || die "cannot create ${DATA_BACKING} on ext4"
 chmod 700 "${DATA_BACKING}" 2>/dev/null || true
 

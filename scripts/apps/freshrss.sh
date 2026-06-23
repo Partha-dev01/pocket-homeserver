@@ -74,12 +74,19 @@ FR_DIR="/opt/freshrss"                       # app root INSIDE the userland (web
 FR_WEBROOT="${FR_DIR}/p"                      # FreshRSS public webroot (index.php front controller)
 FR_FPM_PORT="${FRESHRSS_FPM_PORT:-9112}"      # dedicated php-fpm pool; Caddy fronts the TLS edge
 FR_HOST="rss.${DOMAIN}"                       # public hostname
-FR_DATA_HOST="${DATA_DIR}/freshrss"           # SQLite DB + config + feed cache (large volume)
+FR_DATA_HOST="${HOME}/.pocket/freshrss"       # SQLite DB (+ -wal/-shm) + config + feed cache — ext4 (NEVER exFAT)
+FR_DATA_OLD="${DATA_DIR}/freshrss"            # pre-v1.0 location on the exFAT SD (auto-migrated below)
 FR_DATA_USERLAND="${FR_DIR}/data"             # bind target inside the userland (FreshRSS's data dir)
 FR_FPM_CONF="${FR_DIR}/php-fpm.conf"          # dedicated pool config (in the userland)
 FR_REFRESH_INTERVAL="${FRESHRSS_REFRESH_INTERVAL:-900}"  # seconds between feed pulls (~15 min)
 BASE_URL="https://${FR_HOST}"
 
+# Storage tier: FreshRSS's data dir holds its SQLite DB (+ -wal/-shm), config, and
+# feed cache. SQLite needs ext4 (POSIX locks + atomic rename + durable fsync — exFAT
+# silently corrupts it), so the whole dir lives on ext4. Refuse a DATA_DIR (exFAT)
+# location fail-closed, and one-time auto-migrate any pre-v1.0 data dir still on the SD.
+assert_ext4 "${FR_DATA_HOST}" "FreshRSS data dir"
+migrate_backing_to_ext4 "${FR_DATA_OLD}" "${FR_DATA_HOST}" "FreshRSS data"
 mkdir -p "${FR_DATA_HOST}"
 
 # ── Preflight: the userland must exist ───────────────────────────────────────

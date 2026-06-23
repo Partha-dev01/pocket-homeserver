@@ -149,8 +149,13 @@ ENABLE_MCP        = _flag("ENABLE_MCP")
 MCP_TRANSPORT     = (_env("MCP_TRANSPORT", "stdio").strip().lower() or "stdio")
 MCP_HTTP_HOST     = _env("MCP_HTTP_HOST", "mcp")          # subdomain label → mcp.${DOMAIN}
 MCP_HTTP_PORT     = int(_env("MCP_HTTP_PORT", "9120") or "9120")
-# The HTTP transport MUST bind the loopback (Caddy fronts the edge); never 0.0.0.0.
-MCP_HTTP_BIND     = _env("MCP_HTTP_BIND") or CADDY_BIND
+# The HTTP transport MUST bind the loopback (Caddy fronts the edge); NEVER 0.0.0.0.
+# Default to a hardcoded 127.0.0.1 and DO NOT follow CADDY_BIND — the no-auth php-fpm
+# pools (freshrss/wallabag/snappymail) take the same stance, so a supported
+# `CADDY_BIND=0.0.0.0` (chosen to expose Caddy itself) can never LAN-expose this
+# tool-execution endpoint. A non-loopback override is refused fail-closed in
+# _serve_http() below.
+MCP_HTTP_BIND     = _env("MCP_HTTP_BIND") or "127.0.0.1"
 MCP_ALLOW_OPERATE = _flag("MCP_ALLOW_OPERATE")
 MCP_ALLOW_DANGER  = _flag("MCP_ALLOW_DANGER")
 MCP_LOG_REDACT    = _env("MCP_LOG_REDACT", "true").strip().lower() != "false"
@@ -1041,6 +1046,13 @@ def _build_http_app():
 def _serve_http():
     """Serve the auth-wrapped ASGI app with uvicorn on the loopback Caddy fronts."""
     import uvicorn
+    # Fail-closed: the MCP control surface must never bind a non-loopback address
+    # (proot shares the host net ns, so 0.0.0.0 would expose tool-execution on the
+    # phone's real Wi-Fi/cell interfaces). Refuse rather than silently LAN-expose.
+    if MCP_HTTP_BIND not in ("127.0.0.1", "::1", "localhost"):
+        sys.exit(f"[pocket-mcp] refusing to bind the HTTP transport on a non-loopback "
+                 f"address ({MCP_HTTP_BIND!r}); set MCP_HTTP_BIND=127.0.0.1 "
+                 f"(Caddy fronts the public edge regardless of CADDY_BIND).")
     app = _build_http_app()
     print(f"[pocket-mcp] HTTP transport on {MCP_HTTP_BIND}:{MCP_HTTP_PORT} "
           f"(mcp.{DOMAIN} via Caddy; fail-closed: bearer + Cloudflare Access)",

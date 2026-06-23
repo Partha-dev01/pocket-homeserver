@@ -152,17 +152,10 @@ in_debian "[ -x ${TAILSCALED_BIN} ]" || die "tailscaled missing/!executable afte
 # tailscaled persists the node's WireGuard private key + identity + prefs under
 # --statedir. We force it onto ext4 ($HOME/.pocket/tailscale). exFAT (DATA_DIR)
 # has no POSIX locks / atomic rename / durable fsync; a corrupt key store there
-# means a re-auth at best, silent breakage at worst. Refuse it the same way
-# navidrome.sh / syncthing do — resolve the parent so a symlink/"../" can't smuggle
-# it onto the SD card.
+# means a re-auth at best, silent breakage at worst. The shared helper resolves the
+# full real path (incl. a symlinked leaf) and refuses fail-closed.
 TS_STATEDIR="${POCKET_TAILSCALE_STATEDIR:-$HOME/.pocket/tailscale}"
-mkdir -p "$(dirname "${TS_STATEDIR}")"
-_resolved_state="$(cd "$(dirname "${TS_STATEDIR}")" && pwd -P)/$(basename "${TS_STATEDIR}")"
-_resolved_data="$(cd "${DATA_DIR}" && pwd -P)"
-case "${_resolved_state}/" in
-  "${_resolved_data}/"*)
-    die "Tailscale statedir (${_resolved_state}) resolves under DATA_DIR (${_resolved_data}, the exFAT SD). The node key store would corrupt there. Set POCKET_TAILSCALE_STATEDIR to an ext4 path (default \$HOME/.pocket/tailscale) and re-run." ;;
-esac
+assert_ext4 "${TS_STATEDIR}" "Tailscale statedir (node key + identity + prefs)"
 mkdir -p "${TS_STATEDIR}" "${POCKET_STATE_DIR}" "${POCKET_LOG_DIR}"
 chmod 700 "${TS_STATEDIR}" 2>/dev/null || true
 ok "tailscale statedir on ext4: ${TS_STATEDIR} (node key + identity + prefs)"

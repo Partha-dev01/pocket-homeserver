@@ -105,10 +105,7 @@ WB_FPM_CONF="${WB_DIR}/php-fpm.conf"
 mkdir -p "${CACHE_DIR}"
 
 # ── DB dir on ext4 — refuse to ever place it under DATA_DIR (exFAT) ───────────
-case "${DB_BACKING}" in
-  "${DATA_DIR}"|"${DATA_DIR}/"*)
-    die "refusing to put the Wallabag SQLite DB under DATA_DIR (${DATA_DIR}) — it is exFAT and would corrupt the db; it must stay on ext4 at \$HOME/.pocket/wallabag" ;;
-esac
+assert_ext4 "${DB_BACKING}" "Wallabag DB dir"
 mkdir -p "${DB_BACKING}/db" || die "cannot create the Wallabag data dir ${DB_BACKING} on ext4"
 chmod 700 "${DB_BACKING}" 2>/dev/null || true
 

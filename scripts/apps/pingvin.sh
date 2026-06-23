@@ -49,11 +49,16 @@ require_cmd proot-distro
 in_debian() { proot-distro login debian -- bash -lc "$1"; }
 
 # ── Pinned release ───────────────────────────────────────────────────────────
-# Pingvin is built from a PINNED upstream git tag (env-overridable). Upstream
-# distributes Docker images / a source tree, not a release tarball with a published
-# sha256, so integrity here is the pinned tag fetched over HTTPS from the canonical
-# repo (do NOT invent a sha256). To upgrade: back up the DB + ${DATA_DIR}/pingvin
-# FIRST, then bump PINGVIN_TAG and re-run (the loopback patch re-applies, fail-closed).
+# Pingvin is built from a PINNED git tag (env-overridable). NOTE: the default repo is
+# the community FORK smp46/pingvin-share-x, NOT canonical upstream (stonith404/
+# pingvin-share) — chosen for its arm64/proot fixes. Upstream distributes Docker
+# images / a source tree, not a release tarball with a published sha256, so the
+# integrity anchor here is the pinned tag fetched over HTTPS from that fork (do NOT
+# invent a sha256). This is a WEAKER trust anchor than a first-party signed artifact:
+# you are trusting the fork maintainer + GitHub at the pinned tag. To use canonical
+# upstream instead, set PINGVIN_REPO + PINGVIN_TAG to an upstream tag. To upgrade:
+# back up the DB + ${DATA_DIR}/pingvin FIRST, then bump PINGVIN_TAG and re-run (the
+# loopback patch re-applies, fail-closed).
 PINGVIN_TAG="${PINGVIN_TAG:-v1.19.0}"
 PINGVIN_REPO="${PINGVIN_REPO:-https://github.com/smp46/pingvin-share-x.git}"
 

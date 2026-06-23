@@ -127,10 +127,7 @@ AGH_LOCAL="${CACHE_DIR}/AdGuardHome_${AGH_VER}_linux_arm64.tar.gz"
 # AdGuard's sessions DB + stats + query log need real fsync + atomic rename +
 # POSIX locks; exFAT can silently corrupt all of that. Refuse it the same way
 # vaultwarden.sh / dufs.sh do.
-case "${DATA_BACKING}" in
-  "${DATA_DIR}"|"${DATA_DIR}/"*)
-    die "refusing to put the AdGuard Home data dir under DATA_DIR (${DATA_DIR}) — it is exFAT and would corrupt the sessions DB / stats / query log; it must stay on ext4 at \$HOME/.pocket/adguard" ;;
-esac
+assert_ext4 "${DATA_BACKING}" "AdGuard Home data dir"
 mkdir -p "${DATA_BACKING}" "${CACHE_DIR}" || die "cannot create ${DATA_BACKING} on ext4"
 chmod 700 "${DATA_BACKING}" 2>/dev/null || true
 

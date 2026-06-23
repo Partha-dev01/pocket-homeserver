@@ -109,10 +109,7 @@ SECRETS_FILE="${DATA_DIR}/secrets/forgejo.env"
 # ── Data dir on ext4 — refuse DATA_DIR (exFAT) fail-closed ───────────────────
 # The SQLite DB + WAL + the git repositories MUST stay on ext4; exFAT would corrupt
 # them. Refuse the same way vaultwarden.sh / navidrome.sh do.
-case "${DATA_BACKING}" in
-  "${DATA_DIR}"|"${DATA_DIR}/"*)
-    die "refusing to put the Forgejo data dir under DATA_DIR (${DATA_DIR}) — it is exFAT and would corrupt forgejo.db + its WAL + the git repos; it must stay on ext4 at \$HOME/.pocket/forgejo" ;;
-esac
+assert_ext4 "${DATA_BACKING}" "Forgejo data dir"
 mkdir -p "${DATA_BACKING}" "${CACHE_DIR}" "${DATA_DIR}/secrets" || die "cannot create ${DATA_BACKING} on ext4"
 chmod 700 "${DATA_BACKING}" "${DATA_DIR}/secrets" 2>/dev/null || true
 

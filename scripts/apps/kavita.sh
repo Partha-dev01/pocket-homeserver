@@ -110,10 +110,7 @@ CACHE_DIR="${DATA_DIR}/binaries"
 KAVITA_LOCAL="${CACHE_DIR}/${KAVITA_TARBALL}"
 
 # ── Data dir on ext4 — refuse DATA_DIR (exFAT) fail-closed ───────────────────
-case "${DATA_BACKING}" in
-  "${DATA_DIR}"|"${DATA_DIR}/"*)
-    die "refusing to put the Kavita config dir under DATA_DIR (${DATA_DIR}) — it is exFAT and would corrupt kavita.db + its WAL; it must stay on ext4 at \$HOME/.pocket/kavita" ;;
-esac
+assert_ext4 "${DATA_BACKING}" "Kavita config dir"
 mkdir -p "${DATA_BACKING}" "${CACHE_DIR}" || die "cannot create ${DATA_BACKING} on ext4"
 chmod 700 "${DATA_BACKING}" 2>/dev/null || true
 
@@ -277,26 +274,28 @@ http://books.${DOMAIN}:${CADDY_PORT} {
 	# By default this stays COMMENTED OUT: the hostname is gated by Cloudflare Access
 	# at the edge and Kavita keeps its own native login. To front the browser UI with
 	# the Matrix-SSO gateway instead, run that add-on and uncomment the three parts
-	# below — they MUST precede the catch-all reverse_proxy (and stay AFTER the OPDS
-	# handle above, so OPDS is never gated). The /authgw/* handler keeps the login
-	# form reachable (else the 302-to-login loops), the request_header strips any
-	# client-forged Remote-User before the gate, and forward_auth gates everything
-	# else (the SPA + its XHR /api calls ride the resulting cookie):
-	#
-	# handle /authgw/* {
-	# 	reverse_proxy 127.0.0.1:9095 {
-	# 		header_up X-Real-IP {client_ip}
-	# 	}
-	# }
-	# request_header -Remote-User
-	# forward_auth 127.0.0.1:9095 {
-	# 	uri /authgw/verify
-	# 	copy_headers Remote-User
-	# }
+	# INSIDE the catch-all `handle` below. They live inside this handle block (NOT at
+	# site level) so Caddy's directive ordering cannot hoist forward_auth ahead of the
+	# OPDS `handle /api/opds/*` above — OPDS stays exempt regardless of ordering. The
+	# /authgw/* handler keeps the login form reachable (else the 302-to-login loops),
+	# request_header strips any client-forged Remote-User before the gate, and
+	# forward_auth gates everything else (the SPA + its XHR /api calls ride the cookie):
+	handle {
+		# handle /authgw/* {
+		# 	reverse_proxy 127.0.0.1:9095 {
+		# 		header_up X-Real-IP {client_ip}
+		# 	}
+		# }
+		# request_header -Remote-User
+		# forward_auth 127.0.0.1:9095 {
+		# 	uri /authgw/verify
+		# 	copy_headers Remote-User
+		# }
 
-	# Everything else (the Angular SPA + its XHR /api/* calls + WebSocket) → backend.
-	# Caddy auto-upgrades the SignalR WebSocket; no separate rule needed.
-	reverse_proxy 127.0.0.1:${KAVITA_PORT}
+		# Everything else (the Angular SPA + its XHR /api/* calls + WebSocket) → backend.
+		# Caddy auto-upgrades the SignalR WebSocket; no separate rule needed.
+		reverse_proxy 127.0.0.1:${KAVITA_PORT}
+	}
 }
 EOF
 then

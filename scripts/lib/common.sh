@@ -234,3 +234,62 @@ unsupervise() {
 # degraded_info NAME  — print the marker (service/rc/fails/since) if present.
 is_degraded()   { [ -f "$POCKET_STATE_DIR/$1.degraded" ]; }
 degraded_info() { cat "$POCKET_STATE_DIR/$1.degraded" 2>/dev/null; }
+
+# ── Storage tier: ext4-vs-exFAT enforcement + one-time migration ─────────────
+# Any embedded SQLite DB / WAL / lock / index MUST live on ext4 (the userland),
+# NEVER on the exFAT SD card (DATA_DIR): exFAT cannot do POSIX locks, atomic
+# rename-over-existing, or durable fsync, so a DB placed there WILL corrupt (a
+# verified failure class). The bulk read-mostly content MAY stay on the SD.
+
+# assert_ext4 <path> <human-label>  — die fail-closed if <path> resolves under
+# DATA_DIR. Resolves the FULL real path (readlink -f follows a symlinked leaf, so
+# a symlink into the SD cannot smuggle the dir onto exFAT); falls back to parent
+# pwd -P resolution when readlink is unavailable / the leaf does not exist yet.
+assert_ext4() {
+  local p="$1" label="${2:-data}" rp rd
+  mkdir -p "$(dirname "$p")" 2>/dev/null || true
+  rp="$(readlink -f "$p" 2>/dev/null)"
+  [ -n "$rp" ] || rp="$(cd "$(dirname "$p")" 2>/dev/null && pwd -P)/$(basename "$p")" || rp="$p"
+  if [ -n "${DATA_DIR:-}" ] && [ -d "${DATA_DIR}" ]; then
+    rd="$(readlink -f "${DATA_DIR}" 2>/dev/null)"
+    [ -n "$rd" ] || rd="$(cd "${DATA_DIR}" 2>/dev/null && pwd -P)" || rd="$DATA_DIR"
+    case "${rp}/" in
+      "${rd}/"*)
+        die "refusing to place ${label} under DATA_DIR (${rd}, the exFAT SD): embedded SQLite/WAL/locks corrupt there. Keep it on ext4 (e.g. \$HOME/.pocket/...)." ;;
+    esac
+  fi
+}
+
+# migrate_backing_to_ext4 <old-dir-on-DATA_DIR> <new-ext4-dir> <human-label>
+# ONE-TIME, NON-DESTRUCTIVE relocation for installs that predate the ext4 move:
+# if <old> exists + is non-empty AND <new> is absent/empty, back up <old> (plain
+# tar alongside, best-effort) then COPY its contents to <new> (the original is
+# left in place — the operator deletes it after verifying). If <new> already holds
+# data it is never clobbered (idempotent: a warning, then it uses <new>).
+migrate_backing_to_ext4() {
+  local old="$1" new="$2" label="${3:-data}"
+  [ -n "$old" ] && [ -n "$new" ] || return 0
+  [ "$old" = "$new" ] && return 0
+  [ -d "$old" ] || return 0
+  [ -n "$(ls -A "$old" 2>/dev/null)" ] || return 0
+  if [ -d "$new" ] && [ -n "$(ls -A "$new" 2>/dev/null)" ]; then
+    warn "${label}: both ${old} (old, exFAT) and ${new} (ext4) hold data — leaving ${old} in place; using ${new}. Remove ${old} by hand once ${new} is confirmed good."
+    return 0
+  fi
+  say "migrating ${label} from ${old} (exFAT) -> ${new} (ext4) — one-time relocation"
+  mkdir -p "$new" || die "cannot create ${new} on ext4"
+  local bk="${old%/}.pre-ext4-migration.$$.tar"
+  if tar -cf "$bk" -C "$(dirname "$old")" "$(basename "$old")" 2>/dev/null; then
+    ok "backed up ${old} -> ${bk} (delete once ${new} is confirmed good)"
+  else
+    warn "could not back up ${old} before migration — proceeding (the copy is non-destructive)"
+  fi
+  # cp -a may exit non-zero merely failing to preserve exFAT perms, yet still copy
+  # the bytes — so judge success by the result, not cp's exit code.
+  cp -a "$old"/. "$new"/ 2>/dev/null
+  if [ -n "$(ls -A "$new" 2>/dev/null)" ]; then
+    ok "migrated ${label} to ${new}. Original left at ${old} (exFAT) — remove it by hand after verifying."
+  else
+    die "migration produced an empty ${new} — fix permissions/space and re-run (nothing was deleted)"
+  fi
+}

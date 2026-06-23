@@ -244,11 +244,14 @@ if [ "${want_http}" -eq 1 ]; then
     echo "#!${PREFIX:-/data/data/com.termux/files/usr}/bin/bash"
     echo "# Runs the MCP server (HTTP transport) TERMUX-NATIVE; started + kept alive"
     echo "# by steps/87-install-mcp.sh (supervised via start-stack.sh's .cmd glob)."
-    echo "# Binds ${CADDY_BIND}:${MCP_HTTP_PORT}; Caddy fronts the public TLS edge."
+    echo "# Binds 127.0.0.1:${MCP_HTTP_PORT}; Caddy fronts the public TLS edge."
     _emit_env
     echo "export MCP_TRANSPORT=http"
     echo "export MCP_HTTP_HOST='${MCP_HTTP_HOST}'"
-    echo "export MCP_HTTP_BIND='${CADDY_BIND}'"
+    # Hardcode the loopback bind — do NOT follow CADDY_BIND (which an operator may set
+    # to 0.0.0.0 to expose Caddy). Caddy reaches the MCP server on 127.0.0.1 regardless,
+    # and pocket-mcp.py refuses any non-loopback MCP_HTTP_BIND fail-closed.
+    echo "export MCP_HTTP_BIND='127.0.0.1'"
     echo "export MCP_HTTP_PORT='${MCP_HTTP_PORT}'"
     echo "# Bearer credential: the FILE PATH is exported (never the value) — the server"
     echo "# reads it itself and compares with hmac.compare_digest."

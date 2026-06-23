@@ -5,6 +5,38 @@ All notable changes to pocket-homeserver are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.1] - 2026-06-23
+
+Hardening pass from the pre-1.0 multi-agent audit (security + correctness across the
+whole tree). All changes are backward-compatible; the SQLite relocation auto-migrates.
+
+### Security
+- No cleartext-secret leak path on the public repo: `.gitignore` now also ignores
+  `.env.bak*` / `.env.tmp*` (the timestamped + atomic copies `setup.sh` writes), and
+  `tools/leak-scan.sh` gained a JWT-shaped backstop pattern.
+- The MCP HTTP transport binds loopback only (`127.0.0.1`) with a fail-closed assert —
+  it no longer inherits `CADDY_BIND`.
+- Admin-panel log redaction now also scrubs S3/R2/SMTP credentials (read from the 0600
+  `secrets/*.env` sibling files) and is applied to the `/action` + `/confirm` command
+  output, not just `/logs`.
+- Kavita + Audiobookshelf: the optional Matrix-SSO `forward_auth` block moved inside the
+  catch-all `handle {}` so it can never be hoisted ahead of the OPDS / token-API exemption.
+- Syncthing GUI and Vikunja API listeners gained fail-closed loopback asserts.
+- Every ext4-vs-exFAT storage guard now resolves the full real path (a symlinked leaf can
+  no longer smuggle a SQLite DB onto the exFAT SD).
+
+### Changed
+- SQLite databases for Linkding, Memos, Vikunja, and FreshRSS moved to ext4
+  (`$HOME/.pocket/<app>`) — exFAT cannot do POSIX locks / atomic rename / durable fsync,
+  which corrupts SQLite. An existing data dir on the SD is auto-migrated once (backed up
+  first; the original is left in place to remove after verifying).
+- `exobot` pins `gradio` to a known version instead of `--upgrade`.
+- The metrics sampler now defaults OFF in `setup.sh`, like every other optional module.
+
+### Fixed
+- Admin panel: Dufs / FileBrowser / Syncthing now appear in the health + restart wiring,
+  the Tailscale restart button resolves, and the restart-button row lists the v0.6–v0.9 apps.
+
 ## [0.9.0] - 2026-06-23
 
 Platform leverage & networking. A git forge, a DNS-over-HTTPS resolver, a bring-your-own
@@ -690,6 +722,10 @@ productized from a real deployment that has run for ~20 users for months.
   for now (see the setup guide), and the watchdog is on the roadmap. The
   per-service supervisor (crash-respawn) does ship.
 
+[0.9.1]: https://github.com/Partha-dev01/pocket-homeserver/releases/tag/v0.9.1
+[0.9.0]: https://github.com/Partha-dev01/pocket-homeserver/releases/tag/v0.9.0
+[0.8.0]: https://github.com/Partha-dev01/pocket-homeserver/releases/tag/v0.8.0
+[0.7.0]: https://github.com/Partha-dev01/pocket-homeserver/releases/tag/v0.7.0
 [0.6.0]: https://github.com/Partha-dev01/pocket-homeserver/releases/tag/v0.6.0
 [0.5.0]: https://github.com/Partha-dev01/pocket-homeserver/releases/tag/v0.5.0
 [0.4.0]: https://github.com/Partha-dev01/pocket-homeserver/releases/tag/v0.4.0

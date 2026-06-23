@@ -397,8 +397,9 @@ fi
 # ── Observability + crash-loop alerts (optional) ──────────────────────────────
 printf '\n'; say "── Observability + alerts (optional) ──────────────"
 say "A tiny sampler records CPU/RAM/disk/temp once a minute so the admin panel can"
-say "draw sparklines + a 24h health strip at /metrics. Cheap; recommended."
-ask_yn ENABLE_METRICS "Enable the metrics sampler?" y
+say "draw sparklines + a 24h health strip at /metrics. Cheap, and handy — but OFF by"
+say "default like every other optional module (answer y to turn it on)."
+ask_yn ENABLE_METRICS "Enable the metrics sampler?" n
 
 say ""
 say "If a service crash-loops, fire ONE alert. Pick a channel:"

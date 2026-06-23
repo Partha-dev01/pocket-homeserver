@@ -108,10 +108,7 @@ mkdir -p "${CACHE_DIR}"
 # 700 because it holds the BoltDB (config + accounts + share secrets). We never let
 # this path point at ${DATA_DIR} (exFAT). Load-bearing: see the header note.
 say "creating the File Browser db dir on ext4 (${DB_BACKING})"
-case "${DB_BACKING}" in
-  "${DATA_DIR}"|"${DATA_DIR}/"*)
-    die "refusing to put the File Browser BoltDB under DATA_DIR (${DATA_DIR}) — it is exFAT and would corrupt the db; the db must stay on ext4 at \$HOME/.pocket/filebrowser" ;;
-esac
+assert_ext4 "${DB_BACKING}" "File Browser BoltDB dir"
 mkdir -p "${DB_BACKING}" || die "cannot create the db dir ${DB_BACKING} on ext4"
 chmod 700 "${DB_BACKING}" 2>/dev/null || true
 

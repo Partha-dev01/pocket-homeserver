@@ -32,13 +32,16 @@ You drive the whole thing from **one interactive menu**:
    3) Re-run everything (force)      (redo every install step)
    4) Status                         (what is installed & running)
    5) Restart a service
-   6) Backups
+   6) Backups & restore
    7) View logs
    8) Stop / panic
+   9) Rotate credentials
+  10) Update components            (versions + safe rollback)
+  11) Doctor / diagnostics         (read-only health + preflight)
     q) quit
 ```
 
-> **Status: v0.9.0 — pre-release.** Everything below has landed. Interfaces may
+> **Status: v0.9.1 — pre-release.** Everything below has landed. Interfaces may
 > still change before 1.0, and the fresh-phone, zero-to-running walkthrough is
 > still being hardened — expect some rough edges. See the [changelog](CHANGELOG.md).
 
@@ -79,6 +82,11 @@ You drive the whole thing from **one interactive menu**:
   configure, install, status, restarts, backups, logs, and a panic stop.
 - **Resumable installs** — every step is recorded, so re-runs are fast and an
   interrupted install picks up where it left off.
+- **Pinned + updatable** — every component version lives in one manifest
+  (`config/versions.env`); `pocket update` snapshots, bumps, verifies healthy, and
+  **auto-rolls-back** on failure. A read-only `doctor` preflight and four CI gates
+  (shellcheck / py_compile / leak-scan / `install --check`) guard every change.
+  ([docs/UPDATING.md](docs/UPDATING.md))
 - **Survives reboots and crashes** — a per-service supervisor respawns crashed
   services; a Termux:Boot launcher restarts the stack on boot; and a JobScheduler
   watchdog revives anything Android's low-memory killer takes down.
@@ -174,9 +182,12 @@ item runs a script you could run by hand, so nothing is hidden:
 | **Re-run everything (force)** | redo every install step | `scripts/install.sh --force` |
 | **Status** | what's installed and what's running | `scripts/install.sh --status` |
 | **Restart a service** | restart one service | `scripts/ops/restart.sh <svc>` |
-| **Backups** | DB / full snapshots, retention, listing | `scripts/ops/backup-*.sh` |
+| **Backups & restore** | DB / full snapshots, retention, off-device push, restore | `scripts/ops/backup-*.sh` · `restore.sh` |
 | **View logs** | tail any service log | — |
 | **Stop / panic** | cut public access, or stop everything | `scripts/ops/panic-*.sh` |
+| **Rotate credentials** | admin pw / registration + tunnel token / OIDC key | `scripts/ops/rotate-*.sh` |
+| **Update components** | bump a pinned version, verify-healthy, auto-rollback | `scripts/ops/update.sh` |
+| **Doctor / diagnostics** | read-only preflight + health self-test | `scripts/ops/doctor.sh` |
 
 ## Run it again, any time
 
@@ -228,8 +239,12 @@ genuinely practical way to self-host.
 - [docs/PROXY_ROUTES.md](docs/PROXY_ROUTES.md) — the BYO reverse-proxy module (publish any loopback service on its own subdomain, fail-closed loopback-only).
 - [docs/TAILSCALE.md](docs/TAILSCALE.md) — the optional userspace Tailscale mesh VPN (CGNAT sidestep; the tailnet-bypasses-the-edge trust boundary).
 - [docs/ADMIN.md](docs/ADMIN.md) — the web admin panel (incl. the optional app catalog / module manager).
+- [docs/OBSERVABILITY.md](docs/OBSERVABILITY.md) — the optional metrics sampler, admin sparklines + 24h health strip, and crash-loop alerts (ntfy / healthchecks / Matrix).
+- [docs/USERS.md](docs/USERS.md) — Matrix user management from the admin panel (create / disable / reset / invite via the admin command room).
 - [docs/BACKUPS.md](docs/BACKUPS.md) — snapshots, retention, encryption, restore.
 - [docs/RESTORE_AND_ROTATION.md](docs/RESTORE_AND_ROTATION.md) — the scripted restore and the credential-rotation scripts.
+- [docs/UPDATING.md](docs/UPDATING.md) — the pinned-version manifest and the snapshot → bump → verify-healthy → auto-rollback update flow.
+- [docs/RESILIENCE.md](docs/RESILIENCE.md) — crash-respawn supervision, the circuit breaker / DEGRADED markers, DB-corruption recovery, and reboot survival.
 - [docs/BOOTSTRAP.md](docs/BOOTSTRAP.md) — the optional one-shot Matrix bootstrap (admin, Space/rooms, invite tokens).
 - [docs/CHATBOTS.md](docs/CHATBOTS.md) — the optional Matrix chat bots (cloud-LLM, and the on-phone BYO model).
 - [docs/STICKERS.md](docs/STICKERS.md) — the optional sticker picker (widget + backend + import bot).
@@ -265,6 +280,7 @@ tools/       repo tooling (e.g. the leak-scan pre-push guard)
 - [x] Backups & recovery — DB + rootfs snapshots, retention, restore
 - [x] Guided `setup.sh` wizard + zero-to-running setup guide
 - [x] Interactive control panel (`pocket.sh`) + resumable, status-aware installs
+- [x] Platform foundation — a central pinned-version manifest (`config/versions.env`), safe component updates with snapshot + verify-healthy + auto-rollback (`pocket update`), a read-only `doctor` preflight, and CI gates (shellcheck / py_compile / leak-scan / install --check) ([docs/UPDATING.md](docs/UPDATING.md))
 - [x] Reboot survival + self-heal watchdog as install steps (Termux:Boot + JobScheduler)
 - [x] A scheduled backup daemon (optional; weekly DB + monthly rootfs, auto-pruned)
 - [x] Optional honeypot / scanner-detection surface (alert-only; admin Security console)
@@ -290,7 +306,7 @@ tools/       repo tooling (e.g. the leak-scan pre-push guard)
 
 ## Status, license, and contributing
 
-Pre-release (v0.9.0) and under active construction — expect breaking changes.
+Pre-release (v0.9.1) and under active construction — expect breaking changes.
 Licensed under the [MIT License](LICENSE). Issues, bug reports, and discussion are
 welcome — see [CONTRIBUTING.md](CONTRIBUTING.md). Because the repo is public, every
 change is scanned for secrets and deployment-specific data by

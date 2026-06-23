@@ -274,11 +274,13 @@ _enable_admin_panel() {
   [ -n "${SNAPPYMAIL_ADMIN_PASSWORD:-}" ] || SNAPPYMAIL_ADMIN_PASSWORD="$(openssl rand -base64 24 | tr -dc 'A-Za-z0-9' | cut -c1-28)"
   [ -n "${SM_PHP_BIN}" ] || { warn "no php CLI in the userland — cannot hash the admin password"; return 1; }
   # 2. Hash the password INSIDE the userland with PASSWORD_DEFAULT (bcrypt/argon2).
-  #    The plaintext is alnum-only, so interpolating it into the single-quoted php
-  #    -r string is injection-safe (no quotes/backslashes/$ can break out); only the
-  #    HASH (never the plaintext) is written to application.ini. Validate the prefix.
+  #    The plaintext is fed over STDIN (never on argv -> never in /proc/<pid>/cmdline);
+  #    php reads it with stream_get_contents(STDIN) and strips the trailing newline.
+  #    Only the HASH (never the plaintext) is written to application.ini. Validate
+  #    the prefix. (proot-distro login forwards stdin — the same stdin-fed approach
+  #    syncthing uses for its GUI credential at install time.)
   local admin_hash
-  admin_hash="$(in_debian "${SM_PHP_BIN} -r 'echo password_hash(\"${SNAPPYMAIL_ADMIN_PASSWORD}\", PASSWORD_DEFAULT);'" 2>/dev/null | tr -d '\r')"
+  admin_hash="$(printf '%s' "${SNAPPYMAIL_ADMIN_PASSWORD}" | in_debian "${SM_PHP_BIN} -r 'echo password_hash(rtrim(stream_get_contents(STDIN), \"\\r\\n\"), PASSWORD_DEFAULT);'" 2>/dev/null | tr -d '\r')"
   case "${admin_hash}" in
     '$2y$'*|'$2a$'*|'$argon2'*) : ;;
     *) warn "password_hash produced an unexpected value — admin panel NOT enabled"; return 1 ;;

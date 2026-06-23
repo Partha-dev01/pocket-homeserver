@@ -111,6 +111,9 @@ ENABLE = {
     "radicale":   _flag("ENABLE_RADICALE"),
     "trilium":    _flag("ENABLE_TRILIUM"),
     "vaultwarden":_flag("ENABLE_VAULTWARDEN"),
+    "dufs":          _flag("ENABLE_DUFS"),
+    "filebrowser":   _flag("ENABLE_FILEBROWSER"),
+    "syncthing":     _flag("ENABLE_SYNCTHING"),
     "navidrome":     _flag("ENABLE_NAVIDROME"),
     "kavita":        _flag("ENABLE_KAVITA"),
     "audiobookshelf":_flag("ENABLE_AUDIOBOOKSHELF"),
@@ -165,12 +168,17 @@ SCRIPTS_OK = {
     "restart-radicale":    {"argv": ["ops/restart.sh", "radicale"],        "kind": "restart"},
     "restart-trilium":     {"argv": ["ops/restart.sh", "trilium"],         "kind": "restart"},
     "restart-vaultwarden": {"argv": ["ops/restart.sh", "vaultwarden"],     "kind": "restart"},
+    "restart-dufs":        {"argv": ["ops/restart.sh", "dufs"],            "kind": "restart"},
+    "restart-filebrowser": {"argv": ["ops/restart.sh", "filebrowser"],    "kind": "restart"},
+    "restart-syncthing":   {"argv": ["ops/restart.sh", "syncthing"],      "kind": "restart"},
     "restart-navidrome":     {"argv": ["ops/restart.sh", "navidrome"],      "kind": "restart"},
     "restart-kavita":        {"argv": ["ops/restart.sh", "kavita"],         "kind": "restart"},
     "restart-audiobookshelf":{"argv": ["ops/restart.sh", "audiobookshelf"], "kind": "restart"},
     "restart-forgejo":       {"argv": ["ops/restart.sh", "forgejo"],        "kind": "restart"},
     "restart-adguard":       {"argv": ["ops/restart.sh", "adguard"],        "kind": "restart"},
-    "restart-tailscale":     {"argv": ["ops/restart.sh", "tailscaled"],     "kind": "restart"},
+    # key matches the supervised name "tailscaled" so _restart_for("tailscaled")
+    # (built as f"restart-{procname}") resolves to this action.
+    "restart-tailscaled":    {"argv": ["ops/restart.sh", "tailscaled"],     "kind": "restart"},
     "apply-proxy-routes":    {"argv": ["apps/proxy-routes.sh"],             "kind": "async"},
     "restart-backup-daemon": {"argv": ["ops/restart.sh", "backup-daemon"], "kind": "restart"},
     "restart-honeypot-watcher": {"argv": ["ops/restart.sh", "honeypot-watcher"], "kind": "restart"},
@@ -562,9 +570,11 @@ def read_file(path, default=""):
 # it exact-matches the secret VALUES the panel can see (its own env + the .env file),
 # then pattern-redacts common token shapes. Over-redaction is preferred to a leak.
 _SECRET_NAME_RE = re.compile(
-    r"(?i)(token|secret|password|passwd|api[_-]?key|authkey|priv(?:ate)?[_-]?key|tunnel)")
+    r"(?i)(token|secret|password|passwd|api[_-]?key|access[_-]?key|authkey|"
+    r"priv(?:ate)?[_-]?key|credential|tunnel)")
 _REDACT_ASSIGN_RE = re.compile(
-    r"(?i)([A-Za-z0-9_]*(?:TOKEN|SECRET|PASSWORD|PASSWD|API[_-]?KEY|AUTHKEY|PRIVATE[_-]?KEY))"
+    r"(?i)([A-Za-z0-9_]*(?:TOKEN|SECRET|PASSWORD|PASSWD|API[_-]?KEY|ACCESS[_-]?KEY|"
+    r"AUTHKEY|PRIVATE[_-]?KEY|CREDENTIAL))"
     r"(\s*[=:]\s*)(\S+)")
 _REDACT_LITERAL_RES = [
     re.compile(r"tskey-[A-Za-z0-9_-]{6,}"),                 # Tailscale auth keys
@@ -572,24 +582,45 @@ _REDACT_LITERAL_RES = [
 ]
 
 
-def _secret_values():
-    """Literal secret VALUES the panel can see — the panel's own env PLUS the .env file
-    (which the detached install scripts load_env, so its values are exactly what could
-    leak into the shared async log). Returned longest-first for clean substring replace."""
-    vals = set()
-    for k, v in os.environ.items():
-        if v and len(v) >= 6 and _SECRET_NAME_RE.search(k):
-            vals.add(v)
+def _scan_env_file(path, vals, name_filtered):
+    """Add secret-looking values from a KEY=VALUE file to `vals`. When name_filtered is
+    True only values whose KEY matches _SECRET_NAME_RE are added (the file mixes secret
+    and non-secret config); when False EVERY value len>=6 is added (a dedicated 0600
+    secrets file holds nothing but secrets, so over-redact)."""
     try:
-        with open(ENV_FILE, errors="replace") as f:
+        with open(path, errors="replace") as f:
             for ln in f:
                 ln = ln.strip()
                 if not ln or ln.startswith("#") or "=" not in ln:
                     continue
                 k, v = ln.split("=", 1)
                 v = v.strip().strip('"').strip("'")
-                if v and len(v) >= 6 and _SECRET_NAME_RE.search(k):
+                if v and len(v) >= 6 and (not name_filtered or _SECRET_NAME_RE.search(k)):
                     vals.add(v)
+    except OSError:
+        pass
+
+
+def _secret_values():
+    """Literal secret VALUES the panel can see, returned longest-first for clean
+    substring replacement. Sources, in order:
+      1. the panel's own environment + the main .env (the detached install scripts
+         load_env it, so its values are exactly what could leak into the shared async
+         log) — filtered by secret-ish KEY name, as both hold non-secret config too;
+      2. the 0600 sibling secret files under SECRETS/ (offsite.env, mail-relay.env,
+         mail-r2.env, alert-matrix.env, admin-credentials.env, dufs.env, …). These hold
+         the S3/R2/SMTP/Matrix creds the backup + install scripts source but that never
+         reach the panel's env NOR the main .env, so a value match was previously
+         impossible — every value in them is a secret, so redact unconditionally."""
+    vals = set()
+    for k, v in os.environ.items():
+        if v and len(v) >= 6 and _SECRET_NAME_RE.search(k):
+            vals.add(v)
+    _scan_env_file(ENV_FILE, vals, name_filtered=True)
+    try:
+        for fn in sorted(os.listdir(SECRETS)):
+            if fn.endswith(".env"):
+                _scan_env_file(os.path.join(SECRETS, fn), vals, name_filtered=False)
     except OSError:
         pass
     return sorted(vals, key=len, reverse=True)
@@ -859,6 +890,14 @@ def _build_health_procs():
         procs.append({"name": "trilium", "pattern": "/opt/trilium/main.cjs"})
     if ENABLE["vaultwarden"]:
         procs.append({"name": "vaultwarden", "pattern": "vaultwarden/run.sh"})
+    if ENABLE["dufs"]:
+        procs.append({"name": "dufs", "pattern": "/opt/dufs/dufs"})
+    if ENABLE["filebrowser"]:
+        procs.append({"name": "filebrowser", "pattern": "/opt/filebrowser/filebrowser"})
+    if ENABLE["syncthing"]:
+        # supervised as `proot-distro … -- /usr/local/bin/syncthing serve …`; pgrep -f
+        # matches the in-userland binary path (GUI is loopback-only, so no HTTP probe).
+        procs.append({"name": "syncthing", "pattern": "/usr/local/bin/syncthing serve"})
     if ENABLE["navidrome"]:
         procs.append({"name": "navidrome", "pattern": "/opt/navidrome/navidrome"})
     if ENABLE["kavita"]:
@@ -1732,6 +1771,23 @@ def _restart_buttons():
     if ENABLE["gatus"]:    btns.append(("restart-gatus", "gatus"))
     if ENABLE["user-filter"]:  btns.append(("restart-user-filter", "user-filter"))
     if ENABLE["media-filter"]: btns.append(("restart-media-filter", "media-filter"))
+    # files & sync (v0.6)
+    if ENABLE["dufs"]:         btns.append(("restart-dufs", "dufs"))
+    if ENABLE["filebrowser"]:  btns.append(("restart-filebrowser", "filebrowser"))
+    if ENABLE["syncthing"]:    btns.append(("restart-syncthing", "syncthing"))
+    # productivity & security (v0.7)
+    if ENABLE["wallabag"]:     btns.append(("restart-wallabag", "wallabag"))
+    if ENABLE["radicale"]:     btns.append(("restart-radicale", "radicale"))
+    if ENABLE["trilium"]:      btns.append(("restart-trilium", "trilium"))
+    if ENABLE["vaultwarden"]:  btns.append(("restart-vaultwarden", "vaultwarden"))
+    # media (v0.8)
+    if ENABLE["navidrome"]:      btns.append(("restart-navidrome", "navidrome"))
+    if ENABLE["kavita"]:         btns.append(("restart-kavita", "kavita"))
+    if ENABLE["audiobookshelf"]: btns.append(("restart-audiobookshelf", "audiobookshelf"))
+    # platform & networking (v0.9) — proxy-routes has no process (apply on the catalog page)
+    if ENABLE["forgejo"]:      btns.append(("restart-forgejo", "forgejo"))
+    if ENABLE["adguard"]:      btns.append(("restart-adguard", "adguard"))
+    if ENABLE["tailscale"]:    btns.append(("restart-tailscaled", "tailscale"))
     out = "".join(action_btn(k, l, "small") for k, l in btns)
     out += ' <a href="/danger" class="btn danger small">full-stack restart…</a>'
     return out
@@ -2104,7 +2160,7 @@ on the <a href="/backups">backups page</a> as they finish.</p>
     body = f"""
 <div class=box>
 <h2>{icon} {e(cmd)} → exit={rc}</h2>
-<pre>{e(out)}</pre>
+<pre>{e(redact_secrets(out))}</pre>
 <a href="/">← dashboard</a>
 </div>"""
     return render(f"{cmd} — {BRAND} admin", body)
@@ -2149,7 +2205,7 @@ def confirm_action(action_key):
         body = f"""
 <div class=box>
 <h2>{icon} {e(meta['title'])} → exit={rc}</h2>
-<pre>{e(out)}</pre>
+<pre>{e(redact_secrets(out))}</pre>
 <a href="/">← dashboard</a>
 </div>"""
         return render(f"{action_key} — {BRAND} admin", body)

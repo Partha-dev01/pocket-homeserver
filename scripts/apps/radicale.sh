@@ -77,10 +77,7 @@ HTPASSWD="${VAR_MOUNT}/users.htpasswd"              # bcrypt htpasswd (inside th
 HTPASSWD_HOST="${VAR_BACKING}/users.htpasswd"       # same file as seen on the host
 
 # ── Collection dir on ext4 — refuse DATA_DIR (exFAT) fail-closed ─────────────
-case "${VAR_BACKING}" in
-  "${DATA_DIR}"|"${DATA_DIR}/"*)
-    die "refusing to put the Radicale collection root under DATA_DIR (${DATA_DIR}) — exFAT lacks rename-over-existing/locks/mtime/perms and would corrupt collections + expose data; it must stay on ext4 at \$HOME/.pocket/radicale" ;;
-esac
+assert_ext4 "${VAR_BACKING}" "Radicale collection root"
 mkdir -p "${VAR_BACKING}" || die "cannot create ${VAR_BACKING} on ext4"
 chmod 700 "${VAR_BACKING}" 2>/dev/null || true
 

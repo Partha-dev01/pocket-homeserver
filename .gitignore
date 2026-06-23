@@ -4,6 +4,12 @@
 # config/versions.env is the central VERSION/CHECKSUM manifest (public pins +
 # sha256s, no secrets) — it is meant to ship, so un-ignore it from the *.env rule.
 !config/versions.env
+# setup.sh writes a timestamped backup (.env.bak-<ts>) and an atomic temp
+# (.env.tmp.<pid>) of .env — both are byte-for-byte CLEARTEXT copies of every
+# secret. The "*.env" glob above does NOT match those suffixes, so name them
+# explicitly: they must NEVER be committed to this public repo.
+.env.bak*
+.env.tmp*
 # local-only leak-scan deny-list (deployment-specific strings; see tools/leak-scan.sh)
 .leak-deny
 *.key

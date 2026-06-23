@@ -91,10 +91,7 @@ DATA_BACKING="${HOME}/.pocket/vaultwarden"        # on ext4 (host) — survives 
 CACHE_DIR="${DATA_DIR}/binaries"
 
 # ── Data dir on ext4 — refuse DATA_DIR (exFAT) fail-closed ───────────────────
-case "${DATA_BACKING}" in
-  "${DATA_DIR}"|"${DATA_DIR}/"*)
-    die "refusing to put the Vaultwarden DATA_FOLDER under DATA_DIR (${DATA_DIR}) — it is exFAT and would corrupt the vault DB + JWT keys; it must stay on ext4 at \$HOME/.pocket/vaultwarden" ;;
-esac
+assert_ext4 "${DATA_BACKING}" "Vaultwarden data dir"
 mkdir -p "${DATA_BACKING}" "${CACHE_DIR}" || die "cannot create ${DATA_BACKING} on ext4"
 chmod 700 "${DATA_BACKING}" 2>/dev/null || true
 

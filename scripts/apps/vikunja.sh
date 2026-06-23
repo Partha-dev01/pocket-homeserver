@@ -67,12 +67,19 @@ VIKUNJA_URL="${VIKUNJA_URL:-https://dl.vikunja.io/vikunja/v${VIKUNJA_VERSION}/${
 VK_DIR="/opt/vikunja"                  # install dir INSIDE the userland
 VK_PORT="${VIKUNJA_PORT:-9111}"        # loopback bind; Caddy fronts the TLS edge
 VK_HOST="tasks.${DOMAIN}"              # public hostname
-VK_DATA_HOST="${DATA_DIR}/vikunja"     # SQLite DB + attachments (large volume)
+VK_DATA_HOST="${HOME}/.pocket/vikunja" # SQLite DB (+ -wal/-shm) + attachments — ext4 (NEVER exFAT)
+VK_DATA_OLD="${DATA_DIR}/vikunja"      # pre-v1.0 location on the exFAT SD (auto-migrated below)
 VK_DATA_USERLAND="/opt/vikunja/data"   # bind target inside the userland
 CACHE_DIR="${DATA_DIR}/binaries"
 ZIP_LOCAL="${CACHE_DIR}/${ZIP_NAME}"
 SECRETS_FILE="${DATA_DIR}/secrets/vikunja.env"
 
+# Storage tier: vikunja.db (+ -wal/-shm) + task attachments live in this dir.
+# SQLite needs ext4 (POSIX locks + atomic rename + durable fsync — exFAT silently
+# corrupts it), so the whole dir lives on ext4. Refuse a DATA_DIR (exFAT) location
+# fail-closed, and one-time auto-migrate any pre-v1.0 data dir still on the SD.
+assert_ext4 "${VK_DATA_HOST}" "Vikunja data dir"
+migrate_backing_to_ext4 "${VK_DATA_OLD}" "${VK_DATA_HOST}" "Vikunja data"
 mkdir -p "${CACHE_DIR}" "${DATA_DIR}/secrets" "${VK_DATA_HOST}/files"
 
 # ── Preflight: the userland must exist ───────────────────────────────────────
@@ -201,6 +208,21 @@ auth:
 EOF
 in_debian "chmod 600 ${VK_DIR}/config.yml" || true
 ok "wrote ${VK_DIR}/config.yml (chmod 600)"
+
+# ── 5b. Assert the HTTP listener is loopback-only (SECURITY-LOAD-BEARING) ─────
+# The heredoc above hardcodes 127.0.0.1, but a reused/hand-edited config.yml (or a
+# tampered VK_PORT) must never bind the API on the network: proot shares the host
+# network namespace, so a 0.0.0.0 / :: bind would expose Vikunja to the whole LAN.
+# We read service.interface back from the file we just wrote and refuse fail-closed.
+vk_iface="$(in_debian "sed -n 's/^[[:space:]]*interface:[[:space:]]*//p' ${VK_DIR}/config.yml | head -1 | tr -d '\"'" 2>/dev/null || true)"
+case "${vk_iface}" in
+  127.0.0.1:*|localhost:*|"[::1]:"*)
+    ok "Vikunja HTTP listener bound loopback-only (${vk_iface})" ;;
+  "")
+    die "could not read service.interface from ${VK_DIR}/config.yml — refusing to start with an unknown bind" ;;
+  *)
+    die "Vikunja service.interface is '${vk_iface}', not loopback. It would be exposed on the network (proot shares the host net namespace). Set it to 127.0.0.1:${VK_PORT} and re-run." ;;
+esac
 
 # ── 6. migrate-then-exec launcher (run inside the userland) ──────────────────
 # The supervisor bind-mounts ${DATA_DIR}/vikunja into the userland at

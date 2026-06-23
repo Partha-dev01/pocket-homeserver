@@ -231,10 +231,13 @@ if [ "${EXOBOT_UI:-false}" = "true" ]; then
   _ui_distro="${PROOT_DISTRO:-debian}"
   in_ui() { proot-distro login "${_ui_distro}" -- bash -lc "$1"; }
 
-  # gradio (the only third-party dependency) goes INSIDE the userland.
+  # gradio (the only third-party dependency) goes INSIDE the userland. Pinned with an
+  # EXACT == (GRADIO_VERSION from config/versions.env) — NEVER --upgrade, which would
+  # float gradio + its full transitive tree against PyPI latest at install time
+  # (the project's pip-pin discipline; see scripts/mcp/requirements.txt).
   run_once exobot-ui-deps -- in_ui \
-    "apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends python3 python3-pip ca-certificates && python3 -m pip install --break-system-packages --upgrade gradio" \
-    || die "failed to install gradio inside the userland"
+    "apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends python3 python3-pip ca-certificates && python3 -m pip install --break-system-packages 'gradio==${GRADIO_VERSION:-6.19.0}'" \
+    || die "failed to install gradio==${GRADIO_VERSION:-6.19.0} inside the userland"
 
   in_ui "mkdir -p '${UI_DIR}'" || die "could not create ${UI_DIR} in the userland"
   proot-distro login "${_ui_distro}" -- bash -lc "umask 022; cat > '${UI_DIR}/exobot-ui.py'" < "${UI_SRC}" \

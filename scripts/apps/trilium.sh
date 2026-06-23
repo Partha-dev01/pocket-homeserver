@@ -82,10 +82,7 @@ CACHE_DIR="${DATA_DIR}/binaries"
 TRILIUM_LOCAL="${CACHE_DIR}/${TRILIUM_TARBALL}"
 
 # ── Data dir on ext4 — refuse DATA_DIR (exFAT) fail-closed ───────────────────
-case "${DATA_BACKING}" in
-  "${DATA_DIR}"|"${DATA_DIR}/"*)
-    die "refusing to put the Trilium document.db under DATA_DIR (${DATA_DIR}) — it is exFAT and would corrupt better-sqlite3 + WAL; it must stay on ext4 at \$HOME/.pocket/trilium" ;;
-esac
+assert_ext4 "${DATA_BACKING}" "Trilium data dir"
 mkdir -p "${DATA_BACKING}" "${CACHE_DIR}" || die "cannot create ${DATA_BACKING} on ext4"
 chmod 700 "${DATA_BACKING}" 2>/dev/null || true
 

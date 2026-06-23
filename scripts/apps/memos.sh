@@ -63,7 +63,8 @@ MEMOS_HOST="notes.${DOMAIN}"             # public hostname (via the CF Tunnel)
 INSTALL_DIR=/opt/memos                   # in userland — the binary
 BIN="${INSTALL_DIR}/memos"               # in userland — /opt/memos/memos
 DATA_MOUNT=/opt/memos-data               # in userland — bind-mount target (SQLite + uploads)
-DATA_BACKING="${DATA_DIR}/memos"         # on the large volume — survives rootfs rebuild
+DATA_BACKING="${HOME}/.pocket/memos"     # on ext4 — SQLite (memos_prod.db) needs POSIX locks/fsync (NEVER exFAT)
+DATA_OLD="${DATA_DIR}/memos"             # pre-v1.0 location on the exFAT SD (auto-migrated below)
 
 CACHE_DIR="${DATA_DIR}/binaries"
 MEMOS_LOCAL="${CACHE_DIR}/${MEMOS_TARBALL}"
@@ -87,13 +88,16 @@ in_debian "[ -x ${BIN} ]" || die "Memos binary missing after extract at ${BIN}"
 ver="$(in_debian "${BIN} --version 2>&1 | head -1" || true)"
 [ -n "${ver}" ] && ok "Memos: ${ver}" || die "Memos binary did not run inside the userland"
 
-# ── 3. Data dir on the large volume (SQLite + uploads) ───────────────────────
-# Memos keeps its SQLite db (memos_prod.db) + uploaded blobs in its data dir.
-# We put it on ${DATA_DIR} (the big volume) and bind-mount it into the userland
-# at run time (see step 5), mirroring how the Matrix media dir is bound. We
-# create both the backing dir on the volume AND the in-userland mountpoint.
-say "creating Memos data dir on the large volume (${DATA_BACKING})"
-mkdir -p "${DATA_BACKING}" || die "cannot create ${DATA_BACKING} on the data volume"
+# ── 3. Data dir on ext4 (SQLite + uploads) ───────────────────────────────────
+# Memos keeps its SQLite db (memos_prod.db, + -wal/-shm) AND uploaded blobs in its
+# data dir. SQLite needs ext4 (POSIX locks + atomic rename + durable fsync — exFAT
+# silently corrupts it), so the whole dir lives on ext4 and is bind-mounted into
+# the userland at run time (step 5). Refuse a DATA_DIR (exFAT) location fail-closed,
+# and one-time auto-migrate any pre-v1.0 data dir that still sits on the SD.
+assert_ext4 "${DATA_BACKING}" "Memos data dir"
+migrate_backing_to_ext4 "${DATA_OLD}" "${DATA_BACKING}" "Memos data"
+say "creating Memos data dir on ext4 (${DATA_BACKING})"
+mkdir -p "${DATA_BACKING}" || die "cannot create ${DATA_BACKING} on ext4"
 chmod 700 "${DATA_BACKING}" 2>/dev/null || true
 in_debian "mkdir -p ${DATA_MOUNT}" || die "failed to create the ${DATA_MOUNT} mountpoint in the userland"
 ok "Memos data backing dir ready: ${DATA_BACKING} (bind-mounted at ${DATA_MOUNT} at start time)"

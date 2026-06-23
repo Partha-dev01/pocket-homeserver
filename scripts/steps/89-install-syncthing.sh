@@ -103,17 +103,11 @@ ver="$(in_debian '/usr/local/bin/syncthing --version 2>&1 | head -1' || true)"
 # resolves onto exFAT the index WILL corrupt, so we refuse fail-closed.
 SYNC_HOME="${POCKET_SYNCTHING_HOME:-$HOME/.pocket/syncthing}"
 
-# SECURITY/INTEGRITY-LOAD-BEARING: assert SYNC_HOME is NOT under the exFAT SD.
-# Compare resolved absolute paths so a symlink or "../" can't smuggle it onto the
-# SD card. We resolve the *parent* of SYNC_HOME because SYNC_HOME may not exist
-# yet on a first run.
-mkdir -p "$(dirname "${SYNC_HOME}")"
-_resolved_home="$(cd "$(dirname "${SYNC_HOME}")" && pwd -P)/$(basename "${SYNC_HOME}")"
-_resolved_data="$(cd "${DATA_DIR}" && pwd -P)"
-case "${_resolved_home}/" in
-  "${_resolved_data}/"*)
-    die "Syncthing HOME (${_resolved_home}) resolves under DATA_DIR (${_resolved_data}, the exFAT SD). The SQLite index DB would corrupt there. Set POCKET_SYNCTHING_HOME to an ext4 path (default \$HOME/.pocket/syncthing) and re-run." ;;
-esac
+# SECURITY/INTEGRITY-LOAD-BEARING: the Syncthing HOME holds the SQLite index DB +
+# device cert, so it must be on ext4 — never the exFAT SD (POSIX locks/fsync). The
+# shared helper resolves the full real path (incl. a symlinked leaf) and refuses
+# fail-closed; POCKET_SYNCTHING_HOME defaults to $HOME/.pocket/syncthing.
+assert_ext4 "${SYNC_HOME}" "Syncthing HOME (config + device cert + SQLite index)"
 
 mkdir -p "${SYNC_HOME}" "${POCKET_STATE_DIR}" "${POCKET_LOG_DIR}"
 chmod 700 "${SYNC_HOME}" 2>/dev/null || true
@@ -169,6 +163,27 @@ printf '%s' "${SYNCTHING_GUI_PASSWORD}" | proot-distro login debian -- bash -lc 
   "/usr/local/bin/syncthing generate --home='${SYNC_HOME}' --gui-user='${SYNCTHING_GUI_USER}' --gui-password='-' --no-port-probing" \
   || die "syncthing generate failed (config/cert not created)"
 ok "syncthing config + device cert ready under ${SYNC_HOME}"
+
+# ── 6b. Assert the GUI listener is loopback-only (SECURITY-LOAD-BEARING) ──────
+# `syncthing generate` defaults the GUI/REST API to 127.0.0.1:8384, but a reused
+# or hand-edited config.xml could bind it elsewhere. That REST API can restart the
+# daemon and read every synced path, and proot shares the host network namespace,
+# so a 0.0.0.0 bind would expose it to the whole LAN. `syncthing generate` has NO
+# --gui-address flag (upstream issue #9645 is an open feature request), so we
+# cannot force it on the command line — instead we read the value back from
+# config.xml and refuse fail-closed. The lookup is scoped to inside the
+# <gui>…</gui> block because device entries also carry an <address> element.
+say "asserting the syncthing GUI is bound loopback-only"
+gui_addr="$(proot-distro login debian -- bash -lc \
+  "sed -n '/<gui[ >]/,\\#</gui>#p' '${SYNC_HOME}/config.xml' | grep -m1 -o '<address>[^<]*' | sed 's#<address>##'")"
+case "${gui_addr}" in
+  127.0.0.1:*|localhost:*|"[::1]:"*)
+    ok "syncthing GUI bound loopback-only (${gui_addr})" ;;
+  "")
+    die "could not read the syncthing GUI <address> from ${SYNC_HOME}/config.xml — refusing to start with an unknown GUI bind" ;;
+  *)
+    die "syncthing GUI is bound to '${gui_addr}', not loopback. The REST API would be exposed on the network (proot shares the host net namespace). Set <gui><address> in ${SYNC_HOME}/config.xml to 127.0.0.1:8384 and re-run." ;;
+esac
 
 # ── 7. Supervise ─────────────────────────────────────────────────────────────
 # Run INSIDE the proot userland (the cert/config/DB live there on ext4).

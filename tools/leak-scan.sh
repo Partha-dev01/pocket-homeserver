@@ -55,6 +55,11 @@ generic_patterns=(
   'github_pat_[A-Za-z0-9_]{20,}'
   'AKIA[0-9A-Z]{16}'
   'xox[baprs]-[A-Za-z0-9-]{10,}'
+  # A JSON Web Token (header.payload — both base64url segments start "eyJ", i.e.
+  # base64 of '{"'). Catches CF tunnel/Access tokens, the Forgejo INTERNAL_TOKEN,
+  # OIDC/access tokens, etc. — the high-value shape a committed .env/.env.bak holds.
+  # Highly distinctive (an "eyJ...eyJ..." pair is never normal source/prose).
+  'eyJ[A-Za-z0-9_-]{8,}\.eyJ[A-Za-z0-9_-]{6,}'
 )
 for pat in "${generic_patterns[@]}"; do
   hits="$(grep -nIE -- "$pat" "${files[@]}" 2>/dev/null || true)"
@@ -86,6 +91,15 @@ benign_bool='[=:][[:space:]]*(true|false|none|null|yes|no|on|off|0|1|enabled|dis
 sec_hits="$(grep -nIE -- "$secret_assign" "${files[@]}" 2>/dev/null \
   | grep -vE -- "$benign_call" | grep -vE -- "$benign_value" | grep -vE -- "$benign_bool" || true)"
 [ -n "$sec_hits" ] && report "generic" "$secret_assign" "$sec_hits"
+
+# NOTE on the committed-.env class (the .env.bak-*/.env.tmp.* leak the audit flagged):
+# the PRIMARY guard is .gitignore (those files can no longer be added). A broad
+# "UPPERCASE_SECRET_NAME=<literal>" rule here was evaluated and REJECTED: the tree
+# legitimately contains many such lines that are env-reads (X = os.environ["X"]),
+# template placeholders (REPLACE_ME, your_token, __OIDC_TOKEN_URL__, ci-dummy-*) and
+# secret-FILE paths — separating those from a real secret needs an entropy heuristic
+# or a sprawling placeholder allowlist that would itself mask leaks. The JWT generic
+# pattern above is the high-value, zero-false-positive backstop for a committed token.
 
 # 2) Public IPv4 addresses (loopback / private / link-local are not leaks).
 ip_pat='\b([0-9]{1,3}\.){3}[0-9]{1,3}\b'
