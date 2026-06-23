@@ -89,6 +89,10 @@ BRAND       = _env("ADMIN_BRAND") or "pocket-homeserver"
 CADDY_BIND  = _env("CADDY_BIND", "127.0.0.1")
 CADDY_PORT  = _env("CADDY_PORT", "8443")
 AUTHGW_PORT = _env("AUTHGW_PORT", "9095")
+# The canonical .env (same path load_env uses: $POCKET_ENV or $POCKET_ROOT/.env). The
+# app-catalog writes ENABLE_* flags here (atomic, 0600) via env_set(); nothing else
+# the panel does mutates it.
+ENV_FILE    = _env("POCKET_ENV") or os.path.join(POCKET_ROOT, ".env")
 IDLE_SECONDS = int(_env("ADMIN_IDLE_MINUTES", "30") or "30") * 60
 
 # Which optional apps are enabled (drives the health checks + restart buttons so a
@@ -110,6 +114,11 @@ ENABLE = {
     "navidrome":     _flag("ENABLE_NAVIDROME"),
     "kavita":        _flag("ENABLE_KAVITA"),
     "audiobookshelf":_flag("ENABLE_AUDIOBOOKSHELF"),
+    "forgejo":       _flag("ENABLE_FORGEJO"),
+    "adguard":       _flag("ENABLE_ADGUARD"),
+    "tailscale":     _flag("ENABLE_TAILSCALE"),
+    "proxy-routes":  _flag("ENABLE_PROXY_ROUTES"),
+    "app-catalog":   _flag("ENABLE_APP_CATALOG"),
     "backup-daemon": _flag("ENABLE_BACKUP_DAEMON"),
     "honeypot": _flag("ENABLE_HONEYPOT"),
     "user-filter":  _flag("ENABLE_USER_FILTER"),
@@ -159,6 +168,10 @@ SCRIPTS_OK = {
     "restart-navidrome":     {"argv": ["ops/restart.sh", "navidrome"],      "kind": "restart"},
     "restart-kavita":        {"argv": ["ops/restart.sh", "kavita"],         "kind": "restart"},
     "restart-audiobookshelf":{"argv": ["ops/restart.sh", "audiobookshelf"], "kind": "restart"},
+    "restart-forgejo":       {"argv": ["ops/restart.sh", "forgejo"],        "kind": "restart"},
+    "restart-adguard":       {"argv": ["ops/restart.sh", "adguard"],        "kind": "restart"},
+    "restart-tailscale":     {"argv": ["ops/restart.sh", "tailscaled"],     "kind": "restart"},
+    "apply-proxy-routes":    {"argv": ["apps/proxy-routes.sh"],             "kind": "async"},
     "restart-backup-daemon": {"argv": ["ops/restart.sh", "backup-daemon"], "kind": "restart"},
     "restart-honeypot-watcher": {"argv": ["ops/restart.sh", "honeypot-watcher"], "kind": "restart"},
     "restart-metrics-sampler": {"argv": ["ops/restart.sh", "metrics-sampler"], "kind": "restart"},
@@ -170,6 +183,35 @@ SCRIPTS_OK = {
     "panic-soft":        {"argv": ["ops/panic-soft.sh"],                "kind": "danger"},
     "panic-hard":        {"argv": ["ops/panic-hard.sh"],                "kind": "danger"},
 }
+
+# ── App catalog (in-panel module manager) ────────────────────────────────────
+# The FIXED set of optional modules the catalog page can enable + install. This dict
+# is the allowlist: a module key from a request is only ever VALIDATED against it (it
+# never flows into argv). Each value = (label, ENABLE_ var, installer script relative
+# to scripts/). Below, a derived "install-<key>" SCRIPTS_OK entry is registered for
+# each, so the install action runs ONLY through run_script_detached(allowlisted key) —
+# there is no path from request input to a command line. Install/Enable only; disable
+# + data-deletion stay CLI-only (out of the web blast radius).
+APP_CATALOG = {
+    "dufs":          ("Dufs — files + WebDAV",          "ENABLE_DUFS",          "apps/dufs.sh"),
+    "filebrowser":   ("FileBrowser — files + shares",   "ENABLE_FILEBROWSER",   "apps/filebrowser.sh"),
+    "syncthing":     ("Syncthing — P2P file sync",      "ENABLE_SYNCTHING",     "steps/89-install-syncthing.sh"),
+    "wallabag":      ("Wallabag — read-later",          "ENABLE_WALLABAG",      "apps/wallabag.sh"),
+    "radicale":      ("Radicale — CalDAV/CardDAV",      "ENABLE_RADICALE",      "apps/radicale.sh"),
+    "trilium":       ("Trilium — notes / wiki",         "ENABLE_TRILIUM",       "apps/trilium.sh"),
+    "vaultwarden":   ("Vaultwarden — passwords",        "ENABLE_VAULTWARDEN",   "apps/vaultwarden.sh"),
+    "navidrome":     ("Navidrome — music",              "ENABLE_NAVIDROME",     "apps/navidrome.sh"),
+    "kavita":        ("Kavita — comics / ebooks",       "ENABLE_KAVITA",        "apps/kavita.sh"),
+    "audiobookshelf":("Audiobookshelf — audiobooks",    "ENABLE_AUDIOBOOKSHELF","apps/audiobookshelf.sh"),
+    "forgejo":       ("Forgejo — git forge",            "ENABLE_FORGEJO",       "apps/forgejo.sh"),
+    "adguard":       ("AdGuard Home — DoH resolver",    "ENABLE_ADGUARD",       "apps/adguard.sh"),
+    "proxy-routes":  ("BYO reverse-proxy",              "ENABLE_PROXY_ROUTES",  "apps/proxy-routes.sh"),
+    "tailscale":     ("Tailscale — mesh VPN",           "ENABLE_TAILSCALE",     "steps/90-install-tailscale.sh"),
+}
+for _ck, _cv in APP_CATALOG.items():
+    # async = run detached + logged (a source build can take 15–40 min); the panel
+    # worker is never blocked and the install survives the worker timeout.
+    SCRIPTS_OK[f"install-{_ck}"] = {"argv": [_cv[2]], "kind": "async"}
 
 # Danger metadata: impact + reversibility + a per-action confirmation phrase
 # (deliberately varied to defeat muscle-memory).
@@ -512,6 +554,99 @@ def read_file(path, default=""):
     except Exception: return default
 
 
+# ---------- secret redaction (served-log defense-in-depth) ----------
+# The app-catalog runs install scripts detached; their combined stdout/stderr lands in
+# the SHARED logs/adminweb-async.log, and those scripts load_env the FULL .env — so a
+# script that echoes a secret (or errors with one in the message) could otherwise leak
+# it through /logs. redact_secrets() is applied to EVERY served log (single chokepoint):
+# it exact-matches the secret VALUES the panel can see (its own env + the .env file),
+# then pattern-redacts common token shapes. Over-redaction is preferred to a leak.
+_SECRET_NAME_RE = re.compile(
+    r"(?i)(token|secret|password|passwd|api[_-]?key|authkey|priv(?:ate)?[_-]?key|tunnel)")
+_REDACT_ASSIGN_RE = re.compile(
+    r"(?i)([A-Za-z0-9_]*(?:TOKEN|SECRET|PASSWORD|PASSWD|API[_-]?KEY|AUTHKEY|PRIVATE[_-]?KEY))"
+    r"(\s*[=:]\s*)(\S+)")
+_REDACT_LITERAL_RES = [
+    re.compile(r"tskey-[A-Za-z0-9_-]{6,}"),                 # Tailscale auth keys
+    re.compile(r"(?i)\bBearer\s+[A-Za-z0-9._~+/=-]{8,}"),   # bearer tokens
+]
+
+
+def _secret_values():
+    """Literal secret VALUES the panel can see — the panel's own env PLUS the .env file
+    (which the detached install scripts load_env, so its values are exactly what could
+    leak into the shared async log). Returned longest-first for clean substring replace."""
+    vals = set()
+    for k, v in os.environ.items():
+        if v and len(v) >= 6 and _SECRET_NAME_RE.search(k):
+            vals.add(v)
+    try:
+        with open(ENV_FILE, errors="replace") as f:
+            for ln in f:
+                ln = ln.strip()
+                if not ln or ln.startswith("#") or "=" not in ln:
+                    continue
+                k, v = ln.split("=", 1)
+                v = v.strip().strip('"').strip("'")
+                if v and len(v) >= 6 and _SECRET_NAME_RE.search(k):
+                    vals.add(v)
+    except OSError:
+        pass
+    return sorted(vals, key=len, reverse=True)
+
+
+def redact_secrets(text):
+    """Scrub secret values from `text` before it is served. Never raises."""
+    if not text:
+        return text
+    try:
+        for v in _secret_values():
+            if v in text:
+                text = text.replace(v, "***REDACTED***")
+        text = _REDACT_ASSIGN_RE.sub(lambda m: m.group(1) + m.group(2) + "***REDACTED***", text)
+        for rx in _REDACT_LITERAL_RES:
+            text = rx.sub("***REDACTED***", text)
+    except Exception:
+        return "[redaction error — log withheld]"
+    return text
+
+
+def env_set(key, value):
+    """Set KEY=value in the canonical .env, atomically, 0600. KEY is restricted to the
+    ENABLE_* flag namespace (defense: the only thing the catalog ever writes) and VALUE
+    is forced to a literal true/false — so nothing operator/request-derived reaches the
+    file as a key or an arbitrary value. Returns True on success."""
+    if not re.fullmatch(r"ENABLE_[A-Z0-9_]+", key or ""):
+        return False
+    value = "true" if str(value).lower() in ("1", "true", "yes", "on") else "false"
+    try:
+        try:
+            with open(ENV_FILE, errors="replace") as f:
+                lines = f.readlines()
+        except OSError:
+            lines = []
+        out, found = [], False
+        for ln in lines:
+            stripped = ln.lstrip()
+            if stripped.split("=", 1)[0].strip() == key and "=" in stripped:
+                out.append(f"{key}={value}\n")
+                found = True
+            else:
+                out.append(ln if ln.endswith("\n") else ln + "\n")
+        if not found:
+            out.append(f"{key}={value}\n")
+        fd = os.open(ENV_FILE + ".tmp", os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w") as f:
+            f.writelines(out)
+        os.replace(ENV_FILE + ".tmp", ENV_FILE)
+        try: os.chmod(ENV_FILE, 0o600)
+        except OSError: pass
+        return True
+    except Exception as ex:
+        app.logger.warning("env_set failed: %s", ex)
+        return False
+
+
 def human_bytes(n):
     for u in ("B", "KB", "MB", "GB", "TB"):
         if n < 1024: return f"{n:.1f} {u}"
@@ -669,6 +804,17 @@ def _build_http_probes():
         # /healthcheck is an unauthenticated 200 liveness endpoint.
         probes.append({"name": "audiobookshelf /healthcheck", "host": f"audiobooks.{DOMAIN}",
                        "path": "/healthcheck", "expect": 200, "scheme": "loopback"})
+    if ENABLE["forgejo"]:
+        # /api/healthz is an unauthenticated 200 liveness endpoint (Forgejo 15.x).
+        probes.append({"name": "forgejo /api/healthz", "host": f"git.{DOMAIN}",
+                       "path": "/api/healthz", "expect": 200, "scheme": "loopback"})
+    if ENABLE["adguard"]:
+        # /control/status is an unauthenticated 200 liveness endpoint.
+        probes.append({"name": "adguard /control/status", "host": f"dns.{DOMAIN}",
+                       "path": "/control/status", "expect": 200, "scheme": "loopback"})
+    # NB: Tailscale + proxy-routes are intentionally NOT HTTP-probed — Tailscale has no
+    # public hostname (tailnet only; its liveness is the tailscaled process-check), and
+    # proxy-routes runs no process at all (it only generates Caddy vhosts).
     # NB: Radicale is intentionally NOT HTTP-probed here — GET / returns a 302
     # (root → /.well-known/caldav) and the probe opener follows redirects, so there
     # is no single stable status to assert. Its liveness is covered by the process
@@ -720,6 +866,12 @@ def _build_health_procs():
     if ENABLE["audiobookshelf"]:
         # matches the proot-distro launcher argv (`bash …/run.sh`), as pgrep -f sees it
         procs.append({"name": "audiobookshelf", "pattern": "audiobookshelf/run.sh"})
+    if ENABLE["forgejo"]:
+        procs.append({"name": "forgejo", "pattern": "/opt/forgejo/run.sh"})
+    if ENABLE["adguard"]:
+        procs.append({"name": "adguard", "pattern": "/opt/adguard/AdGuardHome"})
+    if ENABLE["tailscale"]:
+        procs.append({"name": "tailscaled", "pattern": "/opt/tailscale/tailscaled"})
     if ENABLE["backup-daemon"]:
         procs.append({"name": "backup-daemon", "pattern": "ops/backup-daemon.sh"})
     if ENABLE["honeypot"]:
@@ -1291,6 +1443,8 @@ def render(title, body_html, hide_nav=False):
             items.append(("/dav", "calendar"))
         if ENABLE["honeypot"]:
             items.append(("/honeypot", "security"))
+        if ENABLE.get("app-catalog"):
+            items.append(("/catalog", "catalog"))
         # Surface a loud 'problems' tab only when something is crash-looping, so the
         # nav stays clean normally but a DEGRADED service is impossible to miss.
         _degr = _degraded_names()
@@ -2324,10 +2478,106 @@ def logs_view(name):
   {('<a href="/logs/' + e(name) + '" class="btn small">clear</a>') if grep else ''}
 </form>
 <p class=small>showing last {n} lines{filt}.</p>
-<pre>{e(content) or '(no matching lines)'}</pre>
+<pre>{e(redact_secrets(content)) or '(no matching lines)'}</pre>
 <a href="/logs">← logs</a>
 </div>"""
     return render(f"log {name} — {BRAND} admin", body)
+
+
+# ---------- app catalog (in-panel module manager) ----------
+def _enabled_in_envfile(var):
+    """True if `var` is set truthy in the .env FILE (the live, just-written value —
+    distinct from the panel's import-time env, which only refreshes on a restart)."""
+    try:
+        with open(ENV_FILE, errors="replace") as f:
+            for ln in f:
+                s = ln.strip()
+                if s.startswith(var + "=") or s.startswith(var + " "):
+                    v = s.split("=", 1)[1].strip().strip('"').strip("'").lower() if "=" in s else ""
+                    return v in ("1", "true", "yes", "on")
+    except OSError:
+        pass
+    return False
+
+
+@app.route("/catalog")
+@login_required
+def catalog():
+    if not ENABLE.get("app-catalog"):
+        abort(404)
+    rows = ""
+    for key, (label, var, script) in APP_CATALOG.items():
+        on = _enabled_in_envfile(var)
+        state = ('<span class="pill ok">enabled</span>' if on
+                 else '<span class="pill">off</span>')
+        rows += f"""
+<tr>
+  <td>{e(label)}</td>
+  <td>{state}</td>
+  <td><code class=small>{e(var)}</code></td>
+  <td>
+    <form method=post action=/catalog/install class=block>
+      <input type=hidden name=_csrf value="{e(new_csrf())}">
+      <input type=hidden name=module value="{e(key)}">
+      <input type=password name=password placeholder="admin password" autocomplete=current-password required style="max-width:11rem">
+      <button class="small primary" type=submit>{"re-install" if on else "enable &amp; install"}</button>
+    </form>
+  </td>
+</tr>"""
+    body = f"""
+<div class=box>
+<h2>app catalog</h2>
+<p class=small>Enable &amp; install an optional module from here. The installer runs
+<strong>detached</strong> (a source build — Audiobookshelf, Pingvin — can take 15–40 min);
+watch <a href="/logs/adminweb-async">the install log</a> (secrets are redacted there).
+Re-enter your admin password to confirm each install. The installers are idempotent, so
+&ldquo;re-install&rdquo; is safe. A newly-installed module gets its own health row after the
+next panel restart (Dashboard → restart adminweb). <strong>Disabling</strong> a module and
+deleting its data are deliberately kept command-line only (out of the web blast radius).</p>
+<table class=grid>
+<tr><th>module</th><th>state (.env)</th><th>flag</th><th>action</th></tr>
+{rows}
+</table>
+</div>"""
+    return render(f"catalog — {BRAND} admin", body)
+
+
+@app.route("/catalog/install", methods=["POST"])
+@login_required
+def catalog_install():
+    if not ENABLE.get("app-catalog"):
+        abort(404)
+    if not csrf_ok():
+        abort(403)
+    # The module key is ONLY ever validated against the fixed in-code allowlist
+    # (APP_CATALOG) — it never reaches a command line. An unknown key is a hard 400.
+    module = (request.form.get("module") or "").strip()
+    if module not in APP_CATALOG:
+        abort(400, description="unknown module")
+    # Password re-auth (danger-confirm): a catalog install runs a script + edits .env,
+    # so require the admin password again even within an authenticated session.
+    pw = request.form.get("password", "")
+    if not pw or not verify_password(pw):
+        log_audit("catalog-install", module=module, ok=False, reason="bad-password")
+        flash_msg("admin password incorrect — install not started", "err")
+        return redirect(url_for("catalog"))
+    label, var, _script = APP_CATALOG[module]
+    # 1) persist the ENABLE_ flag (atomic, 0600; env_set restricts the key to ENABLE_*).
+    wrote = env_set(var, True)
+    # 2) run the installer DETACHED via the derived, allowlisted SCRIPTS_OK key
+    #    (install-<module>) — run_script_detached only ever runs an allowlisted key.
+    ok2, _logname = run_script_detached(f"install-{module}")
+    log_audit("catalog-install", module=module, enable_written=wrote, started=ok2)
+    if ok2:
+        flash_msg(
+            f"installing {label} (detached) — watch the install log at "
+            f"/logs/adminweb-async (secrets redacted). "
+            f"{'Enabled in .env. ' if wrote else 'WARNING: could not write the .env flag — set it manually. '}"
+            f"Its health row appears after a panel restart.",
+            "ok" if wrote else "warn")
+    else:
+        flash_msg(f"could not start the {label} installer (see /logs/adminweb-async)", "err")
+    return redirect(url_for("catalog"))
 
 
 # ---------- observability: metrics history + problems view ----------

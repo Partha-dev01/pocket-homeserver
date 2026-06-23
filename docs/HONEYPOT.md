@@ -215,6 +215,58 @@ bash scripts/ops/restart.sh honeypot-watcher
 Existing edge rules are not removed automatically — use the console's **unblock**
 action (or the Cloudflare dashboard) to clear any you no longer want.
 
+## Optional: the rate-jail (fail2ban-style, off by default)
+
+The scanner rules above match **what** a request is (a probe for `/.env`,
+`/wp-login.php`, …). The **rate-jail** is a complementary rule that watches **how a
+single IP behaves over time**: it is an **auth-failure-burst** detector — the
+fail2ban pattern. It is **off by default** and adds no listener; it is just extra
+logic in the same watcher, reading the same Caddy log.
+
+```sh
+RATE_JAIL_MODE=off       # off | alert | enforce   (default off)
+```
+
+- **`off`** (default) — a strict no-op. The detector returns immediately; the
+  watcher's behaviour is byte-identical to a build without it.
+- **`alert`** — when an IP trips the threshold, append a `rate-jail` line to the
+  ledger and (if Matrix alerts are configured) post a dedicated *"auth-failure
+  burst"* alert. **Never blocks.**
+- **`enforce`** — same as `alert`, **and** apply a Cloudflare **managed-challenge**
+  via the *same* triple-gated `cf_block` path the scanner rules use. Because it
+  reuses that path, `enforce` **safely degrades to alert-only** unless you have also
+  opted into blocking (the `honeypot-allow-blocking` marker + a correctly-scoped
+  token + `cf-honeypot.env`). So `enforce` alone never starts challenging — the
+  blocking opt-in is still required.
+
+### What trips it (low false-positive by design)
+
+It counts **only auth-failure responses** — HTTP `401` / `403` / `429`
+(`RATE_JAIL_STATUSES`) — from one IP within a sliding window. Normal browsing
+(`2xx`/`3xx`) is ignored entirely; it **never jails on raw request volume**. When an
+IP produces `RATE_JAIL_FAILS` such responses inside `RATE_JAIL_WINDOW` seconds, it
+trips once per `RATE_JAIL_COOLDOWN` (so a sustained burst ledgers/alerts once, not on
+every failing request). The safelist (loopback + Cloudflare edge + your own entries)
+is honoured, and the per-IP tracking dict is **bounded** (`RATE_JAIL_IP_CAP`,
+defaults to the scanner `IP_STATE_CAP`) with oldest-failure eviction, so a
+high-cardinality scanner cannot grow it without bound.
+
+```sh
+RATE_JAIL_WINDOW=300        # sliding window, seconds
+RATE_JAIL_FAILS=12          # auth-fails within the window → trip
+RATE_JAIL_STATUSES=401,403,429
+RATE_JAIL_IP_CAP=<IP_STATE_CAP>   # max tracked IPs (bounded)
+RATE_JAIL_COOLDOWN=<ALERT_COALESCE>   # re-trip throttle, seconds
+```
+
+Set the mode in `.env` (the `setup.sh` wizard offers `alert` when you enable the
+jailer) and restart the watcher. `rate-jail` hits show up in the **Security** console
+and the ledger like any other hit (`hit_rule: "rate-jail"`, `mode: "rate:<mode>"`).
+
+> **Log-coverage caveat.** The watcher tails the **core Caddy access log**, so the
+> rate-jail only sees auth failures for services fronted by that Caddy edge. Failed
+> logins on a backend that does its own logging elsewhere are not visible to it.
+
 ## Disabling the honeypot
 
 Set `ENABLE_HONEYPOT=false` in `.env` and stop the watcher:

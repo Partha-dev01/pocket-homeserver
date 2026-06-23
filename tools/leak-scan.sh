@@ -76,8 +76,15 @@ benign_call='[=:][[:space:]]*[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*\(
 # or a doc placeholder (… / ...). A real embedded secret is a literal alphanumeric
 # value, which begins with none of these and is still reported.
 benign_value='[=:][[:space:]]*(\$|\\|<|…|\.\.\.)'
+# benign: the value is a literal BOOLEAN/placeholder word (true/false/none/yes/no/
+# on/off/0/1/enabled/disabled) followed by a non-identifier char or end — i.e. a CLI
+# flag or config toggle like a `--must-change-password` set to false, never an embedded
+# secret (a real secret value is never the bare word "false"). A value that merely
+# STARTS with a boolean word (a token whose text begins "false…") is NOT excluded —
+# the boolean must be the WHOLE value token.
+benign_bool='[=:][[:space:]]*(true|false|none|null|yes|no|on|off|0|1|enabled|disabled)([^[:alnum:]_]|$)'
 sec_hits="$(grep -nIE -- "$secret_assign" "${files[@]}" 2>/dev/null \
-  | grep -vE -- "$benign_call" | grep -vE -- "$benign_value" || true)"
+  | grep -vE -- "$benign_call" | grep -vE -- "$benign_value" | grep -vE -- "$benign_bool" || true)"
 [ -n "$sec_hits" ] && report "generic" "$secret_assign" "$sec_hits"
 
 # 2) Public IPv4 addresses (loopback / private / link-local are not leaks).

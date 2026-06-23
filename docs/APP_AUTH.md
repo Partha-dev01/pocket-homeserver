@@ -48,6 +48,10 @@ their own login.
 | Navidrome (music) | Yes | CF Access + native login (browser) | Recommended for the UI; **exempt `/rest/*` + `/share/*`** (path bypass or service token) for Subsonic clients |
 | Kavita (comics / ebooks) | Yes | CF Access + native login (browser) | Recommended for the UI; **exempt `/api/opds/*`** for OPDS readers (api-key in URL) |
 | Audiobookshelf (audiobooks) | Yes | CF Access + native login (browser) | Recommended for the UI; **exempt `/api/*`,`/public/*`,`/feed/*`,`/status`,`/healthcheck`,`/ping`,`/hls/*`** for the mobile apps |
+| Forgejo (git forge) | Yes | CF Access + native login (browser) | Recommended for the UI; **service token / path bypass required** for git-over-HTTPS, `/api/v1`, and LFS — those clients can't do the interactive login |
+| AdGuard Home (DoH resolver) | Yes (admin UI) | CF Access on the UI + **`/dns-query` path bypass** | UI behind the gate; **`/dns-query` must be exempted** (path bypass or service token) or DoH clients silently fail |
+| BYO reverse-proxy (`PROXY_ROUTES`) | depends on the backend | CF Access (per generated hostname) | Recommended per hostname; a token/non-browser backend needs a **service-token exemption**, never `forward_auth` |
+| **Tailscale (mesh VPN)** | n/a (network layer) | **Tailnet ACL only** | ⚠️ **No CF edge involved** — the tailnet completely bypasses Cloudflare Access + the tunnel; the **tailnet ACL** is the only network gate (see below) |
 
 For the three apps with no login of their own (SearXNG, IT-Tools, Gatus),
 **Cloudflare Access is the only thing standing between the internet and the app** —
@@ -100,6 +104,23 @@ and service tokens for automation.
 > **Navidrome** `/rest/*` + `/share/*`, **Kavita** `/api/opds/*`, **Audiobookshelf**
 > `/api/*` `/public/*` `/feed/*` `/status` `/healthcheck` `/ping` `/hls/*`. See
 > [MEDIA.md](MEDIA.md).
+>
+> The **v0.9 platform modules** follow the same rule: **Forgejo** needs a service-token
+> exemption for git-over-HTTPS / `/api/v1` / LFS (see [FORGEJO.md](FORGEJO.md)), and
+> **AdGuard Home** needs a `/dns-query` path bypass or DoH silently breaks (see
+> [ADGUARD.md](ADGUARD.md)). The **BYO reverse-proxy** inherits whatever its backend
+> needs.
+
+## Tailscale is a different trust boundary entirely
+
+Everything above concerns the **Cloudflare edge** on `*.${DOMAIN}`. **Tailscale**
+(optional, `ENABLE_TAILSCALE`) joins the phone to your private tailnet, and tailnet
+traffic **does not go through Cloudflare at all** — it bypasses Cloudflare Access and
+the tunnel completely. For anything reachable over the tailnet, your **tailnet ACL**
+(Tailscale admin console) is the **only** network gate. The default "allow all within
+tailnet" means every device on your tailnet can reach this box's loopback services with
+no further network auth — **lock the ACL down**. Per-app native logins still apply on
+top. See [TAILSCALE.md](TAILSCALE.md).
 
 > Tip: apps that have their own login (the first five above) work fine with *or*
 > without Cloudflare Access, but running both is the recommended default — the

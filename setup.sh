@@ -51,6 +51,18 @@ ask_yn() {
   ans="${ans:-$def}"
   case "$ans" in [yY]*|true) printf -v "$__v" 'true';; *) printf -v "$__v" 'false';; esac
 }
+# ask_lines VAR "Prompt" — collect zero or more entries (one per line) until a blank
+# line; sets VAR to the entries joined by single spaces (the PROXY_ROUTES list shape).
+ask_lines() {
+  local __v="$1" prompt="$2" line="" acc=""
+  printf '%s (one per line; blank line to finish):\n' "$prompt" >&2
+  while true; do
+    read -r -p "  > " line || line=""
+    [ -z "$line" ] && break
+    acc="${acc:+$acc }$line"
+  done
+  printf -v "$__v" '%s' "$acc"
+}
 # envq VALUE — single-quote a value so .env can be sourced verbatim, even if it
 # contains spaces, $, ", backticks or single quotes.
 envq() { local s=${1//\'/\'\\\'\'}; printf "'%s'" "$s"; }
@@ -231,6 +243,30 @@ if [ "$EN_AUDIOBOOKSHELF" = "true" ]; then
   ask ABS_LIBRARY_DIR "Path to your audiobook library (SD card ok)" "$DATA_DIR/audiobooks"
 fi
 
+# ── Platform & networking ───────────────────────────────────────────────────────
+printf '\n'; say "── Platform & networking (optional) ───────────────"
+say "Self-host git (Forgejo), a private mesh VPN that sidesteps CGNAT (Tailscale), a"
+say "DoH filtering resolver (AdGuard), a bring-your-own reverse-proxy for your own"
+say "loopback services, a brute-force jailer, and an in-panel app catalog. All off by"
+say "default. See docs/FORGEJO.md, TAILSCALE.md, ADGUARD.md, PROXY_ROUTES.md, ADMIN.md."
+PROXY_ROUTES=""
+ask_yn EN_FORGEJO      "Self-hosted git forge, Forgejo (git.$DOMAIN; HTTPS-only, SSH off)?"        n
+ask_yn EN_ADGUARD      "DoH filtering resolver, AdGuard (dns.$DOMAIN; DoH-over-tunnel, NO LAN :53)?" n
+ask_yn EN_PROXY_ROUTES "Bring-your-own reverse-proxy (publish your own 127.0.0.1 services)?"        n
+if [ "$EN_PROXY_ROUTES" = "true" ]; then
+  say "Routes are 'sub=127.0.0.1:PORT' — the target MUST be loopback (non-loopback is REFUSED)."
+  ask_lines PROXY_ROUTES "BYO routes, e.g. grafana=127.0.0.1:3000"
+fi
+ask_yn EN_TAILSCALE    "Private mesh VPN, Tailscale (userspace; sidesteps CGNAT; no public hostname)?" n
+if [ "$EN_TAILSCALE" = "true" ]; then
+  warn "Tailscale needs an auth key you mint in the Tailscale admin console, dropped in a 0600"
+  warn "file: $DATA_DIR/secrets/tailscale.env  (line:  TS_AUTHKEY=tskey-auth-...). Anything"
+  warn "reached over the tailnet BYPASSES Cloudflare Access — lock your tailnet ACL down."
+fi
+ask_yn EN_JAIL         "Rate/brute-force jailer extending the honeypot (ALERT-only by default)?"    n
+ask_yn EN_APP_CATALOG  "In-panel app catalog: enable/install modules from the admin UI?"           n
+[ "$EN_APP_CATALOG" = "true" ] && warn "The catalog runs ALLOWLISTED install scripts from the web panel (danger-confirmed, secret-redacted logs). Keep the panel behind Cloudflare Access + a strong admin password."
+
 # ── Privacy & media filters ───────────────────────────────────────────────────
 printf '\n'; say "── Privacy & media filters (optional) ─────────────"
 say "Two small loopback proxies in front of Matrix (both off by default)."
@@ -396,6 +432,10 @@ Q_HPDECOY=$(envq "$HONEYPOT_DECOY_HOSTS"); Q_BDHOUR=$(envq "$BACKUP_DAEMON_HOUR"
 Q_ALERTCMD=$(envq "$POCKET_ALERT_CMD"); Q_AGE_RCPT=$(envq "$AGE_RECIPIENT")
 Q_NDMUSIC=$(envq "$NAVIDROME_MUSIC_DIR"); Q_KAVLIB=$(envq "$KAVITA_LIBRARY_DIR")
 Q_ABSLIB=$(envq "$ABS_LIBRARY_DIR")
+# BYO routes contain '=' + spaces → must be envq-quoted. Jailer mode derives from EN_JAIL
+# (ALERT-only when enabled; never auto-blocks until the operator promotes to 'enforce').
+Q_PROXY_ROUTES=$(envq "$PROXY_ROUTES")
+JAILMODE=off; [ "${EN_JAIL:-false}" = "true" ] && JAILMODE=alert
 
 umask 077
 tmp="$ENV_OUT.tmp.$$"
@@ -510,6 +550,38 @@ KAVITA_LIBRARY_DIR=${Q_KAVLIB}
 ENABLE_AUDIOBOOKSHELF=${EN_AUDIOBOOKSHELF}
 AUDIOBOOKSHELF_PORT=9127
 ABS_LIBRARY_DIR=${Q_ABSLIB}
+
+# ─── Platform & networking (optional) ────────────────────────────────────────
+# Forgejo git forge → git.\${DOMAIN}:9128 (HTTPS-only git; SSH off; INSTALL_LOCK;
+# registration off). Data on ext4 (\$HOME/.pocket/forgejo). The first-admin login +
+# SECRET_KEY/INTERNAL_TOKEN live in 0600 \${DATA_DIR}/secrets/forgejo.env, NEVER here.
+# git-over-HTTP + /api/v1 + LFS need a CF Access service-token exemption. docs/FORGEJO.md.
+ENABLE_FORGEJO=${EN_FORGEJO}
+FORGEJO_PORT=9128
+# AdGuard Home → dns.\${DOMAIN}. DoH-over-tunnel ONLY (NOT a LAN :53 sinkhole: :53 is
+# privileged for non-root + UDP can't cross the CF tunnel). Web UI + /dns-query DoH on
+# 9129; the resolver listener on 9130 (high loopback, NOT :53/5353). You MUST EXEMPT
+# /dns-query in Cloudflare Access or DoH clients silently fail. docs/ADGUARD.md.
+ENABLE_ADGUARD=${EN_ADGUARD}
+ADGUARD_PORT=9129
+ADGUARD_DNS_PORT=9130
+# BYO reverse-proxy: publish your own LOOPBACK services to new hostnames. Each route is
+# 'sub=127.0.0.1:PORT' (non-loopback targets are REFUSED fail-closed); whitespace/
+# newline separated. The generator is authoritative (a removed route is unpublished).
+# docs/PROXY_ROUTES.md.
+ENABLE_PROXY_ROUTES=${EN_PROXY_ROUTES}
+PROXY_ROUTES=${Q_PROXY_ROUTES}
+# Tailscale userspace mesh VPN (sidesteps CGNAT; no public hostname). The auth key lives
+# in 0600 \${DATA_DIR}/secrets/tailscale.env (TS_AUTHKEY=tskey-...), NEVER here. ⚠ anything
+# reached over the tailnet BYPASSES Cloudflare Access — lock your tailnet ACL. docs/TAILSCALE.md.
+ENABLE_TAILSCALE=${EN_TAILSCALE}
+# Rate/brute-force jailer (extends the honeypot watcher; feeds Cloudflare managed-
+# challenge). Modes: off | alert | enforce. 'alert' = detect + record, NEVER auto-block;
+# promote to 'enforce' only after a clean --scan-history --dry-run. docs/HONEYPOT.md.
+RATE_JAIL_MODE=${JAILMODE}
+# In-panel app catalog: enable/install modules from the admin UI (ALLOWLISTED scripts,
+# danger-confirmed, secret-redacted logs). Keep the panel behind CF Access. docs/ADMIN.md.
+ENABLE_APP_CATALOG=${EN_APP_CATALOG}
 
 # ─── Privacy & media filters (optional) ─────────────────────────────────────
 ENABLE_USER_FILTER=${ENABLE_USER_FILTER}
@@ -666,7 +738,9 @@ for kv in linkding:$EN_LINKDING pingvin:$EN_PINGVIN \
           searxng:$EN_SEARXNG ittools:$EN_ITTOOLS gatus:$EN_GATUS \
           dufs:$EN_DUFS filebrowser:$EN_FILEBROWSER \
           wallabag:$EN_WALLABAG radicale:$EN_RADICALE trilium:$EN_TRILIUM vaultwarden:$EN_VAULTWARDEN \
-          navidrome:$EN_NAVIDROME kavita:$EN_KAVITA audiobookshelf:$EN_AUDIOBOOKSHELF; do
+          navidrome:$EN_NAVIDROME kavita:$EN_KAVITA audiobookshelf:$EN_AUDIOBOOKSHELF \
+          forgejo:$EN_FORGEJO adguard:$EN_ADGUARD proxy-routes:$EN_PROXY_ROUTES \
+          tailscale:$EN_TAILSCALE jailer:$EN_JAIL app-catalog:$EN_APP_CATALOG; do
   [ "${kv#*:}" = "true" ] && apps="$apps ${kv%%:*}"
 done
 printf '\n'; ok "configuration summary (no secrets shown):"

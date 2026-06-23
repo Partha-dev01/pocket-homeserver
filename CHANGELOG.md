@@ -5,6 +5,70 @@ All notable changes to pocket-homeserver are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.0] - 2026-06-23
+
+Platform leverage & networking. A git forge, a DNS-over-HTTPS resolver, a bring-your-own
+reverse-proxy, a userspace mesh VPN, an in-panel app catalog, and an optional
+fail2ban-style rate-jail on the honeypot — all opt-in (`ENABLE_*` / `RATE_JAIL_MODE`,
+off by default), loopback-bound where they front a service, keeping any
+database/index/state on **ext4** (`$HOME/.pocket/<app>`). Two of these speak
+native/non-browser protocols and need a Cloudflare Access **service token / path
+exemption** rather than the interactive login (git-over-HTTPS, DoH); Tailscale is a
+different trust boundary entirely — tailnet traffic bypasses the Cloudflare edge, so the
+**tailnet ACL** is its only network gate.
+
+### Added
+
+- **Forgejo** (`ENABLE_FORGEJO`) — a single-binary git forge (repos / issues / PRs /
+  releases / package & LFS registry) on `git.${DOMAIN}` (`scripts/apps/forgejo.sh`). A
+  sha256-pinned static Go binary from Codeberg. Forces `HTTP_ADDR=127.0.0.1` with a
+  config assert **and** a post-start `ss` wildcard check; runs as an unprivileged
+  `forgejo` user (it refuses root); `DISABLE_SSH=true`, `DISABLE_REGISTRATION=true`,
+  Actions disabled, `INSTALL_LOCK=true`; SQLite WAL + repos on ext4 (refuses the exFAT
+  SD); first admin + `SECRET_KEY`/`INTERNAL_TOKEN` generated off-argv to a `0600` file.
+  git-over-HTTPS / `/api/v1` / LFS need a CF Access service-token exemption. See
+  [docs/FORGEJO.md](docs/FORGEJO.md).
+- **AdGuard Home** (`ENABLE_ADGUARD`) — a filtering **DNS-over-HTTPS** resolver on
+  `dns.${DOMAIN}` (`scripts/apps/adguard.sh`), sha256-pinned. UI + plain-HTTP DoH
+  (`/dns-query`) on `127.0.0.1:9129` (`http.doh.insecure_enabled`, post-v0.107.74); the
+  internal resolver on a high loopback port `9130` (never `:53`/`5353`). Config assert +
+  a post-start `ss` audit **scoped to AdGuard's own ports**. **Not a LAN `:53` sinkhole**
+  — a privileged port a non-root proot can't bind and UDP can't cross the CGNAT tunnel;
+  `/dns-query` needs a CF Access path bypass. See [docs/ADGUARD.md](docs/ADGUARD.md).
+- **BYO reverse-proxy** (`ENABLE_PROXY_ROUTES`, `PROXY_ROUTES`) — publishes any loopback
+  service you already run on its own subdomain (`scripts/apps/proxy-routes.sh`), no
+  binary. Parses `sub=127.0.0.1:port` entries into per-route `byo-<sub>.caddy` vhosts;
+  **fail-closed loopback-target gate** (only `127.0.0.1`/`::1`/`localhost`), strict
+  DNS-label + port regex (injection guard), explicit hostname-collision check, an
+  **authoritative stale-route sweep** (a dropped route's vhost is removed on the next
+  run), and a single fail-closed `caddy validate`. See
+  [docs/PROXY_ROUTES.md](docs/PROXY_ROUTES.md).
+- **Tailscale** (`ENABLE_TAILSCALE`) — a sha256-pinned **userspace** mesh VPN
+  (`scripts/steps/90-install-tailscale.sh`) that sidesteps CGNAT with no public
+  hostname. `--tun=userspace-networking` (no root, no TUN); SOCKS5 + outbound HTTP proxy
+  on a loopback-asserted `127.0.0.1:1055`; node key/state on ext4 (refuses the SD); auth
+  key off-argv via `--auth-key file:`; `GOMEMLIMIT` cap; fail-closed if no key. ⚠️ The
+  tailnet **bypasses** Cloudflare Access + the tunnel — the tailnet ACL is the only
+  network gate. See [docs/TAILSCALE.md](docs/TAILSCALE.md).
+- **App catalog / module manager** (`ENABLE_APP_CATALOG`) — an optional admin-panel page
+  (`/catalog`) to enable + install a module from the browser. Fail-closed: a **fixed
+  in-code allow-list** (request value never reaches argv), **password re-auth** + CSRF on
+  every install, an `ENABLE_*`-only atomic `0600` `.env` writer, **detached** installs,
+  and **secret redaction at the single `/logs` chokepoint** (install scripts load the
+  full `.env`). Data deletion stays CLI-only. See [docs/ADMIN.md](docs/ADMIN.md).
+- **Honeypot rate-jail** (`RATE_JAIL_MODE`, default `off`) — a fail2ban-style
+  **auth-failure-burst** detector added to the honeypot watcher (not a new daemon/
+  listener). Counts only `401`/`403`/`429` responses per IP in a sliding window; `alert`
+  ledgers + posts a Matrix alert, `enforce` additionally applies a managed-challenge via
+  the **same triple-gated** `cf_block` path (so it safely degrades to alert-only without
+  the blocking opt-in). Safelist-honoured, bounded per-IP tracking. See
+  [docs/HONEYPOT.md](docs/HONEYPOT.md).
+- Central pins for Forgejo / Tailscale / AdGuard in `config/versions.env`; `setup.sh`
+  "Platform & networking" prompts (incl. a repeatable `PROXY_ROUTES` helper);
+  `.env.example`, `scripts/install.sh`, `scripts/ops/restart.sh`, the admin panel
+  (ENABLE dict + health rows + per-service restart + `apply-proxy-routes`), and
+  `docs/APPS.md` / `docs/APP_AUTH.md` updated.
+
 ## [0.8.0] - 2026-06-23
 
 Media tier. Three optional, self-hosted media servers — music, comics/ebooks, and

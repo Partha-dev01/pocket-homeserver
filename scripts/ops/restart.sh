@@ -12,7 +12,7 @@
 # honeypot-watcher, user-filter, media-filter, and any enabled app (linkding,
 # linkding-tasks, pingvin, freshrss, freshrss-refresh, searxng, memos, vikunja,
 # gatus, wallabag, radicale, trilium, vaultwarden, navidrome, kavita,
-# audiobookshelf). A service that has
+# audiobookshelf, forgejo, adguard, tailscaled). A service that has
 # never been started has no recorded command; this script then points you at the
 # step/app script that first brings it up.
 #

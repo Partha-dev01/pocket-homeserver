@@ -51,6 +51,7 @@ break-glass path if the edge is misbehaving.
 | **metrics** (`/metrics`) | sparklines + a 24h health strip (when `ENABLE_METRICS`) — see [OBSERVABILITY.md](OBSERVABILITY.md) |
 | **users** (`/users`) | list / create / reset-password / suspend / deactivate + invite tokens (when `ENABLE_USER_ADMIN`) — see [USERS.md](USERS.md) |
 | **problems** (`/problems`) | appears when a service is crash-looping or down: per-service detail + restart + a *run doctor* button |
+| **catalog** (`/catalog`) | one-click enable + install of an optional module (when `ENABLE_APP_CATALOG`) — see below |
 | **danger** (`/danger`) | rotations + panic kill-switches, behind a two-page typed confirmation |
 
 ### The action surface
@@ -81,6 +82,37 @@ audit-logged (timestamp + IP + user-agent) to `${DATA_DIR}/logs/admin-audit.log`
 - **Rotate admin password** mints a new panel password, shown once.
 - **Rotate registration token** mints a new Matrix invite token and restarts the
   homeserver. (Rotating a *Matrix admin user's* password is a future addition.)
+
+## App catalog / module manager (optional)
+
+When `ENABLE_APP_CATALOG=true`, the panel grows a **catalog** page (`/catalog`) that
+lets you enable and install an optional module from the browser instead of editing
+`.env` and re-running the installer by hand. It is **off by default** because it is,
+by design, a remote-install surface — so it is built fail-closed:
+
+- **Fixed allow-list, never user input → argv.** Installable modules come from a
+  fixed in-code table (`APP_CATALOG`); the submitted module name is validated only
+  against that table (an unknown key is a hard `400`). The script that runs is the
+  table's derived `install-<module>` `SCRIPTS_OK` entry — the request value never
+  reaches a command line.
+- **Password re-auth on every install.** Even inside an authenticated session, a
+  catalog install re-prompts for the admin password (the same danger-confirm bar as
+  the danger zone), and the CSRF token is checked. A bad password is audit-logged and
+  refused.
+- **Only `ENABLE_*` is written, atomically.** Enabling a module writes its
+  `ENABLE_<APP>=true` flag to `.env` via a writer restricted to `ENABLE_*` keys, with
+  an atomic `0600` replace (the same envq/permissions discipline as `setup.sh`). It
+  never touches secrets or any other key.
+- **Detached install, secrets redacted in the log.** The installer runs **detached**
+  (a long build won't hang or LMK-kill the single-worker panel); its combined output
+  goes to `${POCKET_LOG_DIR}/adminweb-async.log`, viewable at `/logs/adminweb-async`.
+  Because install scripts `load_env` the full `.env` (including `CF_TUNNEL_TOKEN`,
+  `ADMIN_PASSWORD`, …), **every served log is passed through `redact_secrets()` at a
+  single chokepoint** — secret *values* from both the environment and the `.env` file,
+  plus token-shaped strings, are scrubbed before any log is rendered.
+- The module's **health row appears after a panel restart** (the panel reads the
+  `ENABLE_*` set from its run-script-exported environment at startup, not live `.env`).
+  Data deletion / uninstall stays **CLI-only** — the catalog only enables + installs.
 
 ## Operations
 

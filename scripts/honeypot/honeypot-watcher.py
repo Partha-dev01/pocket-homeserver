@@ -140,6 +140,37 @@ IP_STATE_CAP  = int(os.environ.get("HP_IP_STATE_CAP", "5000"))
 REAP_DAYS     = int(os.environ.get("HP_REAP_DAYS", "14"))
 
 # ---------------------------------------------------------------------------
+# fail2ban-style RATE JAIL (optional; OFF by default).
+# A complement to the path-fingerprint rules above: catch an IP that produces a
+# BURST of AUTH FAILURES (repeated 401/403/429) in a short sliding window — the
+# classic brute-force / credential-stuffing signal — and feed it to the SAME
+# cf_actions managed-challenge path the scanner rules use. Modes (RATE_JAIL_MODE):
+#   off     (default) — the rate layer is INERT; the watcher behaves byte-identically
+#                       to before (no per-request rate tracking at all).
+#   alert             — detect + ledger (+ optional Matrix alert); NEVER cf-action.
+#   enforce           — additionally cf_block(ip, "challenge") — but ONLY through the
+#                       SAME triple-gate the scanner uses (the honeypot-allow-blocking
+#                       marker + a scope-checked CF token + cf env). Absent that opt-in
+#                       cf_block no-ops, so `enforce` safely DEGRADES to alert-only.
+# Rate detection is materially more FALSE-POSITIVE-prone than the path fingerprints (a
+# shared CGNAT/mobile egress IP, a sync client polling, a PWA service worker). Hence:
+# OFF by default; ALERT before ENFORCE; the safelist is honoured; and ONLY auth-failure
+# STATUS codes are counted (never raw request volume). ⚠ COVERAGE: the jailer only sees
+# vhosts that emit the JSON access log — by default the chat origin (config/Caddyfile.tmpl);
+# add the same `log` block to another vhost to jail brute-force against it. Run a few days
+# in `alert` and confirm the digest's rate-jail count is ~0 on YOUR real traffic BEFORE
+# setting RATE_JAIL_MODE=enforce. See docs/HONEYPOT.md.
+RATE_JAIL_MODE = os.environ.get("RATE_JAIL_MODE", "off").strip().lower()
+if RATE_JAIL_MODE not in ("off", "alert", "enforce"):
+    RATE_JAIL_MODE = "off"
+RATE_JAIL_WINDOW   = float(os.environ.get("RATE_JAIL_WINDOW", "300"))   # sliding window (s)
+RATE_JAIL_FAILS    = int(os.environ.get("RATE_JAIL_FAILS", "12"))       # auth-fails in window → trip
+RATE_JAIL_STATUSES = {s.strip() for s in os.environ.get(
+    "RATE_JAIL_STATUSES", "401,403,429").split(",") if s.strip()}
+RATE_JAIL_IP_CAP   = int(os.environ.get("RATE_JAIL_IP_CAP", str(IP_STATE_CAP)))
+RATE_JAIL_COOLDOWN = float(os.environ.get("RATE_JAIL_COOLDOWN", str(ALERT_COALESCE)))  # re-jail throttle (s)
+
+# ---------------------------------------------------------------------------
 # Scanner fingerprints. Each is a high-confidence path probe that NONE of the
 # stack's real apps serve. Matched (case-insensitive) against the decoded URL path
 # with the query string stripped. Anchored with leading `/` and a `/`-or-end tail
@@ -775,6 +806,93 @@ def handle_hit(ev, mode, safelist, ip_counts, last_alert, blocked, live,
     return True
 
 
+def rate_track(ev, safelist, fails, jailed, mode, ip_state=None):
+    """fail2ban-style auth-failure-burst detector (the optional RATE JAIL).
+
+    Records an auth-failure timestamp for ev's IP, prunes that IP's sliding window,
+    and when the count crosses RATE_JAIL_FAILS within RATE_JAIL_WINDOW it ledgers a
+    `rate-jail` hit (+ optional Matrix alert + — in `enforce` mode — an optional cf
+    managed-challenge via the SAME triple-gated cf_block the scanner rules use).
+
+      `fails`  : {ip: [epoch,...]}  the bounded per-IP sliding window (in-memory)
+      `jailed` : {ip: epoch}        the re-jail cooldown (so we don't re-ledger/alert
+                                    every subsequent failing request)
+
+    Returns True if it jailed an IP this call (so the caller marks ip_state dirty).
+    A strict no-op when mode=='off' (the default) — returns immediately."""
+    if mode == "off":
+        return False
+    try:
+        status = int(ev.get("status") or 0)
+    except (TypeError, ValueError):
+        status = 0
+    # ONLY auth-failure responses count (low false-positive). Normal browsing is 2xx/3xx
+    # and is ignored entirely — we never jail on raw request volume.
+    if str(status) not in RATE_JAIL_STATUSES:
+        return False
+    ip = ev.get("ip") or ""
+    if ip_safelisted(ip, safelist):     # loopback + Cloudflare edge + operator safelist
+        return False
+    now = time.time()
+    dq = fails.get(ip)
+    if dq is None:
+        # bound the tracking dict (mirror the ip-state cap): evict the IP whose most
+        # recent failure is oldest, so a high-cardinality scanner can't grow it forever.
+        if len(fails) >= RATE_JAIL_IP_CAP:
+            oldest = min(fails, key=lambda k: (fails[k][-1] if fails[k] else 0.0))
+            fails.pop(oldest, None)
+            jailed.pop(oldest, None)
+        dq = []
+        fails[ip] = dq
+    dq.append(now)
+    cutoff = now - RATE_JAIL_WINDOW
+    while dq and dq[0] < cutoff:        # prune timestamps outside the window
+        dq.pop(0)
+    if len(dq) < RATE_JAIL_FAILS:
+        return False
+    # threshold crossed — apply the re-jail cooldown so a sustained burst ledgers/alerts
+    # once per cooldown, not once per failing request.
+    if now - jailed.get(ip, 0.0) < RATE_JAIL_COOLDOWN:
+        return False
+    jailed[ip] = now
+    now_iso = time.strftime("%FT%TZ", time.gmtime())
+    ent = ip_state_update(ip_state, ip, "rate-jail", now_iso) if ip_state is not None else None
+    action = "alerted"
+    if mode == "enforce":
+        # The SAME triple-gated cf path as the scanner rules: cf_block no-ops unless
+        # ALLOW_BLOCKING + a scope-checked token + cf env are ALL present, so `enforce`
+        # safely degrades to alert-only when the operator hasn't opted into blocking.
+        action = cf_block(ip, "challenge")
+        if ent is not None and not str(action).startswith(("skipped", "alerted", "cf-error")):
+            ent["actioned"] = "challenge"
+            ent["action_ts"] = now_iso
+    rec = {
+        "ts": now_iso, "ip": ip, "host": ev.get("host", ""), "uri": ev.get("uri", ""),
+        "method": ev.get("method", ""), "status": status, "ua": ev.get("ua", ""),
+        "hit_rule": "rate-jail", "mode": f"rate:{mode}", "action": action,
+        "fails_in_window": len(dq), "window_s": int(RATE_JAIL_WINDOW),
+    }
+    geo = geo_lookup(ip)
+    if geo:
+        rec.update(geo)
+    ledger_write(rec)
+    # Dedicated alert (the scanner _md_alert wording is for path probes). Both alert and
+    # enforce post it; attacker-controlled fields (host/uri/ua) go through _md_to_html.
+    md = (
+        "🚨 **Rate-jail** — auth-failure burst\n"
+        f"**IP:** `{ip}`\n"
+        f"**Host:** {ev.get('host','')}\n"
+        f"**Fails:** {len(dq)} responses in ≤{int(RATE_JAIL_WINDOW)}s "
+        f"(statuses {','.join(sorted(RATE_JAIL_STATUSES))})\n"
+        f"**Last path:** `{ev.get('uri','')[:160]}`\n"
+        f"**Action:** {action}\n"
+    )
+    if ent is not None:
+        md += f"**Lifetime hits:** {ent.get('total_hits','?')}\n"
+    matrix_alert(md)
+    return True
+
+
 # ---------------------------------------------------------------------------
 def run_live():
     global _BLOCK_TOKEN_OK
@@ -806,11 +924,14 @@ def run_live():
                     and _load_alert_env().get("HP_MATRIX_ROOM")
                     and _load_alert_env().get("HP_MATRIX_HS"))
     log(f"live tail starting — mode={mode}, glob={LOG_GLOB}, "
-        f"ledger={LEDGER}, matrix_alerts={'on' if alerting else 'off (ledger-only)'}")
+        f"ledger={LEDGER}, matrix_alerts={'on' if alerting else 'off (ledger-only)'}, "
+        f"rate_jail={RATE_JAIL_MODE}"
+        + (f" ({RATE_JAIL_FAILS} fails/{int(RATE_JAIL_WINDOW)}s)" if RATE_JAIL_MODE != 'off' else ''))
     state = load_state()
     first_run = not state["files"]
     ip_counts, last_alert, blocked = {}, {}, {}
     ip_state = load_ip_state()          # persistent per-IP (escalation + correlation)
+    rate_fails, rate_jailed = {}, {}    # RATE JAIL: per-IP sliding window + re-jail cooldown
     ip_state_dirty = False
     last_flush = 0.0
     last_mode_check = 0.0
@@ -851,6 +972,11 @@ def run_live():
                         if ev:
                             if handle_hit(ev, mode, safelist, ip_counts, last_alert,
                                           blocked, live=True, ip_state=ip_state):
+                                ip_state_dirty = True
+                            # RATE JAIL (optional; no-op when RATE_JAIL_MODE=off): every
+                            # parsed event feeds the auth-failure-burst detector too.
+                            if rate_track(ev, safelist, rate_fails, rate_jailed,
+                                          RATE_JAIL_MODE, ip_state=ip_state):
                                 ip_state_dirty = True
             except OSError as e:
                 log(f"read {path}: {e}")

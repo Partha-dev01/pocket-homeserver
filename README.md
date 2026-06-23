@@ -38,7 +38,7 @@ You drive the whole thing from **one interactive menu**:
     q) quit
 ```
 
-> **Status: v0.8.0 — pre-release.** Everything below has landed. Interfaces may
+> **Status: v0.9.0 — pre-release.** Everything below has landed. Interfaces may
 > still change before 1.0, and the fresh-phone, zero-to-running walkthrough is
 > still being hardened — expect some rough edges. See the [changelog](CHANGELOG.md).
 
@@ -66,6 +66,15 @@ You drive the whole thing from **one interactive menu**:
   phone-melting transcode). Subsonic/OPDS/mobile API paths get a Cloudflare Access
   path-exemption. (A photo gallery is on the roadmap; Jellyfin is intentionally
   docs-only.) ([docs/MEDIA.md](docs/MEDIA.md))
+- **Platform & networking (optional)** — a self-hosted **git forge** (Forgejo,
+  `git.`), a filtering **DNS-over-HTTPS resolver** (AdGuard Home, `dns.`), a **BYO
+  reverse-proxy** that puts any loopback service you run behind the tunnel on its own
+  subdomain (`PROXY_ROUTES`, fail-closed loopback-only), a userspace **Tailscale**
+  mesh VPN that sidesteps CGNAT (no public hostname — its tailnet ACL is the gate), an
+  in-panel **app catalog** to enable + install modules from the browser, and an
+  optional fail2ban-style **rate-jail** on the honeypot. All opt-in.
+  ([docs/FORGEJO.md](docs/FORGEJO.md) · [docs/ADGUARD.md](docs/ADGUARD.md) ·
+  [docs/PROXY_ROUTES.md](docs/PROXY_ROUTES.md) · [docs/TAILSCALE.md](docs/TAILSCALE.md))
 - **One interactive control panel** (`./pocket.sh`) for the whole lifecycle —
   configure, install, status, restarts, backups, logs, and a panic stop.
 - **Resumable installs** — every step is recorded, so re-runs are fast and an
@@ -214,7 +223,11 @@ genuinely practical way to self-host.
 - [docs/NOTES.md](docs/NOTES.md) — Trilium notes / wiki.
 - [docs/READLATER.md](docs/READLATER.md) — Wallabag read-later / article saver.
 - [docs/MEDIA.md](docs/MEDIA.md) — media apps (Navidrome / Kavita / Audiobookshelf), the photo-gallery roadmap note, and why Jellyfin is docs-only.
-- [docs/ADMIN.md](docs/ADMIN.md) — the web admin panel.
+- [docs/FORGEJO.md](docs/FORGEJO.md) — the optional Forgejo git forge (loopback bind, service-token for git-HTTP/API/LFS).
+- [docs/ADGUARD.md](docs/ADGUARD.md) — the optional AdGuard Home DoH-over-tunnel resolver (and why it can't be a LAN `:53` sinkhole).
+- [docs/PROXY_ROUTES.md](docs/PROXY_ROUTES.md) — the BYO reverse-proxy module (publish any loopback service on its own subdomain, fail-closed loopback-only).
+- [docs/TAILSCALE.md](docs/TAILSCALE.md) — the optional userspace Tailscale mesh VPN (CGNAT sidestep; the tailnet-bypasses-the-edge trust boundary).
+- [docs/ADMIN.md](docs/ADMIN.md) — the web admin panel (incl. the optional app catalog / module manager).
 - [docs/BACKUPS.md](docs/BACKUPS.md) — snapshots, retention, encryption, restore.
 - [docs/RESTORE_AND_ROTATION.md](docs/RESTORE_AND_ROTATION.md) — the scripted restore and the credential-rotation scripts.
 - [docs/BOOTSTRAP.md](docs/BOOTSTRAP.md) — the optional one-shot Matrix bootstrap (admin, Space/rooms, invite tokens).
@@ -271,11 +284,13 @@ tools/       repo tooling (e.g. the leak-scan pre-push guard)
 - [x] Personal cloud — files & sync (Dufs + WebDAV / FileBrowser accounts / Syncthing P2P; [docs/FILES.md](docs/FILES.md))
 - [x] Productivity & security apps — Vaultwarden (password manager) / Radicale (CalDAV/CardDAV + QR connect-card) / Trilium (notes/wiki) / Wallabag (read-later) ([docs/VAULT.md](docs/VAULT.md) · [docs/DAV.md](docs/DAV.md) · [docs/NOTES.md](docs/NOTES.md) · [docs/READLATER.md](docs/READLATER.md))
 - [x] Media apps — Navidrome (music/Subsonic) / Kavita (comics/ebooks) / Audiobookshelf (audiobooks/podcasts); Jellyfin docs-only ([docs/MEDIA.md](docs/MEDIA.md))
+- [x] Platform & networking — Forgejo (git forge) / AdGuard Home (DoH resolver) / BYO reverse-proxy / Tailscale (userspace mesh VPN) ([docs/FORGEJO.md](docs/FORGEJO.md) · [docs/ADGUARD.md](docs/ADGUARD.md) · [docs/PROXY_ROUTES.md](docs/PROXY_ROUTES.md) · [docs/TAILSCALE.md](docs/TAILSCALE.md))
+- [x] In-panel app catalog (enable + install modules from the browser) + optional fail2ban-style rate-jail on the honeypot ([docs/ADMIN.md](docs/ADMIN.md) · [docs/HONEYPOT.md](docs/HONEYPOT.md))
 - [ ] Photo gallery — on the roadmap (the candidate's Go server hardcodes a `0.0.0.0` bind that can't be safely forced to loopback on this stack; see [docs/MEDIA.md](docs/MEDIA.md))
 
 ## Status, license, and contributing
 
-Pre-release (v0.8.0) and under active construction — expect breaking changes.
+Pre-release (v0.9.0) and under active construction — expect breaking changes.
 Licensed under the [MIT License](LICENSE). Issues, bug reports, and discussion are
 welcome — see [CONTRIBUTING.md](CONTRIBUTING.md). Because the repo is public, every
 change is scanned for secrets and deployment-specific data by

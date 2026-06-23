@@ -32,6 +32,19 @@ ENABLE_LINKDING=true
 | **Navidrome** | `music.${DOMAIN}` | music streaming (Subsonic) | single Go binary | `$HOME/.pocket/navidrome` (ext4) + SD library |
 | **Kavita** | `books.${DOMAIN}` | manga / comics / ebooks | .NET binary (+libicu) | `$HOME/.pocket/kavita` (ext4) + SD library |
 | **Audiobookshelf** | `audiobooks.${DOMAIN}` | audiobooks / podcasts | Node (built from source) | `$HOME/.pocket/audiobookshelf` (ext4) + SD library |
+| **Forgejo** | `git.${DOMAIN}` | git forge (repos / issues / PRs) | single Go binary | `$HOME/.pocket/forgejo` (ext4) |
+| **AdGuard Home** | `dns.${DOMAIN}` | filtering DNS-over-HTTPS resolver | single Go binary | `$HOME/.pocket/adguard` (ext4) |
+
+> The **v0.9 "platform & networking"** modules are documented separately because they
+> don't all fit the one-app-one-hostname shape: **Forgejo** (git forge —
+> [FORGEJO.md](FORGEJO.md)) and **AdGuard Home** (DoH-over-tunnel resolver —
+> [ADGUARD.md](ADGUARD.md)) are normal hostname'd apps and appear in the table above;
+> the **BYO reverse-proxy** ([PROXY_ROUTES.md](PROXY_ROUTES.md)) generates a vhost for
+> *any* loopback service you already run (dynamic hostnames, no binary); and
+> **Tailscale** ([TAILSCALE.md](TAILSCALE.md)) is a userspace mesh VPN with **no public
+> hostname at all** (it is its own transport and bypasses the Cloudflare edge — read its
+> trust-boundary note). All are opt-in and off by default; each has a full **Resource &
+> Risk** section in its dedicated doc.
 
 > The **v0.7 "productivity & security"** set (Wallabag/Radicale/Trilium/Vaultwarden)
 > and the **v0.8 "media"** set (Navidrome/Kavita/Audiobookshelf) are heavier

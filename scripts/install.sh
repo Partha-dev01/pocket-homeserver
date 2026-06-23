@@ -64,12 +64,13 @@ core_steps=(
   "mcp:steps/87-install-mcp.sh"
   "metrics:steps/88-install-metrics.sh"
   "syncthing:steps/89-install-syncthing.sh"
+  "tailscale:steps/90-install-tailscale.sh"
 )
 
 # Optional apps, in install order, each gated by ENABLE_<APP>.
 # DUFS and FILEBROWSER both serve files.${DOMAIN} and are MUTUALLY EXCLUSIVE —
 # each script dies fail-closed if the other is also enabled.
-app_order=(LINKDING PINGVIN FRESHRSS MEMOS VIKUNJA SEARXNG ITTOOLS GATUS DUFS FILEBROWSER WALLABAG RADICALE TRILIUM VAULTWARDEN NAVIDROME KAVITA AUDIOBOOKSHELF)
+app_order=(LINKDING PINGVIN FRESHRSS MEMOS VIKUNJA SEARXNG ITTOOLS GATUS DUFS FILEBROWSER WALLABAG RADICALE TRILIUM VAULTWARDEN NAVIDROME KAVITA AUDIOBOOKSHELF FORGEJO ADGUARD PROXY_ROUTES)
 declare -A app_step=(
   [LINKDING]="apps/linkding.sh"
   [PINGVIN]="apps/pingvin.sh"
@@ -88,6 +89,9 @@ declare -A app_step=(
   [NAVIDROME]="apps/navidrome.sh"
   [KAVITA]="apps/kavita.sh"
   [AUDIOBOOKSHELF]="apps/audiobookshelf.sh"
+  [FORGEJO]="apps/forgejo.sh"
+  [ADGUARD]="apps/adguard.sh"
+  [PROXY_ROUTES]="apps/proxy-routes.sh"
 )
 
 # ── Persistence helpers ───────────────────────────────────────────────────────
