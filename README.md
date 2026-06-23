@@ -9,7 +9,7 @@ with **no root, no public IP, and no monthly hosting bill.**
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Release](https://img.shields.io/github/v/release/Partha-dev01/pocket-homeserver?include_prereleases&sort=semver&label=release)](https://github.com/Partha-dev01/pocket-homeserver/releases)
 [![Platform](https://img.shields.io/badge/platform-Android%20%2F%20Termux-3DDC84.svg)](docs/SETUP.md)
-[![Status](https://img.shields.io/badge/status-pre--release-orange.svg)](CHANGELOG.md)
+[![Status](https://img.shields.io/badge/status-stable%20v1.0.0-brightgreen.svg)](CHANGELOG.md)
 
 </div>
 
@@ -41,9 +41,9 @@ You drive the whole thing from **one interactive menu**:
     q) quit
 ```
 
-> **Status: v0.9.1 — pre-release.** Everything below has landed. Interfaces may
-> still change before 1.0, and the fresh-phone, zero-to-running walkthrough is
-> still being hardened — expect some rough edges. See the [changelog](CHANGELOG.md).
+> **Status: v1.0.0 — stable.** Everything below has landed and been through a
+> full pre-1.0 security + correctness audit. From here, breaking changes follow
+> [SemVer](https://semver.org). See the [changelog](CHANGELOG.md).
 
 ## Features
 
@@ -302,11 +302,12 @@ tools/       repo tooling (e.g. the leak-scan pre-push guard)
 - [x] Media apps — Navidrome (music/Subsonic) / Kavita (comics/ebooks) / Audiobookshelf (audiobooks/podcasts); Jellyfin docs-only ([docs/MEDIA.md](docs/MEDIA.md))
 - [x] Platform & networking — Forgejo (git forge) / AdGuard Home (DoH resolver) / BYO reverse-proxy / Tailscale (userspace mesh VPN) ([docs/FORGEJO.md](docs/FORGEJO.md) · [docs/ADGUARD.md](docs/ADGUARD.md) · [docs/PROXY_ROUTES.md](docs/PROXY_ROUTES.md) · [docs/TAILSCALE.md](docs/TAILSCALE.md))
 - [x] In-panel app catalog (enable + install modules from the browser) + optional fail2ban-style rate-jail on the honeypot ([docs/ADMIN.md](docs/ADMIN.md) · [docs/HONEYPOT.md](docs/HONEYPOT.md))
+- [x] **v1.0.0 — first stable release** — full pre-1.0 security + correctness audit, a universal post-start loopback backstop on every Go/Node/Rust listener, and a re-verification of every pinned artifact against upstream
 - [ ] Photo gallery — on the roadmap (the candidate's Go server hardcodes a `0.0.0.0` bind that can't be safely forced to loopback on this stack; see [docs/MEDIA.md](docs/MEDIA.md))
 
 ## Status, license, and contributing
 
-Pre-release (v0.9.1) and under active construction — expect breaking changes.
+Stable (v1.0.0). Breaking changes follow [SemVer](https://semver.org) from here.
 Licensed under the [MIT License](LICENSE). Issues, bug reports, and discussion are
 welcome — see [CONTRIBUTING.md](CONTRIBUTING.md). Because the repo is public, every
 change is scanned for secrets and deployment-specific data by

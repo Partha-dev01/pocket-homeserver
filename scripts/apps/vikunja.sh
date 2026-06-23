@@ -307,6 +307,12 @@ supervise vikunja -- \
   --bind "${VK_DATA_HOST}:${VK_DATA_USERLAND}" \
   -- bash "${VK_DIR}/run.sh"
 
+# ── FAIL-CLOSED post-start loopback backstop (ss wildcard check) ─────────────
+# Vikunja is a Go binary (raw SYS_BIND); the config.yml service.interface assert
+# above is backed by an empirical socket audit — refuse to leave a wildcard
+# listener for :${VK_PORT} running. See assert_loopback_listener in lib/common.sh.
+assert_loopback_listener vikunja "${VK_PORT}"
+
 # ── Closing notes ─────────────────────────────────────────────────────────────
 echo
 ok "Vikunja installed + supervised (loopback 127.0.0.1:${VK_PORT}; data on ${VK_DATA_HOST})"

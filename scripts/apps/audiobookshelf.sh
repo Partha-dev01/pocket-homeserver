@@ -387,6 +387,12 @@ supervise audiobookshelf -- \
   --bind "${ABS_LIBRARY_DIR}:${ABS_LIBRARY_MOUNT}" \
   -- bash "${ABS}/run.sh"
 
+# ── 9b. FAIL-CLOSED post-start loopback backstop (ss wildcard check) ─────────
+# ABS (Node/Express) binds 0.0.0.0+:: when HOST is unset; the HOST=127.0.0.1
+# assert above is backed by an empirical socket audit — refuse to leave a wildcard
+# listener for :${ABS_PORT} running. See assert_loopback_listener in lib/common.sh.
+assert_loopback_listener audiobookshelf "${ABS_PORT}"
+
 # ── 10. Best-effort health check ─────────────────────────────────────────────
 # /healthcheck is an unauthenticated liveness endpoint (returns 200). The Node + Nuxt
 # + proot cold start can take a while; poll the loopback port. A non-200 here is a

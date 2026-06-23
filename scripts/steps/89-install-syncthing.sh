@@ -195,6 +195,14 @@ esac
 supervise syncthing -- proot-distro login debian -- \
   /usr/local/bin/syncthing serve --no-browser --no-restart --home="${SYNC_HOME}"
 
+# ── 7b. FAIL-CLOSED post-start loopback backstop for the GUI port (ss check) ──
+# Syncthing is a Go binary (raw SYS_BIND). The config.xml <gui><address> assert
+# above is backed by an empirical socket audit. NOTE: we check ONLY the GUI/REST
+# port (8384) — the sync listener (:22000) and discovery (:21027) ARE meant to
+# bind wildcard for P2P, so a blanket check would false-trip; assert_loopback_
+# listener is port-scoped (lib/common.sh), so it audits 8384 alone.
+assert_loopback_listener syncthing 8384
+
 # ── 8. Health (best-effort, not fatal) ───────────────────────────────────────
 # Confirm the loopback GUI came up. The REST API needs an API key, but the bare
 # GUI endpoint answers HTTP (often 401/200) once the daemon is listening — any

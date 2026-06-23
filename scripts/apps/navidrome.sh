@@ -263,6 +263,13 @@ supervise navidrome -- \
          ND_SCANNER_SCHEDULE='@every 24h' \
          "${BIN}"
 
+# ── 6b. FAIL-CLOSED post-start loopback backstop (ss wildcard check) ─────────
+# Navidrome is a Go binary; its Address option defaults to 0.0.0.0 and Go issues
+# raw SYS_BIND syscalls, so the env assert above is backed by an empirical socket
+# audit: refuse to leave a wildcard listener for :${ND_PORT} running. See
+# assert_loopback_listener in lib/common.sh (the Photoview lesson).
+assert_loopback_listener navidrome "${ND_PORT}"
+
 # ── 7. Best-effort health check ──────────────────────────────────────────────
 # Navidrome serves GET /ping → 200 (chi middleware.Heartbeat("/ping"), confirmed
 # upstream). The Go binary + proot cold start can take a few seconds; poll the

@@ -354,6 +354,12 @@ supervise dufs -- \
   --bind "${DATA_BACKING}:${DATA_MOUNT}" \
   -- /opt/dufs/dufs --config /opt/dufs/dufs.yaml
 
+# ── 8b. FAIL-CLOSED post-start loopback backstop (ss wildcard check) ─────────
+# dufs defaults to 0.0.0.0; the dufs.yaml bind grep-assert above is backed by an
+# empirical socket audit — refuse to leave a wildcard listener for :${DUFS_PORT}
+# running (this file server exposes the SD content). See lib/common.sh.
+assert_loopback_listener dufs "${DUFS_PORT}"
+
 # ── 9. Best-effort health check ──────────────────────────────────────────────
 # dufs requires auth, so an unauthenticated GET returns 401 — which still proves
 # the server is up and listening. We treat ANY HTTP response (incl. 401) as

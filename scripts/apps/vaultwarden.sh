@@ -280,6 +280,12 @@ supervise vaultwarden -- \
   --bind "${DATA_BACKING}:${DATA_MOUNT}" \
   -- bash "${INSTALL_DIR}/run.sh"
 
+# ── 6b. FAIL-CLOSED post-start loopback backstop (ss wildcard check) ─────────
+# Vaultwarden defaults to 0.0.0.0; the ROCKET_ADDRESS assert above is backed by an
+# empirical socket audit — this is the most sensitive service (it holds the vault),
+# so refuse to leave a wildcard listener for :${VW_PORT} running. See lib/common.sh.
+assert_loopback_listener vaultwarden "${VW_PORT}"
+
 # ── 7. Best-effort health check ──────────────────────────────────────────────
 # /alive is an unauthenticated liveness endpoint that returns a timestamp.
 say "waiting for Vaultwarden to answer on 127.0.0.1:${VW_PORT}"

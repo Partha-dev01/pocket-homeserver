@@ -325,6 +325,12 @@ supervise kavita -- \
   --bind "${KAVITA_LIBRARY_DIR}:${LIBRARY_MOUNT}" \
   -- bash "${INSTALL_DIR}/run.sh"
 
+# ── 8b. FAIL-CLOSED post-start loopback backstop (ss wildcard check) ─────────
+# Kavita defaults to "0.0.0.0,::"; the appsettings.json IpAddresses assert above
+# is backed by an empirical socket audit — refuse to leave a wildcard listener for
+# :${KAVITA_PORT} running. See assert_loopback_listener in lib/common.sh.
+assert_loopback_listener kavita "${KAVITA_PORT}"
+
 # ── 9. Best-effort health check ──────────────────────────────────────────────
 # /api/health is an unauthenticated ([AllowAnonymous]) liveness endpoint that
 # returns 200 "Ok" (Kavita.Server/Controllers/HealthController.cs). The .NET cold

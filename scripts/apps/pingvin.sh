@@ -49,15 +49,22 @@ require_cmd proot-distro
 in_debian() { proot-distro login debian -- bash -lc "$1"; }
 
 # ── Pinned release ───────────────────────────────────────────────────────────
-# Pingvin is built from a PINNED git tag (env-overridable). NOTE: the default repo is
-# the community FORK smp46/pingvin-share-x, NOT canonical upstream (stonith404/
-# pingvin-share) — chosen for its arm64/proot fixes. Upstream distributes Docker
+# Pingvin is built from a PINNED git tag (env-overridable). The default repo is the
+# community successor FORK smp46/pingvin-share-x — NOT a sketchy fork: canonical
+# upstream stonith404/pingvin-share is now ARCHIVED (the original author stepped
+# back to focus on Pocket ID and explicitly pointed users to maintained forks), and
+# pingvin-share-x is the actively-maintained continuation (its own version line —
+# v1.19.0 here, well past upstream's final v1.13.0 — with arm64/proot fixes). Using
+# the fork is the CORRECT path now that upstream is EOL. Pingvin distributes Docker
 # images / a source tree, not a release tarball with a published sha256, so the
-# integrity anchor here is the pinned tag fetched over HTTPS from that fork (do NOT
-# invent a sha256). This is a WEAKER trust anchor than a first-party signed artifact:
-# you are trusting the fork maintainer + GitHub at the pinned tag. To use canonical
-# upstream instead, set PINGVIN_REPO + PINGVIN_TAG to an upstream tag. To upgrade:
-# back up the DB + ${DATA_DIR}/pingvin FIRST, then bump PINGVIN_TAG and re-run (the
+# integrity anchor is the pinned tag fetched over HTTPS (do NOT invent a sha256).
+# This is a WEAKER anchor than a first-party signed artifact — you trust the fork
+# maintainer + GitHub at the pinned tag. Audited at v1.19.0 (pre-1.0): no npm
+# pre/postinstall lifecycle hooks in either package.json (the build-time RCE
+# surface), deps are the stock NestJS/Next set, and the main.ts app.listen() shape
+# the loopback patch targets is intact. A full line-by-line source review of the
+# divergent fork is out of scope (as it always was for upstream). To upgrade: back
+# up the DB + ${DATA_DIR}/pingvin FIRST, then bump PINGVIN_TAG and re-run (the
 # loopback patch re-applies, fail-closed).
 PINGVIN_TAG="${PINGVIN_TAG:-v1.19.0}"
 PINGVIN_REPO="${PINGVIN_REPO:-https://github.com/smp46/pingvin-share-x.git}"
@@ -372,6 +379,12 @@ supervise pingvin -- \
   proot-distro login debian \
   --bind "${PV_UPLOADS_HOST}:${PV_UPLOADS_USERLAND}" \
   -- bash "${PV}/run.sh"
+
+# ── FAIL-CLOSED post-start loopback backstop (ss wildcard check) ─────────────
+# Upstream NestJS/Next default to 0.0.0.0; the main.ts loopback patch above is
+# backed by an empirical socket audit on BOTH ports — refuse to leave a wildcard
+# listener for the backend or frontend running. See lib/common.sh.
+assert_loopback_listener pingvin "${PV_BACKEND_PORT}" "${PV_FRONTEND_PORT}"
 
 # ── Closing notes ─────────────────────────────────────────────────────────────
 echo

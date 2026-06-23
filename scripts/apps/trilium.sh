@@ -222,6 +222,12 @@ supervise trilium -- \
   --bind "${DATA_BACKING}:${DATA_MOUNT}" \
   -- bash "${INSTALL_DIR}/run.sh"
 
+# ── 9b. FAIL-CLOSED post-start loopback backstop (ss wildcard check) ─────────
+# Trilium (Node) defaults to 0.0.0.0; the TRILIUM_HOST assert above is backed by
+# an empirical socket audit — refuse to leave a wildcard listener for :${TR_PORT}
+# running. See assert_loopback_listener in lib/common.sh.
+assert_loopback_listener trilium "${TR_PORT}"
+
 # ── 10. Best-effort health check ──────────────────────────────────────────────
 say "waiting for Trilium to answer on 127.0.0.1:${TR_PORT} (first boot builds document.db)"
 healthy=0

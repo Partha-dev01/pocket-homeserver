@@ -308,6 +308,12 @@ supervise gatus -- \
   proot-distro login debian \
   -- env GATUS_CONFIG_PATH="${CONF_USERLAND}" "${BIN_USERLAND}"
 
+# ── FAIL-CLOSED post-start loopback backstop (ss wildcard check) ─────────────
+# Gatus is a fully-static Go binary (raw SYS_BIND); the config.yaml address:
+# "127.0.0.1" above is backed by an empirical socket audit — refuse to leave a
+# wildcard listener for :${GATUS_PORT} running. See lib/common.sh.
+assert_loopback_listener gatus "${GATUS_PORT}"
+
 # ── Closing notes ─────────────────────────────────────────────────────────────
 echo
 ok "Gatus installed + supervised (loopback 127.0.0.1:${GATUS_PORT}; memory storage)"

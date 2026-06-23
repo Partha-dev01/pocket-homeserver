@@ -82,8 +82,15 @@ panel**.
   unauthenticated probe.
 
 ### Host / Termux
-- Every listener binds `127.0.0.1`. `netstat -tln` should show no `0.0.0.0`
-  line from any service; if it does, a config change regressed the hardening.
+- Every listener binds `127.0.0.1`. `netstat -tln` (or `ss -ltn`) should show no
+  `0.0.0.0` line from any service; if it does, a config change regressed the
+  hardening. This is enforced two ways for each bundled service: a config/env
+  loopback assert *before* start, **and** a post-start `ss` wildcard backstop that
+  refuses to leave a non-loopback listener running (it unsupervises + aborts).
+  The backstop matters most for Go servers, which issue a raw `bind()` syscall and
+  can ignore an `LD_PRELOAD` shim — it is the reason Photoview was dropped rather
+  than shipped with a wildcard bind (see `docs/MEDIA.md`). Shared implementation:
+  `assert_loopback_listener` in `scripts/lib/common.sh`.
 - SSH (if enabled) is key-only, no password, no root login, loopback-bound.
 - `cloudflared` is outbound-only by design.
 

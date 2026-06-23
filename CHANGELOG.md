@@ -5,6 +5,43 @@ All notable changes to pocket-homeserver are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.0] - 2026-06-24
+
+First stable release. pocket-homeserver installs a complete, opt-in personal cloud on
+a single unrooted Android phone — Matrix chat, a Cloudflare-tunnelled Caddy edge, and
+~30 optional services (files & sync, productivity, calendar & passwords, media, a git
+forge, DNS-over-HTTPS, a mesh VPN, and more). Every web service is loopback-bound
+behind the tunnel, every embedded database lives on ext4, every module is **OFF by
+default**, and every pinned artifact is sha256-verified fail-closed. See the v0.4.0 →
+v0.9.1 entries below for the full feature history; this release closes the pre-1.0
+audit's remaining coverage gaps. From here, breaking changes follow SemVer.
+
+Readiness work in this release: defence-in-depth on the network binds, a
+re-verification of every pinned artifact, and an honest accounting of the one
+build-from-fork dependency.
+
+### Security
+- The post-start `ss` wildcard backstop — which refuses to leave a service listening on
+  a non-loopback address even if its config/env assert is somehow bypassed — now covers
+  **every** Go/Node/Rust web listener, not just Forgejo + AdGuard: Navidrome, Vikunja,
+  Kavita, Trilium, Audiobookshelf, Pingvin, Gatus, the Syncthing GUI, Vaultwarden, and
+  Dufs. This closes the raw-`SYS_BIND` class (the reason Photoview was dropped) for the
+  whole stack. The check is a shared, port-scoped `assert_loopback_listener` helper in
+  `scripts/lib/common.sh` (Syncthing audits only its loopback GUI port, never its
+  intentional P2P sync port); Forgejo's inline copy was refactored onto it.
+
+### Changed
+- Pinned-artifact provenance, re-verified for 1.0: all 16 sha256-pinned downloads were
+  re-checked against current upstream bytes (published checksums where available —
+  Go, memos, filebrowser, syncthing, navidrome, kavita, forgejo, tailscale, adguard,
+  trilium — and a fresh download-and-hash for the self-computed ones). Every pin matches.
+- The Pingvin install note now states the real reason it builds from
+  `smp46/pingvin-share-x`: canonical upstream `stonith404/pingvin-share` is **archived**
+  (the author moved to Pocket ID and pointed users at maintained forks), and that fork is
+  the active successor. Audited at the pinned tag (`v1.19.0`): no npm pre/post-install
+  lifecycle hooks in either `package.json`, stock NestJS/Next dependencies, and the
+  `app.listen()` shape the loopback patch targets is intact.
+
 ## [0.9.1] - 2026-06-23
 
 Hardening pass from the pre-1.0 multi-agent audit (security + correctness across the
@@ -722,6 +759,7 @@ productized from a real deployment that has run for ~20 users for months.
   for now (see the setup guide), and the watchdog is on the roadmap. The
   per-service supervisor (crash-respawn) does ship.
 
+[1.0.0]: https://github.com/Partha-dev01/pocket-homeserver/releases/tag/v1.0.0
 [0.9.1]: https://github.com/Partha-dev01/pocket-homeserver/releases/tag/v0.9.1
 [0.9.0]: https://github.com/Partha-dev01/pocket-homeserver/releases/tag/v0.9.0
 [0.8.0]: https://github.com/Partha-dev01/pocket-homeserver/releases/tag/v0.8.0

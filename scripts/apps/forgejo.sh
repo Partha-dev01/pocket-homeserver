@@ -427,56 +427,18 @@ supervise forgejo -- \
   --bind "${DATA_BACKING}:${DATA_MOUNT}" \
   -- bash "${INSTALL_DIR}/run.sh"
 
-# ── 10. FAIL-CLOSED post-start loopback assert (navidrome-style ss check) ────
+# ── 10. FAIL-CLOSED post-start loopback assert (shared ss backstop) ──────────
 # ┌── SECURITY-LOAD-BEARING ───────────────────────────────────────────────────
-# │ Second layer beyond the app.ini assert: once the server is up, confirm via `ss`
-# │ that NOTHING is listening on a WILDCARD (0.0.0.0 / [::] / *) for ${FORGEJO_PORT}.
-# │ If a wildcard listener exists we unsupervise + die rather than leave a LAN-exposed
-# │ forge running. We poll briefly (the Go cold start + DB migration can take a few
-# │ seconds) for the loopback listener to appear; absence of a wildcard is the gate.
-# │ `ss -ltnH` is checked first (Termux/proot usually has iproute2); we fall back to
-# │ parsing the listener some other way only if `ss` is unavailable (then we WARN, as
-# │ we cannot positively assert). proot shares the host net ns, so a wildcard here =
-# │ the phone's real interfaces.
+# │ Second layer beyond the app.ini assert: once the server is up, confirm via
+# │ `ss` that NOTHING is listening on a WILDCARD (0.0.0.0 / [::] / *) for
+# │ ${FORGEJO_PORT}, and unsupervise + die if so rather than leave a LAN-exposed
+# │ forge running. Forgejo is a Go binary (raw SYS_BIND), so this empirical audit
+# │ backs the app.ini HTTP_ADDR config assert. Shared implementation:
+# │ assert_loopback_listener in lib/common.sh (host or userland ss; polls for a
+# │ slow cold start; warns only when ss is in neither — never on an observed
+# │ wildcard). proot shares the host net ns, so a wildcard here = real interfaces.
 # └────────────────────────────────────────────────────────────────────────────
-say "post-start: asserting nothing is listening on a wildcard for :${FORGEJO_PORT} (ss check)"
-ss_bin=""
-command -v ss >/dev/null 2>&1 && ss_bin="$(command -v ss)"
-if [ -z "${ss_bin}" ]; then
-  # ss is in the userland's iproute2 even when absent on the Termux host.
-  in_debian 'command -v ss >/dev/null 2>&1' && ss_bin="in_debian"
-fi
-ss_dump() {
-  if [ "${ss_bin}" = "in_debian" ]; then in_debian "ss -ltnH 2>/dev/null"; else "${ss_bin}" -ltnH 2>/dev/null; fi
-}
-if [ -n "${ss_bin}" ]; then
-  loop_up=0
-  for _ in $(seq 1 30); do
-    dump="$(ss_dump || true)"
-    # A wildcard listener for our port: "0.0.0.0:9128", "*:9128", "[::]:9128", ":::9128".
-    if printf '%s\n' "${dump}" | grep -Eq "(^|[[:space:]])(0\.0\.0\.0|\*|\[::\]|::):${FORGEJO_PORT}([[:space:]]|\$)"; then
-      unsupervise forgejo
-      die "Forgejo is listening on a WILDCARD address for :${FORGEJO_PORT} — refusing to leave a LAN-exposed forge running (check ${APP_INI} HTTP_ADDR). Stopped the service."
-    fi
-    # Confirm the loopback listener is up (positive liveness for the assert).
-    if printf '%s\n' "${dump}" | grep -Eq "(^|[[:space:]])(127\.0\.0\.1|\[::1\]):${FORGEJO_PORT}([[:space:]]|\$)"; then
-      loop_up=1; break
-    fi
-    sleep 1
-  done
-  if [ "${loop_up}" -eq 1 ]; then
-    ok "Forgejo listening on loopback only for :${FORGEJO_PORT} (no wildcard) — confirmed"
-  else
-    # Re-check once for a wildcard even if loopback hasn't shown yet, then warn.
-    if printf '%s\n' "$(ss_dump || true)" | grep -Eq "(^|[[:space:]])(0\.0\.0\.0|\*|\[::\]|::):${FORGEJO_PORT}([[:space:]]|\$)"; then
-      unsupervise forgejo
-      die "Forgejo is listening on a WILDCARD address for :${FORGEJO_PORT} — refusing to leave a LAN-exposed forge running. Stopped the service."
-    fi
-    warn "could not yet observe a :${FORGEJO_PORT} listener via ss (slow Go cold start / DB migration); no wildcard seen. Re-check with: ss -ltn | grep ${FORGEJO_PORT}"
-  fi
-else
-  warn "ss not available on host or in the userland — could NOT positively assert the bind. Verify manually: ss -ltn | grep ${FORGEJO_PORT} shows ONLY 127.0.0.1:${FORGEJO_PORT}"
-fi
+assert_loopback_listener forgejo "${FORGEJO_PORT}"
 
 # ── 11. Seed the first admin via the CLI (run_once; password off-argv) ───────
 # ┌── SECURITY-LOAD-BEARING ───────────────────────────────────────────────────

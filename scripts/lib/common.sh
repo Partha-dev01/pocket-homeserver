@@ -293,3 +293,86 @@ migrate_backing_to_ext4() {
     die "migration produced an empty ${new} — fix permissions/space and re-run (nothing was deleted)"
   fi
 }
+
+# ── Loopback bind backstop (post-start `ss` socket audit) ────────────────────
+# A second, EMPIRICAL layer beyond an app's own config/env loopback assert: once a
+# supervised service is up, confirm via `ss` that NOTHING is listening on a
+# WILDCARD address (0.0.0.0 / * / [::] / ::) for the given TCP port(s). If a
+# wildcard listener is found we unsupervise + die rather than leave a LAN-exposed
+# service running. This is the backstop for the "app ignores its own bind config"
+# class — e.g. a Go server that issues a raw SYS_BIND, bypassing both an
+# LD_PRELOAD shim and (in principle) its config (the Photoview lesson). proot
+# shares the phone's network namespace, so a wildcard here = the real interfaces.
+#
+# `ss` is taken from the Termux host's iproute2 if present, else from the Debian
+# userland (proot shares the net ns, so either side sees the socket). If `ss` is
+# in NEITHER we WARN and return 0 — we fail OPEN only when we genuinely cannot
+# observe, NEVER on an observed wildcard. We poll briefly for a slow cold start;
+# the ABSENCE of a wildcard is the gate (a not-yet-listening port is a warn, not a
+# death — the supervisor keeps retrying it).
+#
+# NOTE: this covers single-or-multi TCP port apps. AdGuard keeps its own inline
+# audit (it also checks the UDP resolver + two ports with a scoped rule).
+_pocket_ss_mode() {
+  if command -v ss >/dev/null 2>&1; then
+    printf 'host'
+  elif proot-distro login debian -- bash -lc 'command -v ss >/dev/null 2>&1' >/dev/null 2>&1; then
+    printf 'userland'
+  fi
+}
+_pocket_ss_dump() {  # $1 = mode (host|userland) — print TCP listening sockets
+  case "$1" in
+    host)     ss -ltnH 2>/dev/null ;;
+    userland) proot-distro login debian -- bash -lc 'ss -ltnH 2>/dev/null' 2>/dev/null ;;
+  esac
+}
+# _pocket_port_wildcard DUMP PORT — rc 0 if DUMP has a wildcard listener for PORT.
+_pocket_port_wildcard() {
+  printf '%s\n' "$1" | grep -Eq "(^|[[:space:]])(0\.0\.0\.0|\*|\[::\]|::):$2([[:space:]]|\$)"
+}
+# _pocket_port_loopback DUMP PORT — rc 0 if DUMP has a loopback listener for PORT.
+_pocket_port_loopback() {
+  printf '%s\n' "$1" | grep -Eq "(^|[[:space:]])(127\.0\.0\.1|\[::1\]):$2([[:space:]]|\$)"
+}
+# assert_loopback_listener <supervised-name> <port> [<port> ...]
+assert_loopback_listener() {
+  local name="$1"; shift
+  local ports="$*" mode p dump i up_all
+  [ -n "$ports" ] || return 0
+  mode="$(_pocket_ss_mode)"
+  if [ -z "$mode" ]; then
+    warn "ss unavailable (Termux host + userland) — could NOT positively assert ${name} is loopback-only on port(s): ${ports}. Verify by hand: ss -ltn | grep -E ':(${ports// /|})'"
+    return 0
+  fi
+  say "post-start: asserting nothing listens on a wildcard for ${name} port(s): ${ports} (ss check)"
+  up_all=0
+  for i in $(seq 1 30); do
+    dump="$(_pocket_ss_dump "$mode" || true)"
+    for p in $ports; do
+      if _pocket_port_wildcard "$dump" "$p"; then
+        unsupervise "$name"
+        die "${name} is listening on a WILDCARD address for :${p} — refusing to leave a LAN-exposed service running. Stopped it (check the app's bind config)."
+      fi
+    done
+    up_all=1
+    for p in $ports; do
+      _pocket_port_loopback "$dump" "$p" || { up_all=0; break; }
+    done
+    [ "$up_all" = 1 ] && break
+    sleep 1
+  done
+  if [ "$up_all" = 1 ]; then
+    ok "${name} listening on loopback only (no wildcard) for port(s): ${ports} — confirmed"
+    return 0
+  fi
+  # A port hasn't shown a loopback listener yet (slow cold start). Re-check once
+  # for a wildcard before warning — we must never leave an observed wildcard up.
+  dump="$(_pocket_ss_dump "$mode" || true)"
+  for p in $ports; do
+    if _pocket_port_wildcard "$dump" "$p"; then
+      unsupervise "$name"
+      die "${name} is listening on a WILDCARD address for :${p} — refusing to leave it running. Stopped it."
+    fi
+  done
+  warn "could not yet observe a loopback listener for ${name} port(s): ${ports} via ss (slow cold start) — no wildcard seen. Re-check: ss -ltn | grep -E ':(${ports// /|})'"
+}
