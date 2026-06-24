@@ -1229,6 +1229,43 @@ def gather_stats():
 
 
 # ---------- CSS + templates ----------
+# Inline brand mark — the pocket-homeserver logo (a teal phone + server-rack +
+# signal-wave glyph on a dark rounded tile). Kept verbatim so the admin header
+# chip matches the site favicon / app icon exactly.
+LOGO_MARK_SVG = r'''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 500" width="100%" height="100%" aria-hidden="true">
+<defs>
+<filter id="neon-glow" x="-20%" y="-20%" width="140%" height="140%">
+<feDropShadow dx="0" dy="0" stdDeviation="8" flood-color="#3de09c" flood-opacity="0.7"/>
+</filter>
+<mask id="logo-mask">
+<rect x="150" y="80" width="200" height="380" rx="30" fill="white"/>
+<rect x="175" y="140" width="150" height="260" rx="10" fill="black"/>
+<rect x="310" y="210" width="50" height="128" fill="black"/>
+<rect x="230" y="105" width="40" height="8" rx="4" fill="black"/>
+<rect x="230" y="430" width="40" height="12" rx="6" fill="black"/>
+<rect x="260" y="215" width="155" height="32" rx="8" fill="white"/>
+<rect x="260" y="258" width="155" height="32" rx="8" fill="white"/>
+<rect x="260" y="301" width="155" height="32" rx="8" fill="white"/>
+<rect x="275" y="226" width="30" height="10" rx="3" fill="black"/>
+<circle cx="369" cy="231" r="3.5" fill="black"/><circle cx="382" cy="231" r="3.5" fill="black"/><circle cx="395" cy="231" r="3.5" fill="black"/>
+<rect x="275" y="269" width="30" height="10" rx="3" fill="black"/>
+<circle cx="369" cy="274" r="3.5" fill="black"/><circle cx="382" cy="274" r="3.5" fill="black"/><circle cx="395" cy="274" r="3.5" fill="black"/>
+<rect x="275" y="312" width="30" height="10" rx="3" fill="black"/>
+<circle cx="369" cy="317" r="3.5" fill="black"/><circle cx="382" cy="317" r="3.5" fill="black"/><circle cx="395" cy="317" r="3.5" fill="black"/>
+</mask>
+</defs>
+<rect width="500" height="500" fill="#131615"/>
+<g stroke="#2c8e72" stroke-width="14" stroke-linecap="round" fill="none" opacity="0.85">
+<path d="M 180,40 A 70,70 0 0,0 90,110"/>
+<path d="M 150,15 A 110,110 0 0,0 50,120"/>
+<path d="M 320,40 A 70,70 0 0,1 410,110"/>
+<path d="M 350,15 A 110,110 0 0,1 450,120"/>
+</g>
+<g filter="url(#neon-glow)">
+<rect x="0" y="0" width="500" height="500" fill="#3de09c" mask="url(#logo-mask)"/>
+</g>
+</svg>'''
+
 CSS = """
 /* ===== design tokens (indigo/blue/teal) ===== */
 :root {
@@ -1321,7 +1358,8 @@ header {
 }
 .brand { display:flex; align-items:center; gap:.5rem; font-weight:700; font-size:1.12rem }
 .brand .mark { width:1.6rem; height:1.6rem; display:grid; place-items:center; border-radius:8px;
-  background:var(--grad); color:#04130e; font-size:1rem; box-shadow:var(--shadow-sm) }
+  overflow:hidden; box-shadow:var(--shadow-sm) }
+.brand .mark svg { width:100%; height:100%; display:block }
 .brand .word { background:var(--grad); -webkit-background-clip:text; background-clip:text; color:transparent }
 .brand .sub { color:var(--muted); font-weight:600; font-size:.78rem; letter-spacing:.12em; text-transform:uppercase; margin-left:.1rem }
 nav { display:flex; gap:.3rem; flex-wrap:wrap; flex-grow:1 }
@@ -1512,7 +1550,7 @@ def render(title, body_html, hide_nav=False):
         '<link rel="icon" type="image/svg+xml" href="/icon.svg">'
         '<link rel="apple-touch-icon" href="/icon.svg">'
     )
-    brand = ('<div class=brand><span class=mark>✦</span>'
+    brand = ('<div class=brand><span class=mark>' + LOGO_MARK_SVG + '</span>'
              f'<span class=word>{e(BRAND)}</span><span class=sub>admin</span></div>')
     return (
         "<!doctype html>"
