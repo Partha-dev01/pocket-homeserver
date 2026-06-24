@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="docs/img/logo.png" alt="pocket-homeserver" width="420">
+<img src="docs/img/logo.svg" alt="pocket-homeserver" width="150">
 
 # pocket-homeserver
 
