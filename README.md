@@ -25,7 +25,7 @@ You drive the whole thing from **one interactive menu**:
 
 <div align="center">
 
-<img src="docs/img/pocket-tui.gif" alt="The ./pocket.sh control panel — boots, prints the banner, and walks the menu" width="300">
+<img src="docs/img/pocket-tui.gif" alt="The ./pocket.sh control panel — boots, prints the banner, and draws the full control-panel menu" width="720">
 
 </div>
 
