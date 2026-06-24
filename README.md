@@ -1,5 +1,7 @@
 <div align="center">
 
+<!-- logo: drop it here when ready, e.g. <img src="docs/img/logo.png" alt="pocket-homeserver" width="128"> -->
+
 # pocket-homeserver
 
 **Turn a spare Android phone into a real, always-on server.**
@@ -142,29 +144,23 @@ You drive the whole thing from **one interactive menu**:
   downloads, secrets kept off the command line, and a documented threat model.
   ([docs/SECURITY.md](docs/SECURITY.md))
 
-## Screenshots
+## The web admin panel
 
 The optional **web admin panel** (`admin/app.py`) is a small, loopback-only Flask
-control panel, reached over the same tunnel and built phone-first. It runs the
-day-two operations from any browser — health and live metrics, per-service
-restarts, backups, credential rotation, and a guarded danger zone. (Shown below
-against an example deployment.)
+console, reached over the same tunnel and built phone-first. From any browser it
+runs the day-two operations — health and live metrics, per-service restarts,
+backups, credential rotation, and a guarded danger zone.
 
-The dashboard — live device health read straight off the phone (real SoC, RAM, battery, thermals), per-service status, and one-tap restarts:
+<div align="center">
 
-![pocket-homeserver admin — dashboard](docs/img/admin-dashboard.png)
+![pocket-homeserver admin dashboard — live device health, stack status, and one-tap restarts](docs/img/admin-dashboard.png)
 
-Sign in — a single scrypt-hashed password, brute-force throttled and loopback-guarded:
+<sub>The dashboard, served straight off the phone — real SoC, RAM, battery, and thermals, every service green. (Example deployment.)</sub>
 
-![pocket-homeserver admin — sign in](docs/img/admin-login.png)
+</div>
 
-Backups & restore — trigger a database or full-rootfs snapshot, apply retention, or restore, from the panel:
-
-![pocket-homeserver admin — backups](docs/img/admin-backups.png)
-
-Danger zone — kill switches and credential rotations, each behind a two-step confirmation so nothing destructive happens by accident:
-
-![pocket-homeserver admin — danger zone](docs/img/admin-danger.png)
+More of the panel — sign-in, backups, and the danger zone — is in
+[docs/ADMIN.md](docs/ADMIN.md).
 
 ## Requirements
 
