@@ -23,25 +23,11 @@ a stack of supporting apps — on a single mid-range phone for months.
 
 You drive the whole thing from **one interactive menu**:
 
-```text
-  pocket-homeserver — control panel
-  ────────────────────────────────────────────────────
-  domain   : my.example.org
-  services : 11 up / 11 supervised
-  ────────────────────────────────────────────────────
-   1) Configure / reconfigure        (re-run the setup wizard)
-   2) Install / bring up the stack   (resumes; safe to re-run)
-   3) Re-run everything (force)      (redo every install step)
-   4) Status                         (what is installed & running)
-   5) Restart a service
-   6) Backups & restore
-   7) View logs
-   8) Stop / panic
-   9) Rotate credentials
-  10) Update components            (versions + safe rollback)
-  11) Doctor / diagnostics         (read-only health + preflight)
-    q) quit
-```
+<div align="center">
+
+<img src="docs/img/pocket-tui.gif" alt="The ./pocket.sh control panel — boots, prints the banner, and walks the menu" width="300">
+
+</div>
 
 > **Status: v1.0.0 — stable.** Everything below has landed and been through a
 > full pre-1.0 security + correctness audit. From here, breaking changes follow
