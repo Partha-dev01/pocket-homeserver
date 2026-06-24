@@ -49,9 +49,11 @@ You drive the whole thing from **one interactive menu**:
 
 - **A Matrix homeserver** — continuwuity / conduwuit behind Caddy, with the
   Element web client. Federation and open registration are off by default.
-- **Eight optional web apps**, each on its own subdomain, all loopback-bound
-  behind the single tunnel — bookmarks, file sharing, RSS, notes, tasks,
-  metasearch, a developer toolbox, and a status page. ([docs/APPS.md](docs/APPS.md))
+- **A catalog of optional web apps**, each on its own subdomain, all
+  loopback-bound behind the single tunnel — the core set is bookmarks, file
+  sharing, RSS, notes, tasks, metasearch, a developer toolbox, and a status page,
+  with files & sync, productivity, media, and platform tiers below.
+  ([docs/APPS.md](docs/APPS.md))
 - **Personal cloud — files & sync** — serve your files over the web + WebDAV
   (Dufs, read-only by default) or with multi-user accounts + share links
   (FileBrowser), and sync folders peer-to-peer off the tunnel (Syncthing). All
@@ -139,6 +141,30 @@ You drive the whole thing from **one interactive menu**:
 - **Secure by construction** — no inbound ports, pinned + `sha256`-verified
   downloads, secrets kept off the command line, and a documented threat model.
   ([docs/SECURITY.md](docs/SECURITY.md))
+
+## Screenshots
+
+The optional **web admin panel** (`admin/app.py`) is a small, loopback-only Flask
+control panel, reached over the same tunnel and built phone-first. It runs the
+day-two operations from any browser — health and live metrics, per-service
+restarts, backups, credential rotation, and a guarded danger zone. (Shown below
+against an example deployment.)
+
+The dashboard — live device health read straight off the phone (real SoC, RAM, battery, thermals), per-service status, and one-tap restarts:
+
+![pocket-homeserver admin — dashboard](docs/img/admin-dashboard.png)
+
+Sign in — a single scrypt-hashed password, brute-force throttled and loopback-guarded:
+
+![pocket-homeserver admin — sign in](docs/img/admin-login.png)
+
+Backups & restore — trigger a database or full-rootfs snapshot, apply retention, or restore, from the panel:
+
+![pocket-homeserver admin — backups](docs/img/admin-backups.png)
+
+Danger zone — kill switches and credential rotations, each behind a two-step confirmation so nothing destructive happens by accident:
+
+![pocket-homeserver admin — danger zone](docs/img/admin-danger.png)
 
 ## Requirements
 
@@ -256,6 +282,7 @@ genuinely practical way to self-host.
 - [docs/MCP.md](docs/MCP.md) — the optional MCP server: connecting a client, the tool set, the tiers, and the security model.
 - [docs/MCP_SERVER_SPEC.md](docs/MCP_SERVER_SPEC.md) — the MCP server's as-built design specification (tool table, transports, threat model).
 - [docs/HONEYPOT.md](docs/HONEYPOT.md) — the optional honeypot / scanner-detection surface (alert-only by default; admin Security console).
+- [docs/ROADMAP.md](docs/ROADMAP.md) — the shipped-feature ledger and the short list of what is still planned.
 
 ## Repository layout
 
@@ -271,39 +298,10 @@ tools/       repo tooling (e.g. the leak-scan pre-push guard)
 
 ## Roadmap
 
-- [x] Architecture & security documentation
-- [x] Config-driven script framework (library, `.env`, renderer, orchestrator)
-- [x] Core stack install + bring-up (userland, cloudflared, Caddy, Matrix, Element)
-- [x] Optional-app install scripts + the app-auth model (Cloudflare Access)
-- [x] Optional Matrix-SSO auth gateway (advanced, single sign-on)
-- [x] Web admin panel (health, controls, backups, danger zone)
-- [x] Backups & recovery — DB + rootfs snapshots, retention, restore
-- [x] Guided `setup.sh` wizard + zero-to-running setup guide
-- [x] Interactive control panel (`pocket.sh`) + resumable, status-aware installs
-- [x] Platform foundation — a central pinned-version manifest (`config/versions.env`), safe component updates with snapshot + verify-healthy + auto-rollback (`pocket update`), a read-only `doctor` preflight, and CI gates (shellcheck / py_compile / leak-scan / install --check) ([docs/UPDATING.md](docs/UPDATING.md))
-- [x] Reboot survival + self-heal watchdog as install steps (Termux:Boot + JobScheduler)
-- [x] A scheduled backup daemon (optional; weekly DB + monthly rootfs, auto-pruned)
-- [x] Optional honeypot / scanner-detection surface (alert-only; admin Security console)
-- [x] Optional privacy & media filters (hide accounts from search; fix media content-type)
-- [x] Scripted restore + credential rotation (dry-run restore; rotate tunnel/OIDC/admin-bot keys)
-- [x] Optional Matrix bootstrap (admin + hub Space/rooms + announcements + invite tokens)
-- [x] Optional cloud-LLM Matrix chat bots (OpenAI-compatible; Groq free tier)
-- [x] Optional on-phone LLM bot (advanced / BYO llama.cpp + GGUF; optional web UI)
-- [x] Optional sticker picker (Maunium widget + upload/Giphy backend + import bot)
-- [x] Optional operator admin bot (operator-only Matrix ops bot + panel widget)
-- [x] Optional landing portal (apex service directory; cards generated from enabled apps)
-- [x] Optional email + webmail (Maddy + R2-drain pipeline + SnappyMail + Matrix-SSO; advanced/BYO)
-- [x] Optional MCP server (official MCP SDK; stdio over SSH + optional HTTP behind CF Access; read/operate/danger tiers)
-- [x] Observability — metrics sampler + admin sparklines / 24h health strip / problems view + crash-loop alerts
-- [x] Off-device encrypted backup (push age-ciphertext to any S3-compatible bucket)
-- [x] Matrix user management in the panel (list/create/reset/suspend/deactivate + invite tokens)
-- [x] Personal cloud — files & sync (Dufs + WebDAV / FileBrowser accounts / Syncthing P2P; [docs/FILES.md](docs/FILES.md))
-- [x] Productivity & security apps — Vaultwarden (password manager) / Radicale (CalDAV/CardDAV + QR connect-card) / Trilium (notes/wiki) / Wallabag (read-later) ([docs/VAULT.md](docs/VAULT.md) · [docs/DAV.md](docs/DAV.md) · [docs/NOTES.md](docs/NOTES.md) · [docs/READLATER.md](docs/READLATER.md))
-- [x] Media apps — Navidrome (music/Subsonic) / Kavita (comics/ebooks) / Audiobookshelf (audiobooks/podcasts); Jellyfin docs-only ([docs/MEDIA.md](docs/MEDIA.md))
-- [x] Platform & networking — Forgejo (git forge) / AdGuard Home (DoH resolver) / BYO reverse-proxy / Tailscale (userspace mesh VPN) ([docs/FORGEJO.md](docs/FORGEJO.md) · [docs/ADGUARD.md](docs/ADGUARD.md) · [docs/PROXY_ROUTES.md](docs/PROXY_ROUTES.md) · [docs/TAILSCALE.md](docs/TAILSCALE.md))
-- [x] In-panel app catalog (enable + install modules from the browser) + optional fail2ban-style rate-jail on the honeypot ([docs/ADMIN.md](docs/ADMIN.md) · [docs/HONEYPOT.md](docs/HONEYPOT.md))
-- [x] **v1.0.0 — first stable release** — full pre-1.0 security + correctness audit, a universal post-start loopback backstop on every Go/Node/Rust listener, and a re-verification of every pinned artifact against upstream
-- [ ] Photo gallery — on the roadmap (the candidate's Go server hardcodes a `0.0.0.0` bind that can't be safely forced to loopback on this stack; see [docs/MEDIA.md](docs/MEDIA.md))
+pocket-homeserver is **feature-complete as of v1.0.0**. The full ledger of shipped
+features and the short list of what is still planned (a loopback-safe photo
+gallery) lives in **[docs/ROADMAP.md](docs/ROADMAP.md)**; per-release detail is in
+the **[CHANGELOG](CHANGELOG.md)**.
 
 ## Status, license, and contributing
 

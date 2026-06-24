@@ -70,9 +70,10 @@ bound to loopback (default `127.0.0.1:8448`). Federation is **off by default**
 ### 6. Optional app suite
 
 Each app is independent, binds loopback, sits behind the auth gate, and is
-toggled with an `ENABLE_*` flag in `.env`. The suite is eight apps — bookmarks,
-file sharing, an RSS reader, notes, tasks, a metasearch engine, a developer
-toolbox, and a status page (the installers live in
+toggled with an `ENABLE_*` flag in `.env`. The suite spans several tiers — the
+core web apps (bookmarks, file sharing, an RSS reader, notes, tasks, a metasearch
+engine, a developer toolbox, a status page) plus files & sync, productivity &
+security, media, and platform & networking (the installers live in
 [`scripts/apps/`](../scripts/apps/); see [APPS.md](APPS.md)). Enable only what you
 want.
 
