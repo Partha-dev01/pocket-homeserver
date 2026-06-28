@@ -224,6 +224,15 @@ The phone never opens an inbound port; it only dials out to Cloudflare, which
 terminates public TLS and forwards to a local Caddy that fronts every service on
 loopback. Full detail in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
+**"Is it really self-hosted if it uses Cloudflare?"** Every service and all your
+data run on the phone, bound to loopback — Cloudflare only terminates public TLS
+at the edge and forwards the connection down the tunnel; it never stores your
+data. The tunnel is the **default** purely because it's what makes a phone with
+no public IP, behind CGNAT, reachable at all. You are not locked into it: Caddy
+already fronts every service locally, so if you have a routable or static IP you
+can point your own reverse proxy or DNS straight at it and drop Cloudflare
+entirely. It is a swappable ingress default, not a hard dependency.
+
 **Why a phone?** A retired phone is a low-power, battery-backed, always-on ARM64
 computer with storage and (optionally) a SIM. Paired with a Cloudflare Tunnel, it
 serves real HTTPS traffic from anywhere without a static IP — a cheap, resilient,
