@@ -325,9 +325,21 @@ if [ -d "${ARTIFACT}" ]; then
   # slower (reads every file), but a deploy pipeline whose whole premise is
   # "what got published is really what you just uploaded" cannot trade that
   # correctness for speed.
+  #
+  # -rlpgoD (NOT -a) is equally deliberate: -a would include -t, and
+  # --link-dest refuses to hardlink unless the candidate matches in EVERY
+  # preserved attribute — with -t that includes mtime, and a fresh upload's
+  # files always carry fresh mtimes, so same-content files would silently
+  # never link and each "deduped" release would cost its full size (the arm64
+  # E2E caught exactly that: nlink=1 on an unchanged asset). Dropping -t takes
+  # mtime out of the preserved set: content identity comes from --checksum,
+  # link eligibility from perms/owner (safe_extract normalizes modes to
+  # 0644/0755, so same-content files DO match). Changed files simply carry the
+  # deploy time as mtime — release trees are immutable, so nothing downstream
+  # depends on source mtimes (Caddy's Last-Modified just reflects the deploy).
   if [ -n "${PREV_RELEASE}" ] && command -v rsync >/dev/null 2>&1; then
     job_log "${JOB_ID}" "staging: rsync --checksum --link-dest against ${PREV_RELEASE} (hardlink-dedupe)"
-    rsync -a --checksum --link-dest="${RELEASES_DIR}/${PREV_RELEASE}/" "${ARTIFACT}/" "${RELEASE_TMP}/" \
+    rsync -rlpgoD --checksum --link-dest="${RELEASES_DIR}/${PREV_RELEASE}/" "${ARTIFACT}/" "${RELEASE_TMP}/" \
       || fail "rsync copy of the directory artifact failed"
   else
     [ -n "${PREV_RELEASE}" ] && warn "rsync not found — falling back to a plain copy (no hardlink-dedupe; this release costs its full size on disk)"

@@ -21,6 +21,17 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
   guards, name validation, atomic swap/rollback, registry and job state; new CI
   gate runs it on every push.
 
+### Fixed
+- **Fresh installs on a Debian trixie userland no longer abort at the Caddy
+  step.** Trixie's main repo ships caddy 2.6.2, which predates the
+  `servers > trusted_proxies` option used by the rendered Caddyfile — apt
+  "succeeded" and `caddy validate` then failed, killing the install.
+  `30-install-caddy.sh` now enforces a version floor (2.6.3) and escalates to
+  the official Cloudsmith caddy repo when the Debian-packaged caddy is missing
+  *or* too old. (Found by the arm64 end-to-end harness; bookworm userlands were
+  never affected — bookworm has no caddy in main, so they always took the
+  Cloudsmith path.)
+
 ## [1.0.0] - 2026-06-24
 
 First stable release. pocket-homeserver installs a complete, opt-in personal cloud on
