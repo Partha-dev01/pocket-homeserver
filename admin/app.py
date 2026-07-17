@@ -107,6 +107,7 @@ ENABLE = {
     "searxng":  _flag("ENABLE_SEARXNG"),
     "ittools":  _flag("ENABLE_ITTOOLS"),
     "gatus":    _flag("ENABLE_GATUS"),
+    "sites":    _flag("ENABLE_SITES"),
     "wallabag":   _flag("ENABLE_WALLABAG"),
     "radicale":   _flag("ENABLE_RADICALE"),
     "trilium":    _flag("ENABLE_TRILIUM"),
@@ -215,6 +216,7 @@ APP_CATALOG = {
     "adguard":       ("AdGuard Home — DoH resolver",    "ENABLE_ADGUARD",       "apps/adguard.sh"),
     "proxy-routes":  ("BYO reverse-proxy",              "ENABLE_PROXY_ROUTES",  "apps/proxy-routes.sh"),
     "tailscale":     ("Tailscale — mesh VPN",           "ENABLE_TAILSCALE",     "steps/90-install-tailscale.sh"),
+    "sites":         ("Pocket Pages — static sites",    "ENABLE_SITES",         "apps/sites.sh"),
 }
 for _ck, _cv in APP_CATALOG.items():
     # async = run detached + logged (a source build can take 15–40 min); the panel

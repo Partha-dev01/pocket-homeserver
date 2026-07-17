@@ -1,0 +1,55 @@
+# ============================================================================
+# Pocket Pages (static-site hosting) — *.${DOMAIN}   (ONE wildcard vhost)
+# Installed ONCE by scripts/apps/sites.sh; NEVER edited per deploy.
+#
+# How it works: the site address is a first-level wildcard, and the file_server
+# root is derived from the request's host label at request time:
+#
+#     mysite.${DOMAIN}  ->  /var/www/sites/mysite/current/
+#
+# `{labels.N}` indexes host labels from the RIGHT (0-based): for site.example.com
+# labels.0=com, labels.1=example, labels.2=site — so N = the number of labels in
+# ${DOMAIN} itself (computed by the installer and baked in below as __L__).
+#
+# Why this design (SPEC-SITES-PIPELINE AD-1):
+#   * deploy/rollback/delete are pure filesystem operations — this file never
+#     changes, so there is nothing to validate, reload, or corrupt per deploy;
+#   * EXACT-hostname site blocks (chat/admin/mcp/every app vhost) always outrank
+#     a wildcard in Caddy's host matching, so core apps are unaffected;
+#   * a host LABEL cannot contain '/' or '.', so the dynamic root cannot be
+#     path-traversed via the Host header, and the wildcard matches exactly ONE
+#     label deep;
+#   * an undeployed subdomain resolves to a missing root -> 404 (harmless).
+#
+# TLS: none here — plain HTTP on the shared loopback listener; the Cloudflare
+# Tunnel terminates public TLS, and Cloudflare's free Universal SSL covers
+# first-level wildcards (*.${DOMAIN}) — which is exactly why per-site hostnames
+# are FIRST-level (mysite.${DOMAIN}), never nested (mysite.sites.${DOMAIN}).
+#
+# NOTE (M4/analytics-lite): a per-vhost `log` directive lands with the
+# analytics feature; deliberately absent in M1.
+# ============================================================================
+http://*.${DOMAIN}:${CADDY_PORT} {
+	bind ${CADDY_BIND}
+
+	header {
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+		Cache-Control "public, max-age=300"
+		-Server
+	}
+
+	# Serve the deployed release behind the site's atomic `current` symlink.
+	root * /var/www/sites/{labels.__L__}/current
+
+	# Dotfiles are never served (registry/meta live OUTSIDE any release dir,
+	# but this also covers a site accidentally shipping .git or .env).
+	# Two OR'ed patterns: /.* catches root-level dotfiles; */.* catches them at
+	# ANY depth (a path-matcher * spans slashes) — /.* alone would serve
+	# /assets/.env. Deliberately also blocks .well-known: TLS/ACME happens at
+	# the Cloudflare edge, no deployed site needs it.
+	@dot path /.* */.*
+	respond @dot 403
+
+	file_server
+}

@@ -5,6 +5,22 @@ All notable changes to pocket-homeserver are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **Pocket Pages (`ENABLE_SITES`)** — Netlify-like static-site hosting on the phone:
+  zip/dir deploys through one hardened pipeline (`scripts/sites/`) into immutable
+  per-site release trees, published by an atomic symlink swap and served at
+  `<site>.${DOMAIN}` by a single wildcard Caddy vhost (deploys never touch Caddy
+  config). Instant rollback, retention GC, hardlink-deduped directory redeploys,
+  DNS-label + reserved-name validation, zip-slip/zip-bomb-hardened extraction,
+  and optional lazily-installed on-phone build tiers (pinned Hugo; Node with a
+  global build lock, RAM ceiling and timebox). Spec: `docs/specs/SPEC-SITES-PIPELINE.md`;
+  docs: `docs/SITES.md`.
+- **First unit-test suite (`tests/`)** — pytest coverage for the extraction
+  guards, name validation, atomic swap/rollback, registry and job state; new CI
+  gate runs it on every push.
+
 ## [1.0.0] - 2026-06-24
 
 First stable release. pocket-homeserver installs a complete, opt-in personal cloud on

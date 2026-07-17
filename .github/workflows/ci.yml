@@ -52,6 +52,21 @@ jobs:
           printf 'compiling %d python files\n' "${#files[@]}"
           python -m py_compile "${files[@]}"
 
+  tests:
+    name: pytest (unit tests)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      # Unit tests are stdlib-first (no app deps): zip-extraction safety, name
+      # validation, the atomic release/rollback pipeline, registry + job state.
+      - name: Run the unit test suite
+        run: |
+          pip install pytest
+          python -m pytest tests/ -q
+
   install-check:
     name: install --check (plan smoke)
     runs-on: ubuntu-latest
