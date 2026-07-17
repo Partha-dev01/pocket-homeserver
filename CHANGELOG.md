@@ -5,7 +5,11 @@ All notable changes to pocket-homeserver are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.1.0-pre1] - 2026-07-17
+
+First staged prerelease of the v1.1.0 "Pocket Pages" line (M1 of 4: the
+pipeline + serving layer; the admin-panel UI, landing sync, MCP tools and the
+deploy integrations follow in pre2–pre4).
 
 ### Added
 - **Pocket Pages (`ENABLE_SITES`)** — Netlify-like static-site hosting on the phone:
