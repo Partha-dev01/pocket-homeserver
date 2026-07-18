@@ -5,7 +5,11 @@ All notable changes to pocket-homeserver are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.1.0-pre2] - 2026-07-18
+
+Second staged prerelease of the v1.1.0 "Pocket Pages" line (M2 of 4: the
+admin-panel UI + the synced landing portal; the MCP tools and the deploy
+integrations follow in pre3/pre4).
 
 ### Added
 - **Admin panel Sites section** (`/sites`, when `ENABLE_SITES`) — deploy,
