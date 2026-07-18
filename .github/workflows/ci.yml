@@ -60,11 +60,14 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.x'
-      # Unit tests are stdlib-first (no app deps): zip-extraction safety, name
-      # validation, the atomic release/rollback pipeline, registry + job state.
+      # Unit tests are stdlib-first except tests/test_panel_sites.py, which
+      # imports the admin panel and needs its two pure-python deps (it skips
+      # cleanly where they're absent, so a bare checkout still runs the rest):
+      # zip-extraction safety, name validation, the atomic release/rollback
+      # pipeline, registry + job state, the landing regen, the panel Sites UI.
       - name: Run the unit test suite
         run: |
-          pip install pytest
+          pip install pytest flask segno
           python -m pytest tests/ -q
 
   install-check:

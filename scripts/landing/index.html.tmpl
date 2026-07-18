@@ -2,16 +2,35 @@
 <!--
   index.html.tmpl — landing-portal TEMPLATE for pocket-homeserver.
 
-  This file is NOT served as-is. scripts/steps/84-install-landing.sh renders it
-  into the live landing dir by substituting two tokens:
+  This file is NOT served as-is. scripts/landing/regen-landing.sh (called both
+  at install time by scripts/steps/84-install-landing.sh and at runtime by the
+  Sites deploy/delete hot path — see docs/specs/SPEC-LANDING-SYNC.md) renders
+  it into the live landing dir by substituting three tokens:
 
-    __BRAND__       -> the portal brand (defaults to ${DOMAIN})
-    POCKET_CARDS    -> one service card per ENABLED app, generated from the
-                       ENABLE_* flags + ${DOMAIN} (e.g. ENABLE_LINKDING=true
-                       emits a card linking to https://links.${DOMAIN}). This
-                       marker appears EXACTLY ONCE (in the grid below); the card
-                       markup the installer emits mirrors the example .card block
-                       shown there.
+    __BRAND__            -> the portal brand (defaults to ${DOMAIN})
+    POCKET_CARDS         -> one service card per ENABLED app, generated from
+                             the ENABLE_* flags + ${DOMAIN} (e.g.
+                             ENABLE_LINKDING=true emits a card linking to
+                             https://links.${DOMAIN}). This marker appears
+                             EXACTLY ONCE (in the grid below); the card markup
+                             regen-landing.sh emits mirrors the example .card
+                             block shown there.
+    POCKET_SITES_SECTION -> EITHER a fully-formed "your sites" heading + card
+                             grid (one .card.site per site in the Pocket Pages
+                             registry, when ENABLE_SITES=true and at least one
+                             site is deployed) OR an empty string — never a
+                             static always-present block — so the whole
+                             section vanishes cleanly when ENABLE_SITES is off
+                             or zero sites are deployed (mirrors how each app
+                             card above appears/disappears based on its own
+                             ENABLE_* flag). This marker appears EXACTLY ONCE,
+                             immediately after the apps grid.
+
+  Brand colors are pulled verbatim from admin/app.py's DARK palette (see
+  docs/specs/SPEC-LANDING-SYNC.md §3.1/§5 — this page has no light mode, so
+  only the dark column applies). The two files stay standalone by design (no
+  shared build step): if you change a brand hex in one, change it in the
+  other too.
 
   Everything operator-specific has been removed: there is no hardcoded domain,
   no owner name, and the service cards are data-driven, not baked in. The page is
@@ -26,11 +45,11 @@
 <meta name="description" content="__BRAND__ — self-hosted, private, yours. Your own chat, bookmarks, file sharing, notes, tasks, feeds, search and more.">
 <meta name="robots" content="noindex">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
-<meta name="theme-color" content="#8a4dff">
+<meta name="theme-color" content="#40c8a0">
 <style>
   :root{
-    --bg:#0a0d1e; --card:#141936; --card2:#10142e; --ink:#eef1ff; --mut:#9aa3c4;
-    --blue:#5f8cff; --indigo:#8a7cff; --pink:#ec6ead; --teal:#40c8a0;
+    --bg:#0a0c12; --card:#181d2b; --card2:#0e1320; --ink:#e7ebf3; --mut:#aab2c5;
+    --teal:#40c8a0; --mint:#5fe0bb; --pink:#ec6ead; --amber:#f5b945;
   }
   *{box-sizing:border-box}
   html,body{margin:0;height:100%}
@@ -42,10 +61,10 @@
   /* animated aurora background */
   .aurora{position:fixed; inset:-30vmax; z-index:0; filter:blur(90px); opacity:.55; pointer-events:none}
   .orb{position:absolute; border-radius:50%; mix-blend-mode:screen; animation:drift 18s ease-in-out infinite}
-  .o1{width:46vmax;height:46vmax;background:#1f4fff;top:-6vmax;left:-4vmax}
-  .o2{width:40vmax;height:40vmax;background:#7a4dff;top:8vmax;right:-6vmax;animation-delay:-4s}
-  .o3{width:38vmax;height:38vmax;background:#e6559b;bottom:-8vmax;left:18vmax;animation-delay:-9s}
-  .o4{width:30vmax;height:30vmax;background:#1fb6a8;bottom:-4vmax;right:6vmax;animation-delay:-13s}
+  .o1{width:46vmax;height:46vmax;background:#40c8a0;top:-6vmax;left:-4vmax}
+  .o2{width:40vmax;height:40vmax;background:#5fe0bb;top:8vmax;right:-6vmax;animation-delay:-4s}
+  .o3{width:38vmax;height:38vmax;background:#ec6ead;bottom:-8vmax;left:18vmax;animation-delay:-9s}
+  .o4{width:30vmax;height:30vmax;background:#f5b945;bottom:-4vmax;right:6vmax;animation-delay:-13s}
   @keyframes drift{0%,100%{transform:translate(0,0) scale(1)}33%{transform:translate(4vmax,-3vmax) scale(1.08)}66%{transform:translate(-3vmax,4vmax) scale(.94)}}
   /* twinkle stars */
   .stars{position:fixed; inset:0; z-index:0; pointer-events:none}
@@ -55,14 +74,14 @@
   main{position:relative; z-index:1; width:100%; max-width:960px; padding:7vh 22px 40px; text-align:center}
   .badge{
     display:inline-flex;align-items:center;justify-content:center;width:74px;height:74px;border-radius:22px;
-    font-size:36px;background:linear-gradient(135deg,rgba(95,140,255,.35),rgba(236,110,173,.35));
-    border:1px solid rgba(255,255,255,.14); box-shadow:0 14px 40px rgba(95,90,255,.35);
+    font-size:36px;background:linear-gradient(135deg,rgba(64,200,160,.35),rgba(236,110,173,.35));
+    border:1px solid rgba(255,255,255,.14); box-shadow:0 14px 40px rgba(64,200,160,.35);
     animation:floaty 4s ease-in-out infinite, pop .8s cubic-bezier(.2,.8,.2,1) both}
   @keyframes floaty{0%,100%{transform:translateY(0)}50%{transform:translateY(-7px)}}
   @keyframes pop{from{opacity:0;transform:scale(.6)}to{opacity:1;transform:scale(1)}}
   h1{
     margin:.5em 0 .1em; font-size:clamp(40px,8vw,72px); font-weight:850; letter-spacing:-2px; line-height:1;
-    background:linear-gradient(100deg,#9cc0ff,#c4b6ff 35%,#ffb3d9 65%,#9cc0ff);
+    background:linear-gradient(100deg,#7ff0c8,#5fe0bb 35%,#ec6ead 65%,#7ff0c8);
     background-size:220% auto; -webkit-background-clip:text; background-clip:text; color:transparent;
     animation:flow 7s linear infinite, rise .7s ease both; word-break:break-word}
   @keyframes flow{to{background-position:220% center}}
@@ -94,16 +113,30 @@
   .ct p{margin:0;font-size:13px;line-height:1.5;color:var(--mut)}
   .arr{flex:0 0 auto;font-size:22px;color:var(--accent);transition:transform .25s}
   .card:hover .arr{transform:translateX(4px)}
-  /* accent palettes — the installer cycles cards through these classes */
-  .m{--accent:var(--blue);  --chip:rgba(95,140,255,.16)}
-  .w{--accent:var(--indigo);--chip:rgba(138,124,255,.16)}
+  /* accent palettes — regen-landing.sh cycles app cards through these classes.
+     .adm (an admin-tinted amber accent) is RETIRED here: --amber is now .p's
+     own accent, so a separate .adm class would be a byte-for-byte duplicate
+     (see docs/specs/SPEC-LANDING-SYNC.md §5 OQ-3) — use .p instead. */
+  .m{--accent:var(--teal);  --chip:rgba(64,200,160,.16)}
+  .w{--accent:var(--mint);  --chip:rgba(95,224,187,.16)}
   .l{--accent:var(--pink);  --chip:rgba(236,110,173,.16)}
-  .p{--accent:var(--teal);  --chip:rgba(64,200,160,.16)}
-  .adm{--accent:#f5b945;    --chip:rgba(245,185,69,.18)}
+  .p{--accent:var(--amber); --chip:rgba(245,185,69,.16)}
 
   .empty{margin:46px auto 0;max-width:620px;padding:26px;border-radius:18px;text-align:center;
     background:linear-gradient(180deg,var(--card),var(--card2));border:1px solid rgba(255,255,255,.07);
     color:var(--mut);font-size:14.5px;line-height:1.6;animation:rise .6s ease both}
+
+  /* "your sites" section (Pocket Pages — SPEC-LANDING-SYNC §6): the .subhead
+     label + the .card.site variant, both layered on top of the .card/.grid
+     rules above (reuses every existing var; no new tokens introduced). */
+  .subhead{margin:56px auto 0;max-width:760px;text-align:left;color:var(--mut);
+    font-size:12px;letter-spacing:3px;text-transform:uppercase;font-weight:700}
+  .card.site{border-color:rgba(64,200,160,.22)}
+  .card.site .ic{background:rgba(64,200,160,.18)}
+  .card.site .ct h3{display:flex;align-items:center;gap:8px}
+  .card.site .ct h3 .dot{width:7px;height:7px;border-radius:50%;background:var(--teal);
+    box-shadow:0 0 8px var(--teal);flex:0 0 auto}
+  .card.site .ct p{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px}
 
   footer{position:relative;z-index:1;color:#5b648c;font-size:12px;padding:30px 16px 40px;text-align:center;line-height:1.7}
   footer b{color:#7b85b8;font-weight:700}
@@ -115,10 +148,10 @@
   .btn{display:inline-flex;align-items:center;gap:9px;padding:13px 22px;border-radius:999px;
     font-size:15px;font-weight:700;letter-spacing:.2px;color:#eaf0ff;cursor:pointer;
     border:1px solid rgba(255,255,255,.16);
-    background:linear-gradient(180deg,rgba(95,140,255,.24),rgba(138,124,255,.16));
-    box-shadow:0 8px 24px rgba(95,90,255,.28);
+    background:linear-gradient(180deg,rgba(64,200,160,.24),rgba(95,224,187,.16));
+    box-shadow:0 8px 24px rgba(64,200,160,.30);
     transition:transform .2s cubic-bezier(.2,.8,.2,1),border-color .2s,box-shadow .2s}
-  .btn:hover{transform:translateY(-2px);border-color:rgba(255,255,255,.32);box-shadow:0 12px 30px rgba(95,90,255,.42)}
+  .btn:hover{transform:translateY(-2px);border-color:rgba(255,255,255,.32);box-shadow:0 12px 30px rgba(64,200,160,.45)}
   .btn.ghost{background:rgba(255,255,255,.05);box-shadow:none;color:var(--mut);font-weight:600}
   .btn.ghost:hover{color:#eaf0ff;box-shadow:0 8px 20px rgba(0,0,0,.3)}
   .who{display:inline-flex;align-items:center;gap:10px;padding:12px 20px;border-radius:999px;
@@ -133,8 +166,8 @@
 <body>
   <!-- The account bar is populated by the script below ONLY when the optional
        Matrix-SSO gateway is reachable; otherwise it stays empty (no broken
-       "Sign in" link to a gateway that isn't running). The installer leaves the
-       bar in place either way — it is harmless when the gateway is absent. -->
+       "Sign in" link to a gateway that isn't running). regen-landing.sh leaves
+       the bar in place either way — it is harmless when the gateway is absent. -->
   <div class="authbar" id="authbar" aria-label="account"></div>
   <div class="aurora"><span class="orb o1"></span><span class="orb o2"></span><span class="orb o3"></span><span class="orb o4"></span></div>
   <div class="stars" id="stars"></div>
@@ -145,18 +178,32 @@
     <p class="tag">self&#8209;hosted &nbsp;·&nbsp; private &nbsp;·&nbsp; yours</p>
 
     <div class="grid">
-      <!-- The marker on the next line is replaced by the installer with one card
-           per ENABLED app, generated from the ENABLE_* flags + ${DOMAIN}. Each
-           card is an anchor of the shape (the .m/.w/.l/.p accent class cycles):
+      <!-- The marker on the next line is replaced by regen-landing.sh with one
+           card per ENABLED app, generated from the ENABLE_* flags + ${DOMAIN}.
+           Each card is an anchor of the shape (the .m/.w/.l/.p accent class
+           cycles):
 
              a.card.m -> href https://links.example.com, an .ic emoji, an .ct
              title + blurb, and an .arr chevron.
 
-           If NO optional apps are enabled the installer emits a single .empty
-           panel instead, so the grid is never blank. The marker below is the
-           ONLY literal POCKET_CARDS token in this file. -->
+           If NO optional apps are enabled regen-landing.sh emits a single
+           .empty panel instead, so the grid is never blank. The marker below
+           is the ONLY literal POCKET_CARDS token in this file. -->
       POCKET_CARDS
     </div>
+
+    <!-- The marker on the next line is replaced by regen-landing.sh with
+         EITHER a "your sites" heading + a .card.site grid (one per site in
+         the Pocket Pages registry, when ENABLE_SITES=true and at least one
+         site is deployed) OR an empty string — the whole section vanishes
+         cleanly when disabled/empty, exactly like an app card does when its
+         own ENABLE_* flag is off. A .card.site anchor has the same shape as
+         an app card plus a small .dot next to the name — a purely decorative
+         "this is a deployed site" marker, NOT a live health check (see
+         docs/specs/SPEC-LANDING-SYNC.md §8 AD-8; live health lives in the
+         authenticated admin panel). The marker below is the ONLY literal
+         POCKET_SITES_SECTION token in this file. -->
+    POCKET_SITES_SECTION
   </main>
 
   <footer><b>__BRAND__</b> — self&#8209;hosted with care.</footer>

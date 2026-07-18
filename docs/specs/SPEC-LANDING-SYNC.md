@@ -372,6 +372,25 @@ EOF
 ok "landing page regenerated (${LANDING_ROOT}/index.html; $((acc_i)) app card(s))"
 ```
 
+> **CORRECTION (2026-07-17, during implementation validation):** the sketch above
+> passes `BRAND_VAL="${BRAND_HTML}"` straight into awk's `gsub()`. That is a
+> **rendering bug**: in a `gsub()` replacement string, `&` expands to the matched
+> text (`__BRAND__`), and the HTML-escaped brand *always* contains `&` after
+> escaping (`&amp;`, `&lt;`, …) — so a brand like `A & B` rendered as
+> `A __BRAND__amp; B`. The shipped `regen-landing.sh` pre-escapes the replacement
+> for gsub in bash before the awk call (`\` → `\\`, then `&` → `\&`):
+>
+> ```bash
+> BRAND_GSUB="${BRAND_HTML//\\/\\\\}"
+> BRAND_GSUB="${BRAND_GSUB//&/\\&}"
+> …  BRAND_VAL="${BRAND_GSUB}" awk '…'
+> ```
+>
+> `tests/test_landing_regen.py` pins the fix with a `"Bob & Alice <3"` fixture.
+> (The bug pre-dates this spec — the same unescaped `gsub` shipped in
+> `84-install-landing.sh` since the landing feature landed; extracting the render
+> here is what surfaced it.)
+
 ## 8. `scripts/steps/84-install-landing.sh` refactor
 
 Steps 1-2 (build cards, render, write `index.html`) are DELETED from this file and replaced with a single

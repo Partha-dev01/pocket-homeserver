@@ -87,6 +87,15 @@ job_log "${JOB_ID}" "site directory removed"
 registry_remove_site "${SITE_NAME}" || fail "failed to remove the registry entry"
 job_log "${JOB_ID}" "registry entry removed"
 
+# ── landing-regen hook — no-op until M2 ships scripts/landing/regen-landing.sh
+REGEN="${POCKET_ROOT}/scripts/landing/regen-landing.sh"
+if [ -x "${REGEN}" ]; then
+  job_log "${JOB_ID}" "running the landing-regen hook"
+  "${REGEN}" || warn "landing-regen hook failed (non-fatal — the delete itself already succeeded)"
+else
+  job_log "${JOB_ID}" "landing-regen hook not present yet (no-op until M2 — see SPEC-LANDING-SYNC)"
+fi
+
 DEPLOY_OK=1
 job_done "${JOB_ID}" ""
 ok "deleted site '${SITE_NAME}' — host now 404s (wildcard vhost untouched, job ${JOB_ID})"

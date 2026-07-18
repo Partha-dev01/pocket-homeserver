@@ -23,6 +23,7 @@ SECURITY INVARIANTS:
 Generalized from a working deployment; review before running on a fresh phone.
 """
 import base64
+import calendar
 import hashlib
 import hmac
 import html
@@ -68,6 +69,19 @@ BACKUP_DIR  = _env("BACKUP_DIR")       or os.path.join(DATA_DIR, "backups")
 # default, so the panel finds it without threading the path through .env.
 METRICS_LOG = _env("POCKET_METRICS_LOG") or os.path.join(
     os.path.expanduser("~"), ".pocket", "metrics", "metrics.jsonl")
+
+# Pocket Pages (Sites) — Termux-native host-side view of SITES_ROOT inside the
+# proot userland (SPEC-SITES-PANEL AD-1); the exact PD_BASE pattern already used by
+# ops/backup-all.sh:33 and ops/restore.sh:43. POCKET_SITES_ROOT is the same
+# test-fixture override seam scripts/sites/lib-sites.sh's own SITES_ROOT supports
+# (unset in production, so this falls back to the real userland path) — keeps the
+# panel's registry/staging reads from ever drifting from what the pipeline sees.
+PD_BASE        = os.path.join(_env("PREFIX", "/data/data/com.termux/files/usr"),
+                               "var/lib/proot-distro/installed-rootfs")
+SITES_ROOT     = _env("POCKET_SITES_ROOT") or os.path.join(PD_BASE, "debian/var/www/sites")
+SITES_STAGING  = os.path.join(SITES_ROOT, ".staging")
+SITES_REGISTRY = os.path.join(SITES_ROOT, ".registry.json")
+SITES_MAX_UPLOAD_MB = int(_env("SITES_MAX_UPLOAD_MB", "200") or "200")
 
 PASSWORD_FILE       = os.path.join(SECRETS, "adminweb-password.hash")
 SESSION_SECRET_FILE = os.path.join(SECRETS, "adminweb-session.bin")
@@ -181,6 +195,11 @@ SCRIPTS_OK = {
     # (built as f"restart-{procname}") resolves to this action.
     "restart-tailscaled":    {"argv": ["ops/restart.sh", "tailscaled"],     "kind": "restart"},
     "apply-proxy-routes":    {"argv": ["apps/proxy-routes.sh"],             "kind": "async"},
+    # Sites (Pocket Pages) — dispatched from dedicated /sites/rebuild-registry
+    # and /sites/apply-vhost routes (SPEC-SITES-PANEL §5), not the generic
+    # /action endpoint, so each can carry its own ENABLE.get("sites") gate.
+    "sites-rebuild-registry": {"argv": ["sites/site-list.sh", "--rebuild"], "kind": "mutate"},
+    "sites-apply-vhost":      {"argv": ["apps/sites.sh"],                   "kind": "async"},
     "restart-backup-daemon": {"argv": ["ops/restart.sh", "backup-daemon"], "kind": "restart"},
     "restart-honeypot-watcher": {"argv": ["ops/restart.sh", "honeypot-watcher"], "kind": "restart"},
     "restart-metrics-sampler": {"argv": ["ops/restart.sh", "metrics-sampler"], "kind": "restart"},
@@ -287,6 +306,20 @@ DANGER_META = {
         ],
         "reversible": False,
     },
+    # Pocket Pages (Sites) — parameterized danger action; mirrors delete-backup's
+    # shape (SPEC-SITES-PANEL AD-6). Impact text is generic boilerplate shared by
+    # every site (same convention as every other DANGER_META entry here) — the
+    # specific site name/URL is shown separately on the confirm page itself.
+    "site-delete": {
+        "title": "Delete site",
+        "phrase": "delete site",
+        "impact": [
+            "Permanently removes ALL releases for this site — not just the live one.",
+            f"The site's <name>.{DOMAIN} URL starts 404ing immediately.",
+            "If this is the only copy of the source outside your own backup, it cannot be recovered.",
+        ],
+        "reversible": False,
+    },
 }
 
 
@@ -322,6 +355,15 @@ app.config.update(
     SESSION_COOKIE_SECURE=_SECURE_COOKIE,
     PERMANENT_SESSION_LIFETIME=IDLE_SECONDS,
 )
+# DoS bugfix independent of Sites (SPEC-SITES-PANEL §9): no route had ANY
+# body-size ceiling before this — Werkzeug buffers a form-encoded body into
+# memory before a view function ever runs, so an unauthenticated multi-gigabyte
+# POST to /login used to force a full buffer before credential checking even
+# ran. Sized off SITES_MAX_UPLOAD_MB (the largest legitimate body any route
+# expects) with headroom; POST /sites/upload's own `length > cap` check is the
+# PRECISE enforcement point for that route — this is the blanket backstop for
+# every other POST (login, catalog/install, confirm/<key>, backups/delete, ...).
+app.config["MAX_CONTENT_LENGTH"] = (SITES_MAX_UPLOAD_MB + 16) * 1024 * 1024
 # Trust X-Forwarded-* from Caddy (one hop only) so rate-limit + audit see the real
 # client IP, not 127.0.0.1.
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
@@ -1485,6 +1527,13 @@ code { background:var(--code-bg); padding:0 .3rem; border-radius:5px; font-size:
 tr.health-ok td:first-child::before { content:"\\25CF "; color:var(--dot-up) }
 tr.health-err td:first-child::before { content:"\\25CF "; color:var(--dot-down) }
 
+/* ===== sites: upload dropzone ===== */
+.dropzone{border:2px dashed var(--border);border-radius:12px;padding:1.4rem;text-align:center;
+  cursor:pointer;color:var(--muted);transition:border-color .15s,background .15s}
+.dropzone.drag{border-color:var(--accent);background:var(--btn-bg)}
+.progress{height:.5rem;border-radius:999px;background:var(--btn-bg);overflow:hidden;margin-top:.6rem}
+#upload-bar{height:100%;background:var(--accent);width:0;transition:width .2s}
+
 /* ===== responsive ===== */
 @media (max-width:900px) { .statgrid { grid-template-columns:repeat(2,1fr) } .grid2 { grid-template-columns:1fr } }
 @media (max-width:560px) {
@@ -1524,6 +1573,8 @@ def render(title, body_html, hide_nav=False):
             items.append(("/honeypot", "security"))
         if ENABLE.get("app-catalog"):
             items.append(("/catalog", "catalog"))
+        if ENABLE.get("sites"):
+            items.append(("/sites", "sites"))
         # Surface a loud 'problems' tab only when something is crash-looping, so the
         # nav stays clean normally but a DEGRADED service is impossible to miss.
         _degr = _degraded_names()
@@ -2674,6 +2725,693 @@ def catalog_install():
     else:
         flash_msg(f"could not start the {label} installer (see /logs/adminweb-async)", "err")
     return redirect(url_for("catalog"))
+
+
+# ---------- Pocket Pages (Sites) — deploy/rollback/delete/QR/health ----------
+# SPEC-SITES-PANEL.md is the authoritative design; this comment only orients
+# you. Every route below opens with the same ENABLE.get("sites") gate /dav
+# uses for radicale. The pipeline itself (scripts/sites/*.sh + lib-sites.sh)
+# is SPEC-SITES-PIPELINE.md's M1 — already shipped, unmodified by this panel.
+
+# §7/AD-2 — name validation MUST equal scripts/sites/lib-sites.sh's SUB_RE and
+# scripts/sites/reserved-subs.sh's RESERVED_SUBS (duplication contract; tests/
+# asserts parity — SPEC-SITES-PANEL §17: change one, change both).
+SITE_SUB_RE = re.compile(r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$")
+SITE_RESERVED = frozenset(
+    "chat admin files music books audiobooks read dav wiki vault links share rss notes "
+    "tasks search tools status stickers webmail ai mcp git dns "
+    "www mail mta smtp imap pop autoconfig autodiscover matrix sites api cdn ns1 ns2 preview".split()
+)
+# Same shape as the pipeline's RELEASE_ID_RE (lib-sites.sh:49): {4,6} tolerates
+# both HHMM and the HHMMSS form new_job_id()/new_release_id() actually mint —
+# the panel must accept pipeline-minted ids everywhere a job/release id appears.
+_SITE_JOB_RE = re.compile(r"^[0-9]{8}T[0-9]{4,6}Z-[0-9a-f]{4}$")
+
+# AD-4 — hardcoded, NEVER taken from request data. The two Sites scripts the
+# panel launches with a dynamic argv tail: SITES_DEPLOY_SCRIPT via
+# run_script_detached_argv (deploy, §8), SITES_ROLLBACK_SCRIPT via
+# run_script_argv (rollback, §11). SITES_DELETE_SCRIPT is a third, used ONLY by
+# run_script_argv — delete is fast (unlink a dir tree + rewrite the registry,
+# no build), so it runs synchronously, never through the detached helper
+# (§12/AD-6).
+SITES_DEPLOY_SCRIPT   = "sites/site-deploy.sh"
+SITES_ROLLBACK_SCRIPT = "sites/site-rollback.sh"
+SITES_DELETE_SCRIPT   = "sites/site-delete.sh"
+
+
+def csrf_ok_header():
+    """Double-submit CSRF check for the one route that can't carry a form field —
+    POST /sites/upload's body IS the raw zip stream, so CSRF rides a header
+    instead (AD-3). Every other Sites POST uses the standard csrf_ok() field."""
+    tok = request.headers.get("X-CSRF-Token", "")
+    return bool(tok) and hmac.compare_digest(tok, session.get("csrf", ""))
+
+
+def json_response(obj, status=200):
+    r = make_response(json.dumps(obj), status)
+    r.headers["Content-Type"] = "application/json"
+    return r
+
+
+def run_script_argv(base_script, extra_argv, timeout=60):
+    """run_script(), but takes an explicit script path + a server-validated argv
+    tail instead of a SCRIPTS_OK key — used ONLY by rollback (§11) and delete
+    (§12), both with argv the caller already validated (name regex + existence
+    checked against the registry). Same (rc, out) shape as run_script(); always
+    synchronous — AD-4's detached counterpart is run_script_detached_argv,
+    below, for the one caller (deploy) that must survive past the request."""
+    cmd = ["bash", os.path.join(SCRIPTS, base_script)] + list(extra_argv)
+    try:
+        p = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        return p.returncode, p.stdout + p.stderr
+    except subprocess.TimeoutExpired:
+        return -1, f"timed out after {timeout}s"
+    except Exception as ex:
+        return -2, str(ex)
+
+
+def run_script_detached_argv(base_script, extra_argv, logname):
+    """run_script_detached(), but appends a caller-supplied argv tail instead of
+    a fixed SCRIPTS_OK entry (AD-4) — deploy needs a per-request staged path +
+    job id, which SCRIPTS_OK's fixed-argv contract can't carry. Every element of
+    extra_argv MUST already be server-validated/allocated by the CALLER (name
+    regex + reserved-list checked; staged path/job id are ours) — this helper
+    interprets nothing, it just launches. base_script is always one of the
+    module-level constants above, never request.* directly."""
+    cmd = ["bash", os.path.join(SCRIPTS, base_script)] + list(extra_argv)
+    sink = os.path.join(LOGS, "adminweb-async.log")
+    try:
+        os.makedirs(LOGS, exist_ok=True)
+        with open(sink, "ab", buffering=0) as lf:
+            subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=lf, stderr=lf,
+                              start_new_session=True, close_fds=True)
+        return True, logname
+    except Exception:
+        return False, logname
+
+
+def _read_sites_registry():
+    """Direct file read of .registry.json (AD-2) — no subprocess, no proot
+    round-trip. A missing/corrupt registry degrades to an empty site list
+    rather than raising; the 'rebuild registry' button (site-list.sh
+    --rebuild) is the self-healing escape hatch when the panel and the tree
+    disagree."""
+    try:
+        with open(SITES_REGISTRY) as f:
+            return json.load(f)
+    except Exception:
+        return {"version": 1, "sites": {}}
+
+
+def _route_collision(name):
+    """True if <name> is already claimed by a BYO proxy route — mirrors
+    lib-sites.sh's validate_site_name() §7 check. byo-<name>.caddy is the
+    filename proxy-routes.sh:206 actually writes; route-<name>.caddy never
+    existed but stays checked as a belt against a future rename. Skipped
+    (False) when the userland doesn't exist at all — never a false pass on a
+    real phone, only inapplicable off-phone."""
+    if not os.path.isdir(os.path.join(PD_BASE, "debian")):
+        return False
+    apps_dir = os.path.join(PD_BASE, "debian/etc/caddy/apps")
+    return (os.path.exists(os.path.join(apps_dir, f"byo-{name}.caddy")) or
+            os.path.exists(os.path.join(apps_dir, f"route-{name}.caddy")))
+
+
+def _site_updated_ago(ts_iso):
+    """A registry 'updated' timestamp (%Y-%m-%dT%H:%M:%SZ) -> a human 'N ago'
+    string. calendar.timegm (not time.mktime) reads the parsed fields as UTC
+    regardless of the process TZ setting. Never raises — falls back to the raw
+    string on any parse failure, since a page render must survive a
+    hand-edited or half-written registry value."""
+    try:
+        t = calendar.timegm(time.strptime(ts_iso, "%Y-%m-%dT%H:%M:%SZ"))
+        secs = max(0, int(time.time() - t))
+        return f"{human_seconds(secs)} ago" if secs >= 60 else "just now"
+    except Exception:
+        return ts_iso or "?"
+
+
+def _site_release_created(release_id):
+    """Parse the UTC timestamp out of a self-describing release id
+    (<UTC-ts>-<4hex>, e.g. '20260717T120003Z-a1b2') into a readable string —
+    SPEC-SITES-PANEL §6: 'no extra registry field needed'. Falls back to the
+    raw id on any parse failure."""
+    try:
+        ts = release_id.split("-", 1)[0]
+        return time.strftime("%Y-%m-%d %H:%M:%S UTC", time.strptime(ts, "%Y%m%dT%H%M%SZ"))
+    except Exception:
+        return release_id
+
+
+def _site_card_html(name, site):
+    releases = list(reversed(site.get("releases") or []))
+    active = site.get("active_release") or ""
+    url = site.get("url") or f"https://{name}.{DOMAIN}"
+    n_rel = len(releases)
+
+    if n_rel > 1:
+        opts = "".join(
+            f'<option value="{e(r)}"{" selected" if r == active else ""}>'
+            f'{e(r)}{" — active" if r == active else ""}</option>'
+            for r in releases
+        )
+        rollback_html = f"""
+<form method=post action="/sites/{e(name)}/rollback" class=block>
+<input type=hidden name=_csrf value="{e(new_csrf())}">
+<select name=release style="max-width:100%">{opts}</select>
+<button class=small type=submit>rollback</button>
+</form>"""
+    else:
+        rollback_html = '<p class=small>only one release — nothing to roll back to yet.</p>'
+
+    hist_rows = "".join(
+        f'<tr{" class=health-ok" if r == active else ""}>'
+        f'<td class=mono>{e(r)}</td><td>{e(_site_release_created(r))}</td>'
+        f'<td>{"active" if r == active else ""}</td></tr>'
+        for r in releases
+    ) or '<tr><td colspan=3 class=small>no releases</td></tr>'
+
+    return f"""
+<div class=box>
+<h2><span class=ico>\U0001F310</span> {e(name)}
+<span class=pill data-site-health="{e(name)}">checking…</span></h2>
+<p class=small><a href="{e(url)}" target=_blank rel=noopener>{e(url)}</a></p>
+<p class=small>release {e(active) or '—'} &middot; {n_rel} release{'s' if n_rel != 1 else ''}
+&middot; build: {e(site.get('build') or 'none')}<br>
+{human_bytes(site.get('bytes') or 0)} &middot; updated {e(_site_updated_ago(site.get('updated') or ''))}</p>
+<details>
+<summary class=small>rollback / history</summary>
+{rollback_html}
+<div class=tablewrap><table>
+<thead><tr><th>release</th><th>created</th><th></th></tr></thead>
+<tbody>{hist_rows}</tbody>
+</table></div>
+</details>
+<details>
+<summary class=small>QR code</summary>
+<div style="text-align:center;margin:.6rem 0">
+<img src="/sites/{e(name)}/qr.svg" loading=lazy alt="QR for {e(url)}"
+     style="width:180px;height:180px;background:#fff;padding:8px;border-radius:10px">
+</div>
+</details>
+<a href="/sites/{e(name)}/delete" class="btn danger small">delete…</a>
+</div>"""
+
+
+# AD-7 — deploy-log SSE gets its OWN session cap, separate from the
+# dashboard's _SSE_SESSIONS: gunicorn is 1 worker x 4 gthreads, so sharing the
+# dashboard's cap would reject a deploy-log tab the instant the dashboard tab
+# is also open. Self-terminating (closes on job done/failed) + duration-capped,
+# unlike the open-ended dashboard stream.
+_SITE_SSE_SESSIONS = {}
+_SITE_SSE_SESSIONS_LOCK = threading.Lock()
+_SITE_SSE_MAX_PER_SESSION = 1
+_SITE_SSE_MAX_DURATION_S = int(_env("SITES_BUILD_TIMEOUT", "900") or "900") + 120
+
+# AD-8 — lazy, short-TTL, capped-count/per-probe-timeout health, NOT baked into
+# the static HEALTH_HTTP_PROBES list: that list is built once at import time,
+# but sites are added/removed/redeployed without a panel restart.
+_SITE_HEALTH_CACHE = {"data": None, "ts": 0.0}
+_SITE_HEALTH_LOCK = threading.Lock()
+_SITE_HEALTH_TTL = 10.0
+_SITE_HEALTH_MAX = 30        # mirrors the backups page's files[:30] cap
+_SITE_HEALTH_TIMEOUT = 2     # vs the 5s default for fixed infra probes
+
+
+def _site_probes():
+    # Holds the lock across the whole recompute — the same coarse-grained shape
+    # as gather_stats_cached() above. The worst case (a slow probe run
+    # serializing concurrent /sites/health.json callers for a couple seconds)
+    # is harmless for an endpoint fetched once per page load.
+    now = time.time()
+    with _SITE_HEALTH_LOCK:
+        if _SITE_HEALTH_CACHE["data"] is not None and (now - _SITE_HEALTH_CACHE["ts"]) < _SITE_HEALTH_TTL:
+            return _SITE_HEALTH_CACHE["data"]
+        reg = _read_sites_registry()
+        out = {}
+        for name in sorted(reg.get("sites", {}))[:_SITE_HEALTH_MAX]:
+            probe = {"name": name, "host": f"{name}.{DOMAIN}", "path": "/", "expect": 200, "scheme": "loopback"}
+            out[name] = _probe_http(probe, timeout=_SITE_HEALTH_TIMEOUT)
+        _SITE_HEALTH_CACHE["data"] = out
+        _SITE_HEALTH_CACHE["ts"] = time.time()
+        return out
+
+
+# Vanilla JS (no framework, no build step — matches every other inline <script>
+# in this file). A plain (non f-) string, like _SSE_SCRIPT below, so its own
+# JS `{}` braces need no Python escaping; interpolated whole into sites_page()'s
+# body via `{_SITES_UPLOAD_SCRIPT}`.
+_SITES_UPLOAD_SCRIPT = """<script>
+(function(){
+  var zone = document.getElementById('dropzone'), fileInput = document.getElementById('site-file');
+  if (!zone) return;
+  var nameEl = document.getElementById('site-name'), pwEl = document.getElementById('site-pw');
+  var bar = document.getElementById('upload-bar'), wrap = document.getElementById('upload-progress');
+  var logEl = document.getElementById('upload-log');
+  function pick(){ fileInput.click(); }
+  zone.addEventListener('click', pick);
+  zone.addEventListener('keydown', function(ev){ if (ev.key==='Enter'||ev.key===' ') pick(); });
+  ['dragenter','dragover'].forEach(function(ev){
+    zone.addEventListener(ev, function(e){ e.preventDefault(); zone.classList.add('drag'); });
+  });
+  ['dragleave','drop'].forEach(function(ev){
+    zone.addEventListener(ev, function(e){ e.preventDefault(); zone.classList.remove('drag'); });
+  });
+  zone.addEventListener('drop', function(e){
+    var f = e.dataTransfer.files && e.dataTransfer.files[0];
+    if (f) upload(f);
+  });
+  fileInput.addEventListener('change', function(){ if (fileInput.files[0]) upload(fileInput.files[0]); });
+
+  function upload(file){
+    var name = nameEl.value.trim(), pw = pwEl.value;
+    if (!/^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/.test(name)) { alert('enter a valid site name first'); return; }
+    if (!pw) { alert('enter your admin password first'); return; }
+    if (!/\\.zip$/i.test(file.name)) { alert('only .zip is accepted'); return; }
+    // Client-side hints only — the server enforces the real cap independently.
+    wrap.hidden = false; bar.style.width = '0%'; logEl.hidden = true;
+    var xhr = new XMLHttpRequest();
+    xhr.open('POST', '/sites/upload?name=' + encodeURIComponent(name));
+    xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+    xhr.setRequestHeader('X-CSRF-Token', zone.dataset.csrf);
+    xhr.setRequestHeader('X-Admin-Password', pw);
+    xhr.upload.onprogress = function(e){
+      if (e.lengthComputable) bar.style.width = Math.round(100 * e.loaded / e.total) + '%';
+    };
+    xhr.onload = function(){
+      pwEl.value = '';  // never keep the password in the DOM after the request fires
+      var res = {}; try { res = JSON.parse(xhr.responseText); } catch(_) {}
+      if (xhr.status === 200 && res.job) { bar.style.width = '100%'; openDeployLog(res.job); }
+      else { logEl.hidden = false; logEl.textContent = 'upload failed: ' + (res.error || xhr.status); }
+    };
+    xhr.onerror = function(){ pwEl.value = ''; logEl.hidden = false; logEl.textContent = 'upload failed: network error'; };
+    xhr.send(file);
+  }
+
+  function openDeployLog(job){
+    logEl.hidden = false; logEl.textContent = 'deploying…\\n';
+    if (!window.EventSource) { pollJob(job); return; }
+    var es = new EventSource('/sites/deploy-log/' + job);
+    es.onmessage = function(e){
+      try {
+        var d = JSON.parse(e.data);
+        if (d.line) logEl.textContent += d.line + '\\n';
+        if (d.state === 'done')   { logEl.textContent += '\\n✔ deployed\\n'; es.close(); setTimeout(function(){ location.reload(); }, 1200); }
+        if (d.state === 'failed') { logEl.textContent += '\\n✘ failed: ' + (d.error||'') + '\\n'; es.close(); }
+      } catch(_) {}
+    };
+    es.addEventListener('toomany', function(){ es.close(); pollJob(job); });
+  }
+  function pollJob(job){
+    var t = setInterval(function(){
+      fetch('/sites/job/' + job, {credentials:'include'}).then(function(r){ return r.json(); }).then(function(d){
+        if (d.state === 'done' || d.state === 'failed') {
+          clearInterval(t);
+          logEl.textContent += (d.state==='done' ? '\\n✔ deployed\\n' : '\\n✘ failed: '+(d.error||'')+'\\n');
+          if (d.state === 'done') setTimeout(function(){ location.reload(); }, 1200);
+        }
+      }).catch(function(){});
+    }, 2000);
+  }
+
+  // Health pill patch — one fetch after load (AD-8), same DOM-patch idiom
+  // _SSE_SCRIPT uses elsewhere in the panel, just via fetch instead of a stream.
+  fetch('/sites/health.json', {credentials:'include'}).then(function(r){ return r.json(); }).then(function(d){
+    Object.keys(d).forEach(function(name){
+      var el = document.querySelector('[data-site-health="' + name + '"]');
+      if (!el) return;
+      var p = d[name];
+      if (p && p.ok) { el.className = 'pill ok'; el.textContent = 'up (' + p.latency_ms + 'ms)'; }
+      else { el.className = 'pill down'; el.textContent = 'down'; }
+    });
+  }).catch(function(){});
+})();
+</script>
+"""
+
+
+@app.route("/sites")
+@login_required
+def sites_page():
+    if not ENABLE.get("sites"):
+        abort(404)
+    reg = _read_sites_registry()
+    sites = reg.get("sites", {})
+    cards = "".join(_site_card_html(name, sites[name]) for name in sorted(sites))
+    if not cards:
+        cards = '<div class=box><p class=small>no sites deployed yet — drop a .zip below to publish your first one.</p></div>'
+
+    csrf = e(new_csrf())
+    body = f"""
+<div class=box>
+<h2><span class=ico>\U0001F680</span> deploy a new site</h2>
+<p class=small>Drop a .zip with <code>index.html</code> at its root (or use the CLI with
+<code>--build hugo|node</code> for a source deploy — see docs/SITES.md). Max
+{SITES_MAX_UPLOAD_MB} MB. Re-enter your admin password to confirm — the same
+re-auth the app catalog uses.</p>
+<input id=site-name type=text placeholder="site name (a-z0-9-)"
+       pattern="[a-z0-9]([a-z0-9-]{{0,61}}[a-z0-9])?" required style="max-width:16rem">
+<input id=site-pw type=password placeholder="admin password" autocomplete=current-password
+       required style="max-width:16rem">
+<div id=dropzone class=dropzone tabindex=0 data-csrf="{csrf}">
+  drop a .zip here, or click to choose
+  <input id=site-file type=file accept=".zip" hidden>
+</div>
+<div id=upload-progress class=progress hidden><div id=upload-bar></div></div>
+<pre id=upload-log class=small hidden></pre>
+</div>
+
+<div class=cardgrid>{cards}</div>
+
+<div class=box>
+<h2>maintenance</h2>
+<p class=small>The registry is derived state — if it and the on-disk release tree
+ever disagree, rebuild it from the tree. Reapply the wildcard vhost after changing
+<code>SITES_SPA_MODE</code> in <code>.env</code>.</p>
+<form method=post action="/sites/rebuild-registry">
+<input type=hidden name=_csrf value="{csrf}">
+<button class=small type=submit>rebuild registry</button>
+</form>
+<form method=post action="/sites/apply-vhost">
+<input type=hidden name=_csrf value="{csrf}">
+<button class=small type=submit>reapply sites config</button>
+</form>
+</div>
+{_SITES_UPLOAD_SCRIPT}"""
+    return render(f"sites — {BRAND} admin", body)
+
+
+@app.route("/sites/upload", methods=["POST"])
+@login_required
+def sites_upload():
+    if not ENABLE.get("sites"):
+        abort(404)
+    if not csrf_ok_header():
+        return json_response({"ok": False, "error": "bad csrf"}, 403)
+    pw = request.headers.get("X-Admin-Password", "")
+    if not pw or not verify_password(pw):
+        log_audit("sites-upload", ok=False, reason="bad-password")
+        return json_response({"ok": False, "error": "bad password"}, 401)
+
+    name = (request.args.get("name") or "").strip()
+    if not SITE_SUB_RE.fullmatch(name) or name in SITE_RESERVED:
+        return json_response({"ok": False, "error": "invalid or reserved site name"}, 400)
+    if _route_collision(name):
+        return json_response({"ok": False, "error": "name already used by a BYO proxy route"}, 400)
+
+    length = request.content_length
+    if length is None:
+        return json_response({"ok": False, "error": "Content-Length required"}, 411)
+    cap = SITES_MAX_UPLOAD_MB * 1024 * 1024
+    if length > cap:
+        return json_response({"ok": False, "error": f"upload exceeds {SITES_MAX_UPLOAD_MB} MB"}, 413)
+
+    # HHMMSS — identical shape to the pipeline's new_job_id() (lib-sites.sh:141);
+    # the panel must never mint an id shape the pipeline itself wouldn't produce.
+    job = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime()) + "-" + secrets.token_hex(2)
+    staged = os.path.join(SITES_STAGING, f"upload-{job}.zip")
+    written = 0
+    try:
+        os.makedirs(SITES_STAGING, exist_ok=True)
+        with open(staged, "wb") as f:
+            stream = request.stream
+            while True:
+                chunk = stream.read(1 << 20)          # 1 MiB reads
+                if not chunk:
+                    break
+                written += len(chunk)
+                if written > cap:                      # belt-over-suspenders vs a lying Content-Length
+                    raise ValueError("cap exceeded mid-stream")
+                f.write(chunk)
+        if written != length:
+            raise ValueError("truncated upload")
+    except Exception as ex:
+        try:
+            os.unlink(staged)
+        except OSError:
+            pass
+        log_audit("sites-upload", name=name, ok=False, reason=str(ex))
+        return json_response({"ok": False, "error": "upload incomplete or oversized"}, 400)
+
+    ok2, _logname = run_script_detached_argv(
+        SITES_DEPLOY_SCRIPT, [name, staged, "--job", job], f"site-deploy-{job}.log")
+    log_audit("sites-upload", name=name, job=job, bytes=written, started=ok2)
+    if not ok2:
+        return json_response({"ok": False, "error": "could not start the deploy"}, 500)
+    return json_response({"ok": True, "job": job}, 200)
+
+
+@app.route("/sites/health.json")
+@login_required
+def sites_health_json():
+    if not ENABLE.get("sites"):
+        abort(404)
+    return json_response(_site_probes(), 200)
+
+
+@app.route("/sites/deploy-log/<job_id>")
+@login_required
+def sites_deploy_log(job_id):
+    if not ENABLE.get("sites"):
+        abort(404)
+    if not _SITE_JOB_RE.fullmatch(job_id):
+        abort(400)
+    sid = request.cookies.get("session", "") or (request.remote_addr or "?")
+
+    def stream():
+        with _SITE_SSE_SESSIONS_LOCK:
+            if _SITE_SSE_SESSIONS.get(sid, 0) >= _SITE_SSE_MAX_PER_SESSION:
+                yield "event: toomany\ndata: {}\n\n"
+                return
+            _SITE_SSE_SESSIONS[sid] = _SITE_SSE_SESSIONS.get(sid, 0) + 1
+        try:
+            log_path = os.path.join(LOGS, f"site-deploy-{job_id}.log")
+            state_path = os.path.join(STATE, f"site-job-{job_id}.json")
+            pos, t0 = 0, time.time()
+            while True:
+                if time.time() - t0 > _SITE_SSE_MAX_DURATION_S:
+                    yield 'data: {"state":"failed","error":"stream timeout"}\n\n'
+                    return
+                new_text = None
+                try:
+                    with open(log_path) as f:
+                        f.seek(pos)
+                        new_text = f.read()
+                        pos = f.tell()
+                except OSError:
+                    pass
+                state, error = "running", None
+                try:
+                    with open(state_path) as f:
+                        j = json.load(f)
+                    state, error = j.get("state", "running"), j.get("error")
+                except Exception:
+                    pass
+                yield "data: " + json.dumps({
+                    "line": new_text.rstrip("\n") if new_text else None,
+                    "state": state, "error": error,
+                }) + "\n\n"
+                if state in ("done", "failed"):
+                    return
+                time.sleep(1)
+        except GeneratorExit:
+            return
+        finally:
+            with _SITE_SSE_SESSIONS_LOCK:
+                n = _SITE_SSE_SESSIONS.get(sid, 1) - 1
+                if n <= 0:
+                    _SITE_SSE_SESSIONS.pop(sid, None)
+                else:
+                    _SITE_SSE_SESSIONS[sid] = n
+    r = make_response(stream(), 200)
+    r.headers["Content-Type"] = "text/event-stream"
+    r.headers["Cache-Control"] = "no-cache"
+    r.headers["X-Accel-Buffering"] = "no"
+    r.headers["Connection"] = "keep-alive"
+    return r
+
+
+@app.route("/sites/job/<job_id>")
+@login_required
+def sites_job_status(job_id):
+    # §10's own sketch omits this gate; added for consistency with §5's "every
+    # route" rule (a disabled Sites module should 404 everywhere, not just on
+    # the SSE route) — see the deviations note in the implementation report.
+    if not ENABLE.get("sites"):
+        abort(404)
+    if not _SITE_JOB_RE.fullmatch(job_id):
+        abort(400)
+    try:
+        with open(os.path.join(STATE, f"site-job-{job_id}.json")) as f:
+            j = json.load(f)
+    except Exception:
+        j = {"state": "running"}
+    return json_response(j, 200)
+
+
+@app.route("/sites/<name>/rollback", methods=["POST"])
+@login_required
+def sites_rollback(name):
+    if not ENABLE.get("sites"):
+        abort(404)
+    if not csrf_ok():
+        abort(403)
+    if not SITE_SUB_RE.fullmatch(name):
+        abort(400)
+    release = (request.form.get("release") or "").strip()
+    reg = _read_sites_registry()
+    site = reg.get("sites", {}).get(name)
+    if not site:
+        flash_msg(f"unknown site: {name}", "err")
+        return redirect(url_for("sites_page"))
+    if release and release not in site.get("releases", []):
+        flash_msg("unknown release id", "err")
+        return redirect(url_for("sites_page"))
+    argv = [name] + ([release] if release else [])
+    rc, out = run_script_argv(SITES_ROLLBACK_SCRIPT, argv, timeout=60)  # fast, synchronous (AD-5)
+    log_audit("sites-rollback", name=name, release=release or "previous", rc=rc)
+    flash_msg(f"rolled back {name}" if rc == 0 else f"rollback failed: {redact_secrets(out)[:300]}",
+              "ok" if rc == 0 else "err")
+    return redirect(url_for("sites_page"))
+
+
+@app.route("/sites/<name>/delete", methods=["GET", "POST"])
+@login_required
+def sites_delete(name):
+    if not ENABLE.get("sites"):
+        abort(404)
+    if not SITE_SUB_RE.fullmatch(name):
+        abort(400)
+    reg = _read_sites_registry()
+    site = reg.get("sites", {}).get(name)
+    if not site:
+        abort(404)  # no probing for undeployed names via this route (AD-6)
+    url = site.get("url") or f"https://{name}.{DOMAIN}"
+    meta = DANGER_META["site-delete"]
+
+    if request.method == "POST":
+        if not csrf_ok():
+            abort(403)
+        typed_phrase = request.form.get("phrase", "").strip().lower()
+        typed_yes    = request.form.get("yes", "").strip().lower()
+        pw           = request.form.get("password", "")
+        if typed_phrase != meta["phrase"]:
+            flash_msg(f"phrase mismatch — type exactly: {meta['phrase']}", "err")
+            return redirect(url_for("sites_delete", name=name, stage=2))
+        if typed_yes != "yes":
+            flash_msg("you must literally type 'yes' to confirm", "err")
+            return redirect(url_for("sites_delete", name=name, stage=2))
+        if not pw or not verify_password(pw):
+            log_audit("sites-delete", name=name, ok=False, reason="bad-password")
+            flash_msg("password incorrect — re-auth required", "err")
+            return redirect(url_for("sites_delete", name=name, stage=2))
+        # Synchronous (AD-6): unlink a dir tree + rewrite the registry, no build.
+        rc, out = run_script_argv(SITES_DELETE_SCRIPT, [name, "--yes"], timeout=60)
+        log_audit("sites-delete", name=name, ok=(rc == 0), rc=rc)
+        flash_msg(f"deleted {name}" if rc == 0 else f"delete failed: {redact_secrets(out)[:300]}",
+                  "ok" if rc == 0 else "err")
+        return redirect(url_for("sites_page"))
+
+    impact_html = "\n".join(f"<li>{e(x)}</li>" for x in meta["impact"])
+    stage = request.args.get("stage", "1")
+
+    if stage == "1":
+        body = f"""
+<div class="box danger-zone">
+<h2>⚠ Delete site — review</h2>
+<div class=warn-box>
+<p><strong>Site:</strong> <code>{e(name)}</code> — <a href="{e(url)}" target=_blank rel=noopener>{e(url)}</a></p>
+<strong>Impact:</strong>
+<ul>{impact_html}</ul>
+<p><strong>Reversibility:</strong> NOT reversible.</p>
+</div>
+<p class=small style="margin-top:1rem">If you really want to delete this site, click Continue. The next page asks for the typed phrase, the literal word <code>yes</code>, and your password.</p>
+<form method=get action="{url_for('sites_delete', name=name)}">
+<input type=hidden name=stage value="2">
+<button type=submit class=danger>Continue →</button>
+<a href="/sites" class="btn small">cancel</a>
+</form>
+</div>"""
+        return render("review delete site", body)
+
+    body = f"""
+<div class="box danger-zone">
+<h2>⚠ Delete site — final confirm</h2>
+<div class=warn-box>
+<p><strong>Site:</strong> <code>{e(name)}</code> — {e(url)}</p>
+<p class=small><a href="{url_for('sites_delete', name=name)}">← back to impact summary</a></p>
+</div>
+<form method=post>
+<input type=hidden name=_csrf value="{e(new_csrf())}">
+<p>1. Type exactly <code>{e(meta['phrase'])}</code>:</p>
+<input name=phrase type=text autocomplete=off required placeholder="{e(meta['phrase'])}">
+<p>2. Type literally <code>yes</code>:</p>
+<input name=yes type=text autocomplete=off required placeholder="yes" pattern="[Yy][Ee][Ss]" maxlength=3>
+<p>3. Re-enter your admin password:</p>
+<input name=password type=password autocomplete=current-password required>
+<button type=submit class=danger>delete site</button>
+<a href="/sites" class="btn small">cancel</a>
+</form>
+</div>"""
+    return render("confirm delete site", body)
+
+
+@app.route("/sites/<name>/qr.svg")
+@login_required
+def sites_qr(name):
+    if not ENABLE.get("sites"):
+        abort(404)
+    if not SITE_SUB_RE.fullmatch(name):
+        abort(400)
+    url = f"https://{name}.{DOMAIN}"
+    # QR encodes ONLY the public URL (never a secret) — mirrors /dav's segno
+    # usage. Unlike /dav (which embeds an <img> via a data: URI inside an HTML
+    # page, so svg_inline()'s HTML5-fragment form is fine there), this route
+    # SERVES the SVG as its own standalone image/svg+xml resource — that needs
+    # a complete, namespaced SVG document, so save(..., kind="svg") is used
+    # instead of svg_inline() (which deliberately omits the XML declaration
+    # AND the xmlns attribute, and would not render as a standalone <img src>
+    # target in most browsers).
+    try:
+        import io
+        import segno  # type: ignore
+        buf = io.BytesIO()
+        segno.make(url, error="m").save(buf, kind="svg", scale=5, border=2)
+        svg = buf.getvalue().decode("utf-8")
+    except Exception:
+        abort(404)  # the card's <details> just shows a broken-image icon; no extra UX beyond that
+    r = make_response(svg, 200)
+    r.headers["Content-Type"] = "image/svg+xml"
+    r.headers["Cache-Control"] = "public, max-age=300"
+    return r
+
+
+@app.route("/sites/rebuild-registry", methods=["POST"])
+@login_required
+def sites_rebuild_registry():
+    if not ENABLE.get("sites"):
+        abort(404)
+    if not csrf_ok():
+        abort(403)
+    rc, out = run_script("sites-rebuild-registry")
+    log_audit("sites-rebuild-registry", rc=rc)
+    flash_msg("registry rebuilt from the on-disk release tree" if rc == 0
+              else f"rebuild failed: {redact_secrets(out)[:300]}", "ok" if rc == 0 else "err")
+    return redirect(url_for("sites_page"))
+
+
+@app.route("/sites/apply-vhost", methods=["POST"])
+@login_required
+def sites_apply_vhost():
+    if not ENABLE.get("sites"):
+        abort(404)
+    if not csrf_ok():
+        abort(403)
+    ok2, logname = run_script_detached("sites-apply-vhost")
+    log_audit("sites-apply-vhost", started=ok2)
+    flash_msg("reapplying the sites vhost (detached) — watch /logs/adminweb-async" if ok2
+              else "could not start the vhost reapply (see /logs/adminweb-async)", "ok" if ok2 else "err")
+    return redirect(url_for("sites_page"))
 
 
 # ---------- observability: metrics history + problems view ----------

@@ -176,7 +176,7 @@ exec '${ADMIN_VENV}/bin/gunicorn' \\
   --chdir '${ADMIN_DIR}' \\
   --bind '127.0.0.1:${ADMIN_PORT}' \\
   --workers 1 --threads 4 --worker-class gthread \\
-  --timeout 60 --graceful-timeout 30 \\
+  --timeout 180 --graceful-timeout 30 \\
   --max-requests 500 --max-requests-jitter 100 \\
   --log-level info --name adminweb \\
   app:app

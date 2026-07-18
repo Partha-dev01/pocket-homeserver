@@ -48,6 +48,20 @@ Every deploy creates an immutable `releases/<id>/` tree and flips the site's
 `current` symlink in a **single atomic rename** — a visitor never sees a
 half-updated site, and there is no downtime window.
 
+### From the admin panel
+
+With the panel enabled, the **Sites** page gives you the same pipeline without
+a shell: drag a `.zip` onto the drop zone (name + admin password re-auth, the
+same bar the app catalog uses), watch the deploy log stream live, then roll
+back, share a QR of the live URL, or delete from the site's card. Panel
+uploads accept **pre-built** zips only — `--build hugo|node` source deploys
+stay CLI-only. See [ADMIN.md](ADMIN.md#sites-pocket-pages-section-optional).
+
+> **Upload speed**: a panel upload travels over the Cloudflare Tunnel — fine
+> for typical site sizes, but a near-cap (200 MB) upload can take minutes on a
+> phone SIM. Off-tunnel paths are meaningfully faster: an `ssh -L 9000:127.0.0.1:9000`
+> tunnel straight to the panel, or `scp` + the CLI deploy over local Wi-Fi.
+
 ```bash
 scripts/sites/site-list.sh              # what's deployed
 scripts/sites/site-rollback.sh mysite   # instant: point back at the previous release
@@ -84,6 +98,32 @@ build, not you from malicious code.
   its full size on disk).
 - Dotfiles are never served; directory listings are off.
 
+## SPA mode (client-side routers)
+
+`SITES_SPA_MODE=true` in `.env` makes **every** deployed site fall back to its
+`/index.html` on unknown paths (`try_files {path} {path}/ /index.html`), so a
+client-side router (React Router, Vue Router, …) survives hard refreshes and
+deep links. It is a **global, toggle-time** setting — it edits the ONE wildcard
+vhost, never a per-site config — and defaults to `false` (a bare `file_server`,
+the right behavior for sites without a router). Apply a change by re-running
+`bash scripts/apps/sites.sh` (re-renders + `caddy validate`s the vhost) and
+restarting Caddy, or from the admin panel's Sites section.
+
+The dotfile 403 guard is unaffected: an **existing** dotfile keeps its path
+through `try_files` and still 403s; only paths that don't exist rewrite to the
+SPA shell.
+
+## Landing page sync
+
+With the landing portal enabled (`ENABLE_LANDING=true`, see
+[LANDING.md](LANDING.md)), every deploy and delete refreshes a "your sites"
+card grid on the portal automatically — the pipeline calls
+`scripts/landing/regen-landing.sh` as a best-effort hook after the registry
+update (a landing hiccup never fails a deploy). No installer rerun needed.
+Note the portal is public by default, and every deployed site is listed on it;
+gate the portal behind the SSO gateway (see LANDING.md) if you don't want a
+public directory.
+
 ## Where things live / backups
 
 Everything lives inside the userland rootfs (ext4):
@@ -99,8 +139,8 @@ retention (above) keeps it bounded.
 - **BYO proxy routes** (`ENABLE_PROXY_ROUTES`): a site name that collides with
   an existing BYO route is refused. (The reverse check lands in proxy-routes in
   a follow-up.)
-- **Admin panel**: the Sites section (upload UI, deploy log streaming, rollback
-  buttons, QR share) ships in the next prerelease; in this one the panel's app
-  catalog can install the module, and the CLI above is the deploy surface.
+- **Admin panel**: the Sites section (drag-drop deploys, live deploy log,
+  rollback, QR share, guarded delete) covers day-to-day operation — see
+  "From the admin panel" above; builds and bulk work stay on the CLI.
 - **MCP**: agentic deploy tools (`pocket_site_deploy` etc.) ship with the MCP
   completion milestone.

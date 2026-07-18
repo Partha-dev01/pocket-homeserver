@@ -51,5 +51,18 @@ http://*.${DOMAIN}:${CADDY_PORT} {
 	@dot path /.* */.*
 	respond @dot 403
 
-	file_server
+	# SPA mode (SPEC-SITES-PANEL.md §15/AD-9): when SITES_SPA_MODE=true, unknown
+	# paths fall through to /index.html instead of 404ing, so a client-side
+	# router (React Router, Vue Router, ...) keeps working on a hard refresh or
+	# a deep link. Off by default — a bare `file_server`, the right behavior for
+	# a static site that ships no router. This is a GLOBAL, install/toggle-time
+	# choice resolved by scripts/apps/sites.sh (never per-deploy — AD-9, since
+	# it edits the ONE wildcard vhost, not a per-site config); the admin panel's
+	# "reapply sites config" button re-runs that script to pick up a change.
+	# ⚠ The SPA form MUST be sibling `try_files` + `file_server` lines — never a
+	# `route { … }` wrapper. Caddy sorts `route` BEFORE `respond`, so a wrapped
+	# file_server would serve dotfiles before the @dot 403 guard above runs
+	# (probed on v2.11.4). An EXISTING dotfile keeps its path through try_files
+	# and still 403s; only nonexistent paths rewrite to the SPA shell.
+	__SPA_TRY_FILES__
 }

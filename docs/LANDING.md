@@ -8,10 +8,16 @@ a link directory.
 
 ## What it is
 
-- A static HTML page (`scripts/landing/index.html.tmpl`) rendered at install time:
-  the brand string + one card per enabled app (Chat is always shown; Bookmarks,
-  File Share, Feeds, Notes, Tasks, Search, Dev Tools, Status appear when their
-  `ENABLE_*` flag is `true`).
+- A static HTML page (`scripts/landing/index.html.tmpl`) rendered by
+  `scripts/landing/regen-landing.sh` — at install time, and again automatically
+  on every Pocket Pages deploy/delete: the brand string + one card per enabled
+  app (Chat is always shown; Bookmarks, File Share, Feeds, Notes, Tasks,
+  Search, Dev Tools, Status appear when their `ENABLE_*` flag is `true`), plus
+  a **"your sites" grid** — one card per deployed static site when
+  `ENABLE_SITES=true` (see [SITES.md](SITES.md)); the whole section vanishes
+  when Sites is off or nothing is deployed. The page shares the admin panel's
+  teal brand palette (the hex values are copied verbatim from `admin/app.py`'s
+  dark tokens — if you change a brand color in one file, change the other too).
 - Served from a dir **inside the userland** (`/opt/landing`) by the core Caddy via
   a drop-in `/etc/caddy/apps/landing.caddy` apex vhost — no process to supervise,
   nothing new listening.
@@ -46,11 +52,21 @@ coexist (MX/TXT are separate from the tunnel hostname).
 ## Customizing
 
 - **Brand:** `LANDING_BRAND` in `.env`.
-- **Cards:** they are generated from the `ENABLE_*` flags — enable/disable an app
-  and re-run with `--force` to add/remove its card.
-- **Look or copy:** edit `scripts/landing/index.html.tmpl` (the `__BRAND__` token
-  and the single `POCKET_CARDS` marker line are the only substitution points) and
-  re-run with `--force`.
+- **App cards:** they are generated from the `ENABLE_*` flags — enable/disable an
+  app and re-run with `--force` to add/remove its card.
+- **Site cards:** generated from the Pocket Pages registry — deploys and deletes
+  refresh them automatically (no installer rerun). Every deployed site is
+  listed; the portal is public by default, so gate it behind the SSO gateway
+  (above) if you don't want a public directory.
+- **Look or copy:** edit `scripts/landing/index.html.tmpl` (the `__BRAND__`
+  token plus the standalone `POCKET_CARDS` and `POCKET_SITES_SECTION` marker
+  lines are the only substitution points), then re-run with `--force` — or just
+  `bash scripts/landing/regen-landing.sh` for a content-only re-render (it
+  never touches the vhost).
 
 When no optional apps are enabled, the grid still shows the Chat card plus a hint to
 enable apps in `.env`.
+
+> Note for contributors: `regen-landing.sh` is the repo's one script that ships
+> **with the executable bit** — the deploy/delete hook gates on `[ -x ]` and
+> would silently no-op without it.

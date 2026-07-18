@@ -69,13 +69,42 @@ case "${LABEL_INDEX}" in
 esac
 [ "${LABEL_INDEX}" -ge 1 ] || die "DOMAIN='${DOMAIN}' does not look like a domain"
 
-say "writing the wildcard vhost -> /etc/caddy/apps/sites.caddy (*.${DOMAIN}; site label = {labels.${LABEL_INDEX}})"
+# SITES_SPA_MODE (SPEC-SITES-PANEL.md §15/AD-9): a single GLOBAL, install/
+# toggle-time choice — resolved HERE, never per-deploy, because it edits the
+# ONE wildcard vhost, not a per-site config. `true` swaps the bare
+# `file_server` line in sites.caddy.tmpl for `try_files {path} {path}/
+# /index.html` + `file_server` so a client-side router keeps working on a
+# hard refresh/deep link.
+# ⚠ SIBLING directives, NEVER a `route { … }` wrapper: Caddy's directive sort
+# order runs `route` BEFORE `respond`, so a route-wrapped file_server would
+# serve dotfiles before the vhost's `respond @dot 403` guard ever runs
+# (probed on caddy v2.11.4: route-wrapped served an existing /assets/.env).
+# As siblings, try_files sorts before respond, so an EXISTING dotfile keeps
+# its original path and still 403s; `{path}/` keeps subdirectory index pages
+# working (without it, /docs rewrites to the root /index.html).
+# Built as a variable (not sed, which struggles with multi-line replacements)
+# and substituted below via the same awk marker-line technique
+# regen-landing.sh already uses for POCKET_CARDS/POCKET_SITES_SECTION.
+if [ "${SITES_SPA_MODE:-false}" = "true" ]; then
+  SPA_BLOCK=$'\ttry_files {path} {path}/ /index.html\n\tfile_server'
+else
+  SPA_BLOCK=$'\tfile_server'
+fi
+
+say "writing the wildcard vhost -> /etc/caddy/apps/sites.caddy (*.${DOMAIN}; site label = {labels.${LABEL_INDEX}}; SPA mode: ${SITES_SPA_MODE:-false})"
 VHOST_RENDERED="$(sed \
   -e "s|\${DOMAIN}|${DOMAIN}|g" \
   -e "s|\${CADDY_PORT}|${CADDY_PORT}|g" \
   -e "s|\${CADDY_BIND}|${CADDY_BIND}|g" \
   -e "s|__L__|${LABEL_INDEX}|g" \
-  "${VHOST_TMPL}")"
+  "${VHOST_TMPL}" \
+  | SPA_VAL="${SPA_BLOCK}" awk '
+      {
+        line = $0
+        if (line ~ /^[ \t]*__SPA_TRY_FILES__[ \t]*$/) { printf "%s\n", ENVIRON["SPA_VAL"]; next }
+        print line
+      }'
+)"
 proot-distro login debian -- bash -lc 'mkdir -p /etc/caddy/apps && cat > /etc/caddy/apps/sites.caddy' <<EOF || die "failed to write /etc/caddy/apps/sites.caddy"
 ${VHOST_RENDERED}
 EOF

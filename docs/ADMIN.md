@@ -52,6 +52,7 @@ break-glass path if the edge is misbehaving.
 | **users** (`/users`) | list / create / reset-password / suspend / deactivate + invite tokens (when `ENABLE_USER_ADMIN`) — see [USERS.md](USERS.md) |
 | **problems** (`/problems`) | appears when a service is crash-looping or down: per-service detail + restart + a *run doctor* button |
 | **catalog** (`/catalog`) | one-click enable + install of an optional module (when `ENABLE_APP_CATALOG`) — see below |
+| **sites** (`/sites`) | drag-drop static-site deploys, live deploy log, rollback, QR share, guarded delete (when `ENABLE_SITES`) — see below |
 | **danger** (`/danger`) | rotations + panic kill-switches, behind a two-page typed confirmation |
 
 ### The action surface
@@ -113,6 +114,41 @@ by design, a remote-install surface — so it is built fail-closed:
 - The module's **health row appears after a panel restart** (the panel reads the
   `ENABLE_*` set from its run-script-exported environment at startup, not live `.env`).
   Data deletion / uninstall stays **CLI-only** — the catalog only enables + installs.
+
+## Sites (Pocket Pages) section (optional)
+
+When `ENABLE_SITES=true`, the panel grows a **sites** page (`/sites`) — the
+browser front-end to the [Pocket Pages pipeline](SITES.md). One card per
+deployed site (live URL, active release, history, size, an async health pill),
+plus a drag-drop deploy zone. Like the catalog, it is a remote-change surface
+and is built fail-closed:
+
+- **Deploying** = drop a `.zip` (pre-built sites only — build tiers stay
+  CLI-only), enter the site name and **re-enter your admin password** (the
+  catalog's re-auth bar). The body is streamed straight to a server-allocated
+  staging path in 1 MiB chunks with a hard cap (`SITES_MAX_UPLOAD_MB`) — never
+  buffered in memory, never multipart — then the real `site-deploy.sh` runs
+  **detached** while the page tails its log live (SSE, with a polling fallback;
+  the stream closes itself when the job finishes).
+- **Names** are DNS-label-validated against the same regex + reserved list the
+  pipeline enforces, before they ever touch a path or argv.
+- **Rollback** is a per-card release picker → one CSRF-checked POST → the
+  pipeline's instant pointer swap.
+- **Delete** mirrors the danger zone: impact review, then typed phrase
+  (`delete site`) + `yes` + your password. Runs `site-delete.sh <name> --yes`
+  and is audit-logged like every other mutation here.
+- **QR share** renders a QR of the site's public URL on demand — nothing
+  secret is ever encoded.
+- **Maintenance buttons**: *rebuild registry* (re-derives the registry from the
+  on-disk release tree if they ever disagree) and *reapply sites config*
+  (re-renders + validates the wildcard vhost — how you pick up a
+  `SITES_SPA_MODE` change from the browser).
+
+Two panel-wide changes shipped with this section: the app now sets a global
+request-body ceiling (`MAX_CONTENT_LENGTH`, sized off the upload cap — before
+this, an unauthenticated multi-GB POST to `/login` could exhaust RAM before
+credential checking ran), and gunicorn's worker timeout was raised 60 s → 180 s
+so a legitimate near-cap upload over the tunnel can finish.
 
 ## Operations
 

@@ -5,6 +5,55 @@ All notable changes to pocket-homeserver are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **Admin panel Sites section** (`/sites`, when `ENABLE_SITES`) — deploy,
+  inspect, roll back and delete Pocket Pages sites from the browser: drag-drop
+  zip uploads (streamed to disk with a hard cap; CSRF via header + admin
+  password re-auth), a live SSE deploy-log tail with polling fallback, per-site
+  cards with release history + one-click rollback, async health pills, QR share
+  of the live URL, a danger-zone-style 3-stage delete, and registry-rebuild /
+  vhost-reapply maintenance buttons. Spec: `docs/specs/SPEC-SITES-PANEL.md`.
+- **Landing portal ↔ Pocket Pages sync** — the landing page now shows a
+  "your sites" card grid generated from the sites registry, refreshed
+  automatically on every deploy/delete via a new render-only
+  `scripts/landing/regen-landing.sh` (the hook `site-deploy.sh` shipped with;
+  `site-delete.sh` now calls it too). The installer delegates its page render
+  to the same script — one render code path. Registry names are re-validated
+  against the DNS-label pattern before they can reach the (public) page.
+- **Landing portal teal re-theme** — the portal now uses the admin panel's
+  dark teal palette verbatim (hex-for-hex from `admin/app.py`'s dark tokens),
+  so the public page and the panel read as one product. Spec:
+  `docs/specs/SPEC-LANDING-SYNC.md`.
+- **`SITES_SPA_MODE`** — optional global fallback-to-`/index.html` for
+  client-side routers across all deployed sites (`try_files` siblings in the
+  one wildcard vhost; the dotfile 403 guard is preserved — an existing dotfile
+  still 403s). Off by default; docs: `docs/SITES.md`.
+
+### Changed
+- **Admin panel gunicorn worker timeout 60 s → 180 s** — a legitimate near-cap
+  (`SITES_MAX_UPLOAD_MB`) upload over the Cloudflare Tunnel can take longer
+  than the old 60 s worker-silence limit. Off-tunnel uploads (`ssh -L`, local
+  Wi-Fi) are meaningfully faster — see `docs/SITES.md`.
+
+### Fixed
+- **Panel-wide request-body ceiling (pre-auth DoS)** — the admin panel never
+  set Flask's `MAX_CONTENT_LENGTH`, so Werkzeug would buffer an arbitrarily
+  large form body into memory before any view code ran — including an
+  **unauthenticated** POST to `/login` on a RAM-constrained phone. A global
+  ceiling (sized off `SITES_MAX_UPLOAD_MB` + headroom) now backstops every
+  route; the upload route additionally enforces its own precise cap
+  mid-stream.
+- **Landing brand rendering with special characters** — a `LANDING_BRAND`
+  containing `&` (e.g. `"A & B"`) was corrupted by the render's awk `gsub`
+  replacement-string expansion; the brand is now escaped for both HTML and
+  `gsub` before substitution.
+- **Landing vhost dotfile guard depth** — the apex portal vhost's dotfile
+  matcher only covered root-level dotfiles (`/.*`); it now also blocks them at
+  any depth (`*/.*`), matching the sites wildcard vhost. (Defensive: the
+  portal root only ever contains repo-generated files.)
+
 ## [1.1.0-pre1] - 2026-07-17
 
 First staged prerelease of the v1.1.0 "Pocket Pages" line (M1 of 4: the

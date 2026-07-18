@@ -690,13 +690,22 @@ need per-second liveness like the dashboard's load/mem numbers).
 and set by `scripts/apps/sites.sh` (not by the panel — see AD-9) to:
 
 ```caddyfile
-	route {
-		try_files {path} /index.html
-		file_server
-	}
+	try_files {path} {path}/ /index.html
+	file_server
 ```
 
-...replacing the bare `file_server` line when `SITES_SPA_MODE=true`. (`try_files` requires a reasonably
+...replacing the bare `file_server` line when `SITES_SPA_MODE=true`.
+
+> **CORRECTION (2026-07-17, during implementation validation):** this spec originally drafted the SPA block
+> as `route { try_files {path} /index.html; file_server }`. That form is a **security bug**: Caddy's
+> directive sort order runs `route` BEFORE `respond`, so the wrapped `file_server` handles the request
+> before the vhost's `respond @dot 403` dotfile guard ever runs — probed on caddy v2.11.4, where the
+> route-wrapped form served an existing `/assets/.env` with a 200. The sibling form above is the correct
+> one: `try_files` sorts before `respond`, so an EXISTING dotfile keeps its original path and still 403s
+> (only nonexistent paths rewrite to the SPA shell), and `{path}/` keeps subdirectory index pages working
+> (without it, `/docs` rewrites to the root `/index.html` instead of redirecting to `/docs/`).
+
+(`try_files` requires a reasonably
 current Caddy — verify against the installed `caddy version` before implementing; `scripts/steps/30-install-
 caddy.sh` tracks the apt "stable" channel, unpinned, so this should already be satisfied in practice.) The
 panel's `/sites/apply-vhost` button (AD-9) is the only in-panel way to pick up a `SITES_SPA_MODE` change —
