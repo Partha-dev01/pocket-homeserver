@@ -55,6 +55,19 @@ default at the pre4 review, and the v1.1.0 FINAL tag remains explicitly operator
 > `Cf-Connecting-IP`, already flow through `reverse_proxy` by default); the forms route derives the
 > abuse-key/`ip_truncated` IP via the same preference chain as `parse_line()`: `Cf-Connecting-IP` →
 > `X-Forwarded-For` (ProxyFix) → `remote_addr`. The unit tests (§8.7) must cover all three sources.
+>
+> **C-4 (2026-07-19, found by the arm64 E2E) — C-2's "strip-then-set" `header_up` sketch is broken on
+> real Caddy: a same-header delete listed alongside a set in one `reverse_proxy` block runs AFTER the
+> set and wipes Caddy's own value.** As corrected by C-2, the forms block carried `header_up
+> -X-Pocket-Site` + `header_up X-Pocket-Site {labels.N}` (and the same pair for the gate header). Caddy
+> does not apply header ops in written order within a block — the upstream received NEITHER header
+> (proven with a header-dump upstream), so every legitimate form POST 404'd while the C-2 negatives
+> passed vacuously. **Correction:** the forms block is SET-only — a `header_up` SET already replaces any
+> client-supplied value wholesale (proven live: forged `X-Pocket-Site`/`X-Pocket-Forms-Gate` arrive
+> upstream as Caddy's values, exactly one each), so C-2's security property holds with no delete at all.
+> The admin vhost's belt (`70-install-admin.sh`) is delete-ONLY (no set for those headers in that
+> block) and is unaffected — deletes do execute; they just cannot be paired with a set for the same
+> header. The E2E now asserts the delete+set pattern is ABSENT from the rendered forms block.
 
 Milestone: M4 of the Pocket Pages program (v1.1.0), the last milestone before final. Depends on
 [SPEC-SITES-PIPELINE.md](SPEC-SITES-PIPELINE.md) (M1, APPROVED — job model, registry, name validation,

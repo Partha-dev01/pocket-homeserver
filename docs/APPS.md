@@ -24,7 +24,7 @@ ENABLE_LINKDING=true
 | **Vikunja** | `tasks.${DOMAIN}` | tasks / kanban / GTD | single Go binary (API+UI) | `${DATA_DIR}/vikunja` |
 | **SearXNG** | `search.${DOMAIN}` | private metasearch | Python (Flask) + uWSGI | none (stateless) |
 | **IT-Tools** | `tools.${DOMAIN}` | client-side dev toolbox | static site | none (client-side) |
-| **Pocket Pages** | `<site>.${DOMAIN}` | static-site hosting: atomic deploys + rollback ([docs](SITES.md)) | Caddy wildcard vhost (static) | in-userland `/var/www/sites` |
+| **Pocket Pages** | `<site>.${DOMAIN}` | static-site hosting: atomic deploys + rollback; opt-in git-push-to-deploy, share/widget deploy, forms, analytics ([docs](SITES.md)) | Caddy wildcard vhost (static) | in-userland `/var/www/sites` |
 | **Gatus** | `status.${DOMAIN}` | uptime / health dashboard | single Go binary | config only |
 | **Wallabag** | `read.${DOMAIN}` | read-later / article saver | PHP + php-fpm | `$HOME/.pocket/wallabag` (ext4) |
 | **Radicale** | `dav.${DOMAIN}` | calendar + contacts (CalDAV/CardDAV) | Python venv | `$HOME/.pocket/radicale` (ext4) |

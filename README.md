@@ -37,6 +37,16 @@ You drive the whole thing from **one interactive menu**:
 
 - **A Matrix homeserver** — continuwuity / conduwuit behind Caddy, with the
   Element web client. Federation and open registration are off by default.
+- **Pocket Pages — static-site hosting on your phone** — drag-and-drop (or
+  one-script) deploys of any static site to `<site>.${DOMAIN}`: immutable
+  releases with an atomic symlink swap, instant rollback, optional on-phone
+  Hugo/Node builds, SPA mode, QR share codes, and per-site subdomains through
+  ONE wildcard vhost (deploys never touch the web-server config). Opt-in
+  extras: git-push-to-deploy via the bundled Forgejo's webhooks, deploy by
+  sharing a zip from any app (or a home-screen widget), Netlify-style forms
+  with a panel inbox + email relay, and privacy-first traffic analytics parsed
+  from the access log — no Docker, no CI runner, no client-side JS anywhere.
+  ([docs/SITES.md](docs/SITES.md))
 - **A catalog of optional web apps**, each on its own subdomain, all
   loopback-bound behind the single tunnel — the core set is bookmarks, file
   sharing, RSS, notes, tasks, metasearch, a developer toolbox, and a status page,

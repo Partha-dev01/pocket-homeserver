@@ -133,3 +133,20 @@ dashboard add the public hostname `git.${DOMAIN} -> http://localhost:${CADDY_POR
 - [SECURITY.md](SECURITY.md) — the loopback-only edge model + the body-size cap.
 - [BACKUPS.md](BACKUPS.md) — DB/data backups (do one before every upgrade).
 - [UPDATING.md](UPDATING.md) — version pins + `scripts/ops/update.sh`.
+
+## Git-push-to-deploy (Pocket Pages M4)
+
+With `ENABLE_SITES_WEBHOOKS=true`, a push to a repo here can deploy a Pocket
+Pages site through Forgejo's plain webhooks — setup steps and the security
+model live in [SITES.md](SITES.md#git-push-to-deploy-forgejo-webhooks). Two
+forge-side facts worth knowing:
+
+- The installer seeds `[webhook] ALLOWED_HOST_LIST = loopback` in `app.ini` —
+  Forgejo's webhook SSRF guard defaults to `external` and would otherwise
+  silently refuse to deliver to the admin panel's loopback bind.
+  **Pre-M4 installs:** re-run `scripts/apps/forgejo.sh` once to heal the
+  stanza into your existing `app.ini` (a value you set yourself is respected,
+  never overridden).
+- The Cloudflare Access service-token exemption this page describes for
+  `git.${DOMAIN}` becomes load-bearing for deploys too — `git push` is the
+  trigger, and git clients cannot follow a 302-to-login.

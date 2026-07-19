@@ -5,6 +5,49 @@ All notable changes to pocket-homeserver are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **Git-push-to-deploy (M4)** — `ENABLE_SITES_WEBHOOKS`: push to a repo on the
+  bundled Forgejo and its plain webhook (HMAC-SHA256 over the raw body,
+  per-site secret minted in the panel, target branch filter, per-site
+  cooldown) stages the pushed commit via `git archive` and hands it to the
+  existing deploy pipeline. Delivery is loopback-only — it never touches the
+  tunnel or Cloudflare Access. New: `scripts/sites/webhook-stage.sh`,
+  `scripts/sites/site-webhook-secret.sh`, panel webhook setup page.
+- **Share-sheet deploy (M4)** — `ENABLE_SITES_SHARE_DEPLOY`: a no-clobber
+  `~/bin/termux-file-editor` hook; share a `.zip` from any app to "Termux"
+  and it deploys after a site-name prompt, while every non-zip file still
+  opens in `${EDITOR:-nano}`. The share-sheet entry is labeled "Termux" (only
+  a companion APK could change that — not shipped, documented honestly).
+- **Termux:Widget one-tap deploy (M4)** — `ENABLE_SITES_WIDGET_DEPLOY`
+  installs a `~/.shortcuts/pocket-deploy.sh` shortcut: tap → pick a `.zip`
+  via the system file picker → deploy.
+- **Forms (M4)** — `ENABLE_SITES_FORMS`: a Netlify-Forms-style endpoint at the
+  reserved `/__pocket-forms__/` path on every deployed site. Zero client-side
+  JS; body/field caps; honeypot field (stored+tagged, never silently
+  dropped); per-(site, form, truncated-IP) rate limit; SQLite inbox in the
+  panel; optional email relay through the bundled Maddy. Privacy: only a
+  /24 (IPv4) / /48 (IPv6) truncated address is ever stored, and rows auto-GC
+  after `SITES_FORMS_RETENTION_DAYS`.
+- **Analytics-lite (M4)** — `ENABLE_SITES_ANALYTICS`: per-site requests,
+  status split, top paths (query strings never recorded) and an approximate
+  unique-visitor count parsed on demand from the sites vhost's JSON access
+  log. No daemon, no derived store, no cookies/JS; unique counts come from an
+  in-memory truncated-IP set discarded after each pass.
+- New tests: `tests/test_sites_webhook.py`, `tests/test_sites_ondevice.py`,
+  `tests/test_sites_forms.py`, `tests/test_sites_analytics.py`.
+
+### Changed
+- `scripts/apps/forgejo.sh` now seeds (and heals into pre-M4 installs) a
+  `[webhook] ALLOWED_HOST_LIST = loopback` stanza — Forgejo's SSRF guard
+  defaults to `external` and would otherwise silently refuse to deliver
+  webhooks to the panel's loopback bind. An operator-set value is respected,
+  never overridden.
+- The admin vhost strips inbound `X-Pocket-Site`/`X-Pocket-Forms-Gate`
+  headers before proxying; the sites vhost is the provable sole attributor
+  of form submissions (a render-time gate token shared 0600 with the panel).
+
 ## [1.1.0-pre3] - 2026-07-19
 
 ### Added

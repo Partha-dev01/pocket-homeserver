@@ -26,11 +26,16 @@
 # first-level wildcards (*.${DOMAIN}) — which is exactly why per-site hostnames
 # are FIRST-level (mysite.${DOMAIN}), never nested (mysite.sites.${DOMAIN}).
 #
-# NOTE (M4/analytics-lite): a per-vhost `log` directive lands with the
-# analytics feature; deliberately absent in M1.
+# M4 (SPEC-DIFFERENTIATORS): the __FORMS_BLOCK__ / __ANALYTICS_LOG__ marker
+# lines below are replaced by scripts/apps/sites.sh at render time — with the
+# real block when the matching ENABLE_SITES_* flag is on, with nothing when it
+# is off (the same awk marker-line technique as __SPA_TRY_FILES__). Both are
+# install/toggle-time edits to this ONE wildcard vhost, never per-deploy (AD-5).
 # ============================================================================
 http://*.${DOMAIN}:${CADDY_PORT} {
 	bind ${CADDY_BIND}
+
+	__ANALYTICS_LOG__
 
 	header {
 		X-Content-Type-Options nosniff
@@ -50,6 +55,24 @@ http://*.${DOMAIN}:${CADDY_PORT} {
 	# the Cloudflare edge, no deployed site needs it.
 	@dot path /.* */.*
 	respond @dot 403
+
+	# Forms (SPEC-DIFFERENTIATORS §8, AD-7 as amended by C-2/C-3): a plain,
+	# top-level, named-matcher reverse_proxy — NEVER wrapped in handle{}/route{}
+	# (the same ordering hazard the SPA note below documents). Caddy's directive
+	# sort order runs reverse_proxy before file_server, so a deployed file at
+	# /__pocket-forms__/... can never shadow the handler; the path contains no
+	# dot-segment, so @dot never competes. The block SETS both custom headers —
+	# a header_up SET replaces any client-supplied value wholesale, so a forged
+	# X-Pocket-Site/-Forms-Gate never survives: X-Pocket-Site (site attribution
+	# — C-2: Caddy is the ONLY allowed attributor) and X-Pocket-Forms-Gate (a
+	# render-time-minted token shared 0600 with the panel — proof the request
+	# came through THIS vhost, closing the any-local-app-can-POST-to-loopback
+	# hole maddy.conf.tmpl:54-55 documents). Deliberately NO `header_up -X-...`
+	# deletes here: Caddy applies a same-header delete AFTER the set within one
+	# block, wiping Caddy's own value (proven live). NO X-Forwarded-For override
+	# (C-3): the panel reads the real visitor from Cf-Connecting-IP, which flows
+	# through untouched.
+	__FORMS_BLOCK__
 
 	# SPA mode (SPEC-SITES-PANEL.md §15/AD-9): when SITES_SPA_MODE=true, unknown
 	# paths fall through to /index.html instead of 404ing, so a client-side

@@ -294,9 +294,52 @@ REPOSITORY_AVATAR_UPLOAD_PATH = ${DATA_MOUNT}/data/repo-avatars
 
 [other]
 SHOW_FOOTER_VERSION = false
+
+[webhook]
+; Pocket Pages M4: the git-push-to-deploy webhook target is the admin panel's OWN
+; loopback bind (127.0.0.1) -- Forgejo's SSRF guard defaults to "external" and
+; would otherwise refuse to deliver there. Scoped to loopback ONLY (not "private"
+; or "*") -- this repo's threat model never needs Forgejo to reach anything else.
+ALLOWED_HOST_LIST = loopback
 EOF
   in_debian "chmod 600 '${APP_INI}' && chown '${FORGEJO_RUN_USER}:${FORGEJO_RUN_USER}' '${APP_INI}'" || true
   ok "wrote ${APP_INI} (chmod 600, HTTP_ADDR=127.0.0.1, INSTALL_LOCK=true, no SSH, registration off)"
+fi
+
+# ── 6b. ALWAYS-RUN: assert-or-heal [webhook] ALLOWED_HOST_LIST = loopback ────
+# ┌── SECURITY-LOAD-BEARING ───────────────────────────────────────────────────
+# │ Forgejo's own [webhook] ALLOWED_HOST_LIST default is "external" (an SSRF
+# │ guard) and would silently refuse to deliver a webhook to the admin panel's
+# │ loopback bind (Pocket Pages M4 git-push-to-deploy, SPEC-DIFFERENTIATORS.md
+# │ §6 AD-6). Step 6 above only WRITES the stanza on a fresh app.ini — an
+# │ existing hardened app.ini from a pre-M4 install is deliberately kept as-is
+# │ (never clobbered), so that install would never pick up the new section on
+# │ its own. Unlike the rest of step 6, THIS block is safe to auto-heal into an
+# │ already-hardened app.ini on every re-run: it can only ever WIDEN Forgejo's
+# │ own webhook-target allowlist to loopback (never "private"/"*"), and its
+# │ value space is a small fixed allowlist this installer itself controls, not
+# │ operator data. Runs IN THE USERLAND (app.ini is chmod 600, owned by
+# │ ${FORGEJO_RUN_USER}) — the append + the re-assert of mode/ownership both go
+# │ through in_debian, mirroring exactly how step 6 itself writes app.ini.
+# └────────────────────────────────────────────────────────────────────────────
+if in_debian "grep -Eq '^[[:space:]]*ALLOWED_HOST_LIST[[:space:]]*=' '${APP_INI}'"; then
+  # ANY existing value (ours or the operator's own) is respected — appending a
+  # duplicate key would silently OVERRIDE it (go-ini: the later key wins),
+  # which is exactly the operator-edit clobbering step 6 promises never to do.
+  ok "app.ini already sets [webhook] ALLOWED_HOST_LIST — leaving it as-is"
+else
+  say "app.ini predates Pocket Pages M4 (or was hand-edited) — appending [webhook] ALLOWED_HOST_LIST = loopback"
+  proot-distro login debian -- bash -lc "umask 077; cat >> '${APP_INI}'" <<'WEBHOOK'
+
+[webhook]
+; Pocket Pages M4: the git-push-to-deploy webhook target is the admin panel's OWN
+; loopback bind (127.0.0.1) -- Forgejo's SSRF guard defaults to "external" and
+; would otherwise refuse to deliver there. Scoped to loopback ONLY (not "private"
+; or "*") -- this repo's threat model never needs Forgejo to reach anything else.
+ALLOWED_HOST_LIST = loopback
+WEBHOOK
+  in_debian "chmod 600 '${APP_INI}' && chown '${FORGEJO_RUN_USER}:${FORGEJO_RUN_USER}' '${APP_INI}'" || true
+  ok "appended [webhook] ALLOWED_HOST_LIST = loopback to app.ini (chmod 600 / ownership re-asserted)"
 fi
 
 # ── 7. FAIL-CLOSED loopback assert (config) ──────────────────────────────────

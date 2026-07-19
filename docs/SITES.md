@@ -124,6 +124,120 @@ Note the portal is public by default, and every deployed site is listed on it;
 gate the portal behind the SSO gateway (see LANDING.md) if you don't want a
 public directory.
 
+## Git-push-to-deploy (Forgejo webhooks)
+
+With the bundled git forge installed ([FORGEJO.md](FORGEJO.md)) and
+`ENABLE_SITES_WEBHOOKS=true`, a `git push` deploys a site end to end — no
+zip, no panel click:
+
+1. In the admin panel, open the site's card → **git-push-to-deploy →** and
+   generate the webhook secret (shown once).
+2. In Forgejo: your repo → Settings → Webhooks → Add Webhook → Forgejo, and
+   paste the target URL + secret the panel shows (POST, `application/json`,
+   push events).
+3. Push to `SITES_WEBHOOK_BRANCH` (default `main`). The panel verifies the
+   HMAC signature, archives the pushed commit from the bare repo with
+   `git archive`, and hands it to the exact same deploy pipeline every other
+   channel uses. Pushes to any other branch are skipped, not errors.
+
+Notes:
+- Delivery is **loopback-only** (Forgejo → the panel's local bind) — it never
+  crosses the tunnel or Cloudflare Access. But do remember the pre-existing
+  requirement the forge docs call out prominently: **`git push` itself over
+  HTTPS needs the Cloudflare Access service-token exemption for
+  `git.${DOMAIN}`** ([FORGEJO.md](FORGEJO.md)) — git clients can't follow a
+  302-to-login. Webhooks make pushing a first-class deploy path, so that
+  exemption is now load-bearing for Pocket Pages too.
+- **Upgrading from a pre-M4 install:** Forgejo's own webhook SSRF guard
+  (`[webhook] ALLOWED_HOST_LIST`) defaults to `external` and silently refuses
+  loopback targets. Re-run `scripts/apps/forgejo.sh` once — it appends
+  `ALLOWED_HOST_LIST = loopback` to an existing `app.ini` (an operator-set
+  value is respected, never overridden) and restarts nothing by itself.
+- The build tier used is whatever the site's registry records (`none` for a
+  never-deployed site — push pre-built output, or deploy once with `--build
+  hugo|node` first).
+- Per-site cooldown (`SITES_WEBHOOK_COOLDOWN_S`) gives cheap back-pressure
+  against a runaway loop; rotating the secret in the panel invalidates the
+  one pasted into Forgejo.
+
+## Deploy from your phone (share sheet + widget)
+
+Two opt-in, on-device deploy paths — honest descriptions, since neither can
+show "pocket-homeserver" in Android's own UI:
+
+- **Share-sheet deploy** (`ENABLE_SITES_SHARE_DEPLOY=true`, then re-run the
+  sites installer): share a `.zip` from any app and pick **"Termux"** in the
+  share sheet (that label is the receiving app's and can't be changed without
+  shipping a companion APK — out of scope). Termux saves the file to
+  `~/downloads`, asks you to confirm the filename, then runs its global
+  `~/bin/termux-file-editor` hook — which this feature installs: for a `.zip`
+  it prompts for a site name (a popup with Termux:API installed, a terminal
+  prompt without) and deploys; **every other file still opens in your editor**
+  (`${EDITOR:-nano}`), preserving the hook's normal purpose. The installer
+  never overwrites a `termux-file-editor` you wrote yourself — it warns and
+  skips instead.
+- **Widget deploy** (`ENABLE_SITES_WIDGET_DEPLOY=true`): installs
+  `~/.shortcuts/pocket-deploy.sh` for the **Termux:Widget** companion app
+  (F-Droid, same family as Termux:Boot). Tap the home-screen shortcut → type
+  a site name → pick a `.zip` in the system file picker → it deploys. A
+  two-step flow (get the file onto the device first), not literally one tap.
+
+Both paths need Android's storage permission granted to Termux. Termux:API
+(F-Droid app + the `termux-api` package) is **required for the widget** — its
+file picker *is* `termux-storage-get`, and the shortcut exits with a clear
+error without it — but optional for the share hook, where it only upgrades the
+terminal site-name prompt to a popup and adds toast/notification feedback.
+Both run the standard `site-deploy.sh` CLI path — same validation, same
+atomic swap, same rollback.
+
+## Forms
+
+`ENABLE_SITES_FORMS=true` (then re-run the sites installer) gives every
+deployed site working HTML forms with **zero client-side JavaScript**:
+
+```html
+<form method="POST" action="/__pocket-forms__/submit/contact">
+  <input name="name">
+  <textarea name="message"></textarea>
+  <!-- honeypot: keep it hidden with your own CSS; bots fill it, humans don't -->
+  <input name="_pocket_hp" style="display:none" tabindex="-1" autocomplete="off">
+  <button>Send</button>
+</form>
+```
+
+- `contact` in the action URL is the form's name (letters/digits/`._-`);
+  the path prefix `/__pocket-forms__/` is **reserved** — a deployed file
+  there is never served.
+- Submissions land in a SQLite inbox in the admin panel (site card → **form
+  submissions →**): body capped at `SITES_FORMS_MAX_BODY_KB`, field
+  count/length capped, and rate-limited per (site, form, visitor-prefix).
+- A filled honeypot marks the row spam (hidden from the default inbox view,
+  never emailed) but the submitter sees a normal success page — no signal.
+- **Email relay** (`ENABLE_SITES_FORMS_EMAIL=true`, needs the email module):
+  non-spam submissions are relayed through the bundled Maddy to
+  `SITES_FORMS_EMAIL_TO` (default: the admin mailbox). A relay failure never
+  loses the submission — the row is stored first and shows `emailed=0`.
+- **Privacy stance** (say this to your visitors if you're required to): the
+  stored record is the field values the visitor typed, a user-agent string, a
+  timestamp, and a **truncated** network prefix (/24 for IPv4, /48 for IPv6)
+  — never the full address, which is also never logged. Rows are deleted
+  automatically after `SITES_FORMS_RETENTION_DAYS` (default 180).
+
+## Analytics
+
+`ENABLE_SITES_ANALYTICS=true` (then re-run the sites installer) adds a JSON
+access log to the shared sites vhost and a per-site **analytics** page in the
+panel: request counts, status split, top paths, bytes served, and an
+approximate unique-visitor count — parsed on demand from the log, cached a
+few minutes, **no daemon, no cookies, no client-side JS, nothing per-visitor
+stored** (unique counts come from a truncated-prefix set that lives only for
+the length of one aggregation pass; query strings are never recorded at all).
+
+One caveat, stated plainly: the log rotates by **size** (10 MiB × 5), not by
+calendar — so "the last `SITES_ANALYTICS_RETENTION_DAYS` days" is an upper
+bound. A busy site may hold less history than the window; a quiet one, more.
+A calendar-stable daily rollup is on the roadmap.
+
 ## Where things live / backups
 
 Everything lives inside the userland rootfs (ext4):

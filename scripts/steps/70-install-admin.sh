@@ -208,6 +208,14 @@ http://${ADMIN_VHOST_HOST}:${CADDY_PORT} {
 	reverse_proxy 127.0.0.1:${ADMIN_PORT} {
 		header_up Host {http.request.host}
 		header_up X-Forwarded-Proto https
+		# C-2 (SPEC-DIFFERENTIATORS): the panel's forms site-attribution/gate
+		# headers may ONLY ever be set by the sites wildcard vhost -- strip any
+		# client-supplied value on this, the other route into the panel.
+		# Delete-ONLY is correct here; never add a header_up SET for the same
+		# header in this block (Caddy runs the delete after the set and would
+		# wipe it -- the exact bug fixed in apps/sites.sh's forms block).
+		header_up -X-Pocket-Site
+		header_up -X-Pocket-Forms-Gate
 	}
 }
 EOF

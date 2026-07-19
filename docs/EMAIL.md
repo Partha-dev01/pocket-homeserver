@@ -146,3 +146,8 @@ exactly-once.
 - Back up the Maddy `imapsql.db` + `credentials.db` together with the drain ledger
   (a ledger newer than its DB snapshot would re-inject still-pending mail on
   restore). They live under `${DATA_DIR}/mail/maddy-state` and `${POCKET_STATE_DIR}`.
+- **Auditing what talks to Maddy:** with `ENABLE_SITES_FORMS_EMAIL=true`, the
+  Pocket Pages forms feature ([SITES.md](SITES.md#forms)) is a second consumer
+  of the loopback **submission** listener (alongside outbound mail) — it
+  authenticates as the admin mailbox and relays non-spam form submissions to
+  `SITES_FORMS_EMAIL_TO` (default: the admin mailbox itself).

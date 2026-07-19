@@ -82,6 +82,31 @@ SITES_ROOT     = _env("POCKET_SITES_ROOT") or os.path.join(PD_BASE, "debian/var/
 SITES_STAGING  = os.path.join(SITES_ROOT, ".staging")
 SITES_REGISTRY = os.path.join(SITES_ROOT, ".registry.json")
 SITES_MAX_UPLOAD_MB = int(_env("SITES_MAX_UPLOAD_MB", "200") or "200")
+# Git-push-to-deploy (Forgejo webhooks, SPEC-DIFFERENTIATORS §6). Per-site
+# secrets live on ext4 under POCKET_STATE_DIR (AD-4), never DATA_DIR.
+SITES_WEBHOOK_SECRET_DIR    = os.path.join(STATE, "sites-webhook")
+SITES_WEBHOOK_BRANCH        = _env("SITES_WEBHOOK_BRANCH", "main") or "main"
+SITES_WEBHOOK_COOLDOWN_S    = int(_env("SITES_WEBHOOK_COOLDOWN_S", "10") or "10")
+SITES_WEBHOOK_STAGE_TIMEOUT = int(_env("SITES_WEBHOOK_STAGE_TIMEOUT", "60") or "60")
+# Forms (Netlify-Forms clone, SPEC-DIFFERENTIATORS §8 + corrections C-2/C-3).
+# All derived state on ext4 under POCKET_STATE_DIR (AD-4). The gate file is
+# written by apps/sites.sh at render time (C-2) — the panel only READS it.
+SITES_FORMS_DB        = os.path.join(STATE, "sites-forms.db")
+SITES_FORMS_GATE_FILE = os.path.join(STATE, "sites-forms.gate")
+SITES_FORMS_GC_STAMP  = os.path.join(STATE, "sites-forms.gc-stamp")
+SITES_FORMS_MAX_BODY_KB   = int(_env("SITES_FORMS_MAX_BODY_KB", "64") or "64")
+SITES_FORMS_MAX_FIELDS    = int(_env("SITES_FORMS_MAX_FIELDS", "50") or "50")
+SITES_FORMS_MAX_FIELD_LEN = int(_env("SITES_FORMS_MAX_FIELD_LEN", "4000") or "4000")
+SITES_FORMS_RATE_LIMIT_PER_HOUR = int(_env("SITES_FORMS_RATE_LIMIT_PER_HOUR", "20") or "20")
+SITES_FORMS_RETENTION_DAYS = int(_env("SITES_FORMS_RETENTION_DAYS", "180") or "180")
+SITES_FORMS_EMAIL_TO  = _env("SITES_FORMS_EMAIL_TO", "") or ""
+MAIL_SUBMISSION_PORT  = int(_env("MAIL_SUBMISSION_PORT", "9587") or "9587")
+# Analytics-lite (SPEC-DIFFERENTIATORS §9, AD-10/11/12): on-demand parse of
+# the shared sites-access.log, TTL-cached like gather_stats_cached() — no
+# daemon, no derived store, nothing IP-shaped persisted.
+SITES_ANALYTICS_RETENTION_DAYS = int(_env("SITES_ANALYTICS_RETENTION_DAYS", "30") or "30")
+SITES_ANALYTICS_MAX_LINES      = int(_env("SITES_ANALYTICS_MAX_LINES", "200000") or "200000")
+SITES_ANALYTICS_CACHE_TTL_S    = int(_env("SITES_ANALYTICS_CACHE_TTL_S", "300") or "300")
 
 PASSWORD_FILE       = os.path.join(SECRETS, "adminweb-password.hash")
 SESSION_SECRET_FILE = os.path.join(SECRETS, "adminweb-session.bin")
@@ -122,6 +147,10 @@ ENABLE = {
     "ittools":  _flag("ENABLE_ITTOOLS"),
     "gatus":    _flag("ENABLE_GATUS"),
     "sites":    _flag("ENABLE_SITES"),
+    "sites-webhooks": _flag("ENABLE_SITES_WEBHOOKS"),
+    "sites-forms": _flag("ENABLE_SITES_FORMS"),
+    "sites-forms-email": _flag("ENABLE_SITES_FORMS_EMAIL"),
+    "sites-analytics": _flag("ENABLE_SITES_ANALYTICS"),
     "wallabag":   _flag("ENABLE_WALLABAG"),
     "radicale":   _flag("ENABLE_RADICALE"),
     "trilium":    _flag("ENABLE_TRILIUM"),
@@ -2747,6 +2776,20 @@ SITE_RESERVED = frozenset(
 # the panel must accept pipeline-minted ids everywhere a job/release id appears.
 _SITE_JOB_RE = re.compile(r"^[0-9]{8}T[0-9]{4,6}Z-[0-9a-f]{4}$")
 
+# Git-push-to-deploy payload validation (SPEC-DIFFERENTIATORS §6.4) — mirrors
+# webhook-stage.sh's OWNER_REPO_RE/SHA_RE exactly. This route only regex-gates
+# repository.full_name; webhook-stage.sh is what re-validates it with
+# realpath-containment + existence under the Forgejo repos root — a second,
+# independent layer, same three-layer discipline as validate_release_id().
+_WEBHOOK_OWNER_REPO_RE = re.compile(
+    # The lookaheads reject an all-dots segment ("." / ".." / "...") on either
+    # side — "../.." is inside the plain char class and would otherwise pass
+    # this first layer and lean entirely on webhook-stage.sh's realpath
+    # containment (which does catch it; this just refuses it one layer sooner,
+    # and no real Forgejo owner/repo is ever named only-dots).
+    r"^(?!\.+/)[A-Za-z0-9._-]{1,100}/(?!\.+$)[A-Za-z0-9._-]{1,100}$")
+_WEBHOOK_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
+
 # AD-4 — hardcoded, NEVER taken from request data. The two Sites scripts the
 # panel launches with a dynamic argv tail: SITES_DEPLOY_SCRIPT via
 # run_script_detached_argv (deploy, §8), SITES_ROLLBACK_SCRIPT via
@@ -2757,6 +2800,12 @@ _SITE_JOB_RE = re.compile(r"^[0-9]{8}T[0-9]{4,6}Z-[0-9a-f]{4}$")
 SITES_DEPLOY_SCRIPT   = "sites/site-deploy.sh"
 SITES_ROLLBACK_SCRIPT = "sites/site-rollback.sh"
 SITES_DELETE_SCRIPT   = "sites/site-delete.sh"
+# Git-push-to-deploy (SPEC-DIFFERENTIATORS §6.4) — used ONLY by
+# run_script_argv, both synchronously: staging is a bounded, quick
+# subprocess (git archive under a timeout) and secret mint/rotate is a
+# handful of filesystem ops, neither warrants the detached-launch machinery.
+SITES_WEBHOOK_STAGE_SCRIPT  = "sites/webhook-stage.sh"
+SITES_WEBHOOK_SECRET_SCRIPT = "sites/site-webhook-secret.sh"
 
 
 def csrf_ok_header():
@@ -2775,11 +2824,14 @@ def json_response(obj, status=200):
 
 def run_script_argv(base_script, extra_argv, timeout=60):
     """run_script(), but takes an explicit script path + a server-validated argv
-    tail instead of a SCRIPTS_OK key — used ONLY by rollback (§11) and delete
-    (§12), both with argv the caller already validated (name regex + existence
-    checked against the registry). Same (rc, out) shape as run_script(); always
-    synchronous — AD-4's detached counterpart is run_script_detached_argv,
-    below, for the one caller (deploy) that must survive past the request."""
+    tail instead of a SCRIPTS_OK key — used by rollback (§11), delete (§12),
+    and the git-push-to-deploy webhook receiver's synchronous staging step +
+    its secret mint/rotate action (SPEC-DIFFERENTIATORS §6.4), all with argv
+    the caller already validated (name regex + existence checked against the
+    registry, or webhook-stage.sh's own regex/containment/existence checks).
+    Same (rc, out) shape as run_script(); always synchronous — AD-4's detached
+    counterpart is run_script_detached_argv, below, for the one caller
+    (deploy) that must survive past the request."""
     cmd = ["bash", os.path.join(SCRIPTS, base_script)] + list(extra_argv)
     try:
         p = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
@@ -2914,6 +2966,9 @@ def _site_card_html(name, site):
      style="width:180px;height:180px;background:#fff;padding:8px;border-radius:10px">
 </div>
 </details>
+{f'<p class=small><a href="/sites/{e(name)}/webhook">git-push-to-deploy &rarr;</a></p>' if ENABLE.get("sites-webhooks") else ''}
+{f'<p class=small><a href="/sites/{e(name)}/forms">form submissions &rarr;</a></p>' if ENABLE.get("sites-forms") else ''}
+{f'<p class=small><a href="/sites/{e(name)}/analytics">analytics &rarr;</a></p>' if ENABLE.get("sites-analytics") else ''}
 <a href="/sites/{e(name)}/delete" class="btn danger small">delete…</a>
 </div>"""
 
@@ -3159,6 +3214,574 @@ def sites_upload():
     if not ok2:
         return json_response({"ok": False, "error": "could not start the deploy"}, 500)
     return json_response({"ok": True, "job": job}, 200)
+
+
+# ── Git-push-to-deploy (Forgejo webhooks, SPEC-DIFFERENTIATORS §6) ──────────
+# Per-site cooldown: {name: last_dispatch_epoch} + lock — same shape as
+# _SITE_HEALTH_CACHE/_STATS_CACHE (module-level dict + lock) — cheap
+# back-pressure against a misbehaving CI loop or a replayed delivery,
+# independent of the HMAC check (§6.4).
+_SITE_WEBHOOK_COOLDOWN = {}
+_SITE_WEBHOOK_COOLDOWN_LOCK = threading.Lock()
+
+
+def _site_webhook_secret_path(name):
+    return os.path.join(SITES_WEBHOOK_SECRET_DIR, f"{name}.secret")
+
+
+def _site_webhook_read_secret(name):
+    """The site's webhook secret text (stripped), or None if none has been
+    provisioned yet — the panel's "generate webhook secret" action (below) is
+    the only thing that ever creates this file. Never raises."""
+    try:
+        with open(_site_webhook_secret_path(name)) as f:
+            secret = f.read().strip()
+        return secret or None
+    except OSError:
+        return None
+
+
+def _site_webhook_verify_signature(secret, raw_body):
+    """hmac.compare_digest over hex HMAC-SHA256(raw_body), checked against
+    EITHER X-Forgejo-Signature or its Gitea-compatibility fallback
+    X-Gitea-Signature (Forgejo's own docs, §16-EXT-1b) — same
+    constant-time-compare idiom as csrf_ok_header() above. True on a match
+    against either header."""
+    expected = hmac.new(secret.encode(), raw_body, hashlib.sha256).hexdigest()
+    for hdr in ("X-Forgejo-Signature", "X-Gitea-Signature"):
+        got = request.headers.get(hdr, "")
+        if got and hmac.compare_digest(expected, got):
+            return True
+    return False
+
+
+@app.route("/sites/<name>/webhook/forgejo", methods=["POST"])
+def sites_webhook_forgejo(name):
+    """Machine-called receiver for the bundled Forgejo's push-event webhook —
+    NO @login_required, NO CSRF (both are browser-session concepts; the
+    caller here is Forgejo, not the operator's browser, exactly like
+    sites_upload() above is gated by a DIFFERENT mechanism than the rest of
+    the panel, admin/app.py:3109-3114 — except this route has no
+    session/password concept at all). Authenticated purely by a per-site HMAC
+    secret (§6.6 — loopback is not a trust boundary on Android/Termux, the
+    exact reasoning maddy.conf.tmpl:54-55 already documents for its own
+    loopback-only inject endpoint)."""
+    if not (ENABLE.get("sites") and ENABLE.get("sites-webhooks")):
+        abort(404)
+    if not SITE_SUB_RE.fullmatch(name):
+        abort(400)
+
+    raw_body = request.get_data(cache=False)
+
+    secret = _site_webhook_read_secret(name)
+    if secret is None:
+        # Generic 404 — the SAME shared error page as an unknown-site request
+        # anywhere else in the panel (@app.errorhandler(404) below) — no "site
+        # exists but has no secret yet" vs "no such site" oracle (§6.6).
+        log_audit("sites-webhook", name=name, ok=False, reason="no-secret")
+        abort(404)
+
+    if not _site_webhook_verify_signature(secret, raw_body):
+        # Generic 401 — a missing header and a wrong signature look identical
+        # to the caller (§6.6's "no probing oracle" rule).
+        log_audit("sites-webhook", name=name, ok=False, reason="bad-signature")
+        abort(401)
+
+    try:
+        payload = json.loads(raw_body)
+        if not isinstance(payload, dict):
+            raise ValueError("payload is not a JSON object")
+    except (ValueError, UnicodeDecodeError):
+        log_audit("sites-webhook", name=name, ok=False, reason="bad-json")
+        abort(400)
+
+    ref = payload.get("ref") or ""
+    if ref != f"refs/heads/{SITES_WEBHOOK_BRANCH}":
+        # A push to a non-deploy branch (or a tag, or any other ref shape) is
+        # NOT a delivery failure — Forgejo must not see this as an error and
+        # retry/alert (§6.4/§6.7).
+        log_audit("sites-webhook", name=name, ok=True, skipped=True, ref=ref)
+        return json_response({"skipped": "not the configured branch"}, 200)
+
+    full_name = (payload.get("repository") or {}).get("full_name") or ""
+    after = payload.get("after") or ""
+    if not (isinstance(full_name, str) and _WEBHOOK_OWNER_REPO_RE.fullmatch(full_name)
+            and isinstance(after, str) and _WEBHOOK_SHA_RE.fullmatch(after)):
+        log_audit("sites-webhook", name=name, ok=False, reason="bad-payload")
+        return json_response({"ok": False, "error": "invalid repository/after in payload"}, 400)
+
+    now = time.time()
+    with _SITE_WEBHOOK_COOLDOWN_LOCK:
+        last = _SITE_WEBHOOK_COOLDOWN.get(name, 0.0)
+        if now - last < SITES_WEBHOOK_COOLDOWN_S:
+            log_audit("sites-webhook", name=name, ok=False, reason="cooldown")
+            return json_response({"ok": False, "error": "cooldown — try again shortly"}, 429)
+        _SITE_WEBHOOK_COOLDOWN[name] = now
+
+    # HHMMSS — identical shape to sites_upload()'s own job minting (above) so
+    # this synchronous stage step and the eventual detached site-deploy.sh
+    # launch share ONE job id end to end.
+    job = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime()) + "-" + secrets.token_hex(2)
+    rc, out = run_script_argv(
+        SITES_WEBHOOK_STAGE_SCRIPT, [name, full_name, after, "--job", job],
+        timeout=SITES_WEBHOOK_STAGE_TIMEOUT + 15)
+    if rc != 0:
+        log_audit("sites-webhook", name=name, job=job, ok=False, reason="stage-failed", rc=rc)
+        return json_response({"ok": False, "error": "staging failed"}, 502)
+    # webhook-stage.sh's ONLY stdout output on success is the staged path
+    # (nothing on stderr on that path either — see its own header) — so the
+    # combined (rc, out) run_script_argv() shape is safe to read as-is here.
+    staged = out.strip()
+
+    reg = _read_sites_registry()
+    tier = reg.get("sites", {}).get(name, {}).get("build", "none")
+    ok2, _logname = run_script_detached_argv(
+        SITES_DEPLOY_SCRIPT, [name, staged, "--build", tier, "--job", job],
+        f"site-deploy-{job}.log")
+    log_audit("sites-webhook", name=name, job=job, ok=ok2, ref=ref, sha=after)
+    if not ok2:
+        return json_response({"ok": False, "error": "could not start the deploy"}, 500)
+    return json_response({"ok": True, "job": job}, 200)
+
+
+def _site_webhook_setup_html(name, webhook_url, provisioned):
+    return f"""
+<div class=box>
+<p class=small>Paste this into Forgejo's per-repo <strong>Settings &rarr; Webhooks &rarr; Add Webhook &rarr; Forgejo</strong>:</p>
+<ul class=small>
+<li>Target URL: <code>{e(webhook_url)}</code></li>
+<li>HTTP Method: <code>POST</code></li>
+<li>POST Content Type: <code>application/json</code></li>
+<li>Secret: {'generate/rotate it below, then paste the value shown' if not provisioned else 'the value shown the last time you generated/rotated it (not re-displayed)'}</li>
+<li>Trigger On: <code>Push Events</code></li>
+<li>Branch filter: pushes to <code>{e(SITES_WEBHOOK_BRANCH)}</code> deploy; any other branch is skipped (not an error)</li>
+</ul>
+</div>"""
+
+
+@app.route("/sites/<name>/webhook", methods=["GET", "POST"])
+@login_required
+def sites_webhook_admin(name):
+    if not (ENABLE.get("sites") and ENABLE.get("sites-webhooks")):
+        abort(404)
+    if not SITE_SUB_RE.fullmatch(name) or name in SITE_RESERVED:
+        abort(400)
+    webhook_url = f"http://127.0.0.1:{BIND_PORT}/sites/{e(name)}/webhook/forgejo"
+
+    if request.method == "POST":
+        if not csrf_ok():
+            abort(403)
+        rotate = request.form.get("rotate") == "1"
+        argv = [name] + (["--rotate"] if rotate else [])
+        rc, out = run_script_argv(SITES_WEBHOOK_SECRET_SCRIPT, argv, timeout=30)
+        log_audit("sites-webhook-secret", name=name, rotate=rotate, ok=(rc == 0))
+        if rc != 0:
+            flash_msg(f"could not generate the webhook secret: {redact_secrets(out)[:300]}", "err")
+            return redirect(url_for("sites_webhook_admin", name=name))
+        secret = out.strip()
+        # Shown ONCE on this result page — mirrors rotate-admin-pass
+        # (admin/app.py:265, confirm_action()'s POST branch above).
+        body = f"""
+<div class="box">
+<h2>✅ webhook secret {'rotated' if rotate else 'generated'} for {e(name)}</h2>
+<div class=warn-box>
+<p><strong>Shown ONCE — copy it now, it will not be shown again:</strong></p>
+<pre>{e(redact_secrets(secret))}</pre>
+</div>
+{_site_webhook_setup_html(name, webhook_url, provisioned=True)}
+<p class=small><a href="/sites/{e(name)}/webhook">&larr; back</a> &middot; <a href="/sites">sites</a></p>
+</div>"""
+        return render(f"webhook secret — {name}", body)
+
+    has_secret = _site_webhook_read_secret(name) is not None
+    csrf = e(new_csrf())
+    body = f"""
+<div class=box>
+<h2><span class=ico>\U0001F517</span> git-push-to-deploy — {e(name)}</h2>
+<p class=small>Webhook secret: {'<strong>configured</strong>' if has_secret else '<em>not configured yet</em>'}.</p>
+{_site_webhook_setup_html(name, webhook_url, provisioned=has_secret)}
+<form method=post>
+<input type=hidden name=_csrf value="{csrf}">
+<input type=hidden name=rotate value="{'1' if has_secret else '0'}">
+<button class=small type=submit>{'rotate secret (invalidates the old one)' if has_secret else 'generate webhook secret'}</button>
+</form>
+<p class=small><a href="/sites">&larr; sites</a></p>
+</div>"""
+    return render(f"webhook — {name} — {BRAND} admin", body)
+
+
+# ── Forms (Netlify-Forms clone, SPEC-DIFFERENTIATORS §8 + C-2/C-3) ───────────
+# The submit route is PUBLIC by design (Netlify's own model: no secret at all
+# on the wire from the visitor's side) — the structural mitigations are the
+# render-time gate token (C-2: proves the request came through the sites
+# wildcard vhost, whose header strip-then-set is the ONLY thing allowed to
+# attribute a site), body/field caps, the honeypot field, and the per-
+# (site, form, truncated-ip) rate limit. Field VALUES are attacker text and
+# only ever become HTML through e() in the inbox below.
+_FORM_NAME_RE = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
+_FORMS_HP_FIELD = "_pocket_hp"
+
+_FORMS_RATE = {}
+_FORMS_RATE_LOCK = threading.Lock()
+
+_FORMS_DB_MOD = None
+
+
+def _forms_db():
+    """Lazy-load scripts/sites/forms_db.py by absolute path — the panel runs
+    as an out-of-tree copy (70-install-admin.sh), so a package import can't
+    reach it; SCRIPTS is already how every run_script* call finds the repo."""
+    global _FORMS_DB_MOD
+    if _FORMS_DB_MOD is None:
+        import importlib.util
+        p = os.path.join(SCRIPTS, "sites", "forms_db.py")
+        spec = importlib.util.spec_from_file_location("pocket_forms_db", p)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        _FORMS_DB_MOD = mod
+    return _FORMS_DB_MOD
+
+
+def _forms_gate_token():
+    """The render-time-minted gate value apps/sites.sh wrote 0600 into
+    POCKET_STATE_DIR (C-2) and baked into the sites vhost's header_up. None
+    until the forms feature has actually been rendered into the vhost."""
+    try:
+        with open(SITES_FORMS_GATE_FILE) as f:
+            return f.read().strip() or None
+    except OSError:
+        return None
+
+
+def _forms_client_ip():
+    """C-3: behind the default CF Tunnel ingress, Caddy's own client address
+    for visitor traffic is the LOCAL tunnel daemon — the real visitor is in
+    Cf-Connecting-IP (the exact preference chain honeypot-watcher.py's
+    parse_line() already proves against this repo's production logs), falling
+    back to remote_addr (ProxyFix has already consumed X-Forwarded-For)."""
+    return (request.headers.get("Cf-Connecting-IP") or "").strip() \
+        or (request.remote_addr or "")
+
+
+def _forms_rate_ok(site, form, ip_truncated):
+    """Fixed-window per (site, form, truncated-ip) — a simpler, non-backoff
+    cousin of rate_limit_login()'s dict+lock shape; spam mitigation doesn't
+    need the login path's escalating-lockout severity. The dict is pruned
+    opportunistically so an attacker rotating keys can't grow it unbounded."""
+    now = time.time()
+    key = (site, form, ip_truncated)
+    with _FORMS_RATE_LOCK:
+        if len(_FORMS_RATE) > 4096:
+            for stale in [k for k, ts in _FORMS_RATE.items()
+                          if not ts or now - ts[-1] > 3600]:
+                _FORMS_RATE.pop(stale, None)
+        ts = [t for t in _FORMS_RATE.get(key, []) if now - t < 3600]
+        if len(ts) >= SITES_FORMS_RATE_LIMIT_PER_HOUR:
+            _FORMS_RATE[key] = ts
+            return False
+        ts.append(now)
+        _FORMS_RATE[key] = ts
+        return True
+
+
+def _forms_relay_email(site, form, fields):
+    """Best-effort relay through the bundled Maddy's loopback submission
+    listener — the exact smtplib pattern mail-drain.py's inject() already
+    runs in production (ehlo -> starttls if offered -> login -> send). Creds
+    come from the email module's own 0600 mail-admin.env (ADMIN_USER/
+    ADMIN_PASS); a missing file just means "email module not installed" and
+    the relay quietly reports False. Never raises; never blocks the visitor
+    (the caller stores the row FIRST and only flips `emailed` on success)."""
+    import smtplib
+    from email.message import EmailMessage
+    creds = {}
+    try:
+        with open(os.path.join(SECRETS, "mail-admin.env")) as f:
+            for line in f:
+                line = line.strip()
+                if "=" in line and not line.startswith("#"):
+                    k, _, v = line.partition("=")
+                    creds[k.strip()] = v.strip()
+    except OSError:
+        return False
+    user, pw = creds.get("ADMIN_USER"), creds.get("ADMIN_PASS")
+    if not (user and pw):
+        return False
+    msg = EmailMessage()
+    msg["From"] = user
+    msg["To"] = SITES_FORMS_EMAIL_TO or user
+    msg["Subject"] = f"[{site}] form '{form}' submission"
+    msg.set_content(
+        "\n".join(f"{k}: {v}" for k, v in fields.items()) or "(no fields)")
+    try:
+        s = smtplib.SMTP("127.0.0.1", MAIL_SUBMISSION_PORT, timeout=10)
+        try:
+            s.ehlo()
+            if s.has_extn("starttls"):
+                s.starttls()
+                s.ehlo()
+            s.login(user, pw)
+            s.send_message(msg)
+        finally:
+            try:
+                s.quit()
+            except Exception:
+                pass
+        return True
+    except Exception:
+        return False
+
+
+@app.route("/__pocket-forms__/submit/<form>", methods=["POST"])
+def sites_forms_submit(form):
+    """Visitor-facing form receiver. Deliberately NO log_audit here (AD-8):
+    audit entries carry full operator IPs by design, and a third-party
+    visitor's full address must never be persisted anywhere — the only
+    address-shaped thing stored is the /24 (v4) / /48 (v6) truncation."""
+    if not (ENABLE.get("sites") and ENABLE.get("sites-forms")):
+        abort(404)
+    gate = _forms_gate_token()
+    got = request.headers.get("X-Pocket-Forms-Gate", "")
+    if not (gate and got and hmac.compare_digest(gate, got)):
+        # C-2: no valid gate value = this did NOT come through the sites
+        # vhost (direct loopback POST, or the admin vhost, which strips the
+        # header) — generic 404, indistinguishable from the feature being off.
+        abort(404)
+    site = (request.headers.get("X-Pocket-Site") or "").strip().lower()
+    if not SITE_SUB_RE.fullmatch(site):
+        abort(404)
+    if not _FORM_NAME_RE.fullmatch(form):
+        abort(400)
+    cl = request.content_length
+    if cl is None:
+        abort(411)
+    if cl > SITES_FORMS_MAX_BODY_KB * 1024:
+        abort(413)
+    items = list(request.form.items())
+    if len(items) > SITES_FORMS_MAX_FIELDS:
+        abort(413)
+    hp_tripped = False
+    fields = {}
+    for k, v in items:
+        if len(k) > 200 or len(v) > SITES_FORMS_MAX_FIELD_LEN:
+            abort(413)
+        if k == _FORMS_HP_FIELD:
+            # AD-9: the trip is recorded as spam=1, the bait value itself is
+            # never stored.
+            hp_tripped = bool(v.strip())
+            continue
+        fields[k] = v
+    db = _forms_db()
+    ip_truncated = db.truncate_ip(_forms_client_ip())
+    if not _forms_rate_ok(site, form, ip_truncated):
+        abort(429)
+    conn = db.connect(SITES_FORMS_DB)
+    try:
+        row_id = db.insert(conn, site, form, fields, ip_truncated,
+                           request.headers.get("User-Agent", ""), hp_tripped)
+        if not hp_tripped and ENABLE.get("sites-forms-email"):
+            if _forms_relay_email(site, form, fields):
+                db.mark_emailed(conn, row_id)
+        if db.gc_due(SITES_FORMS_GC_STAMP):
+            # OQ-5: automatic, at most daily — retention is a privacy bound,
+            # so it must actually happen without operator memory or a cron.
+            db.gc(conn, SITES_FORMS_RETENTION_DAYS, SITES_FORMS_GC_STAMP)
+    finally:
+        conn.close()
+    # A honeypot trip gets the SAME response as success — no signal (AD-9).
+    if "application/json" in (request.headers.get("Accept") or ""):
+        return json_response({"ok": True}, 200)
+    return make_response(
+        "<!doctype html><meta charset=utf-8>"
+        "<meta name=viewport content='width=device-width,initial-scale=1'>"
+        "<title>Thanks</title>"
+        "<body style='font-family:system-ui;margin:15vh auto;max-width:28rem;"
+        "text-align:center'><h1>Thanks!</h1>"
+        "<p>Your submission was received.</p>"
+        "<p><a href='javascript:history.back()'>&larr; back</a></p>", 200)
+
+
+@app.route("/sites/<name>/forms")
+@login_required
+def sites_forms_inbox(name):
+    if not (ENABLE.get("sites") and ENABLE.get("sites-forms")):
+        abort(404)
+    if not SITE_SUB_RE.fullmatch(name) or name in SITE_RESERVED:
+        abort(400)
+    include_spam = request.args.get("spam") == "1"
+    try:
+        page = max(0, int(request.args.get("page", "0")))
+    except ValueError:
+        page = 0
+    per = 50
+    db = _forms_db()
+    conn = db.connect(SITES_FORMS_DB)
+    try:
+        rows, total = db.query(conn, name, include_spam=include_spam,
+                               limit=per, offset=page * per)
+    finally:
+        conn.close()
+    csrf = e(new_csrf())
+    body_rows = []
+    for r in rows:
+        try:
+            fields = json.loads(r["fields_json"])
+        except ValueError:
+            fields = {}
+        field_html = "<br>".join(
+            f"<strong>{e(str(k))}</strong>: {e(str(v))}"
+            for k, v in fields.items()) or "<em>(no fields)</em>"
+        badges = ""
+        if r["spam"]:
+            badges += " <span class=badge>spam</span>"
+        if r["emailed"]:
+            badges += " <span class=badge>emailed</span>"
+        body_rows.append(
+            f"<tr><td><input type=checkbox name=id value=\"{r['id']}\"></td>"
+            f"<td class=small>{e(r['ts'])}</td>"
+            f"<td class=small>{e(r['form'])}{badges}</td>"
+            f"<td>{field_html}</td>"
+            f"<td class=small>{e(r['ip_truncated'] or '')}</td></tr>")
+    spam_link = (f'<a href="/sites/{e(name)}/forms">hide spam</a>'
+                 if include_spam else
+                 f'<a href="/sites/{e(name)}/forms?spam=1">show spam</a>')
+    nav = ""
+    if page > 0:
+        nav += f'<a href="?page={page - 1}{"&spam=1" if include_spam else ""}">&larr; newer</a> '
+    if (page + 1) * per < total:
+        nav += f'<a href="?page={page + 1}{"&spam=1" if include_spam else ""}">older &rarr;</a>'
+    body = f"""
+<div class=box>
+<h2><span class=ico>\U0001F4E8</span> forms — {e(name)}</h2>
+<p class=small>{total} submission(s){' incl. spam' if include_spam else ''} &middot; {spam_link} &middot; retention {SITES_FORMS_RETENTION_DAYS}d &middot; stored fields + a /24 (v4) / /48 (v6) truncated IP only — never the full address</p>
+<form method=post action="/sites/{e(name)}/forms/delete">
+<input type=hidden name=_csrf value="{csrf}">
+<table>
+<tr><th></th><th>when (UTC)</th><th>form</th><th>fields</th><th>ip (truncated)</th></tr>
+{''.join(body_rows) or '<tr><td colspan=5><em>nothing yet</em></td></tr>'}
+</table>
+<button class="btn danger small" type=submit name=mode value=selected>delete selected</button>
+<button class="btn small" type=submit name=mode value=spam>delete ALL spam rows</button>
+</form>
+<p class=small>{nav}</p>
+<p class=small><a href="/sites">&larr; sites</a></p>
+</div>"""
+    return render(f"forms — {name} — {BRAND} admin", body)
+
+
+# ── Analytics-lite (SPEC-DIFFERENTIATORS §9, AD-10/11/12) ────────────────────
+_ANALYTICS_MOD = None
+_SITES_ANALYTICS_CACHE = {"ts": 0.0, "agg": None}
+_SITES_ANALYTICS_LOCK = threading.Lock()
+
+
+def _analytics_mod():
+    """Lazy path-load of scripts/sites/analytics.py — same out-of-tree-copy
+    reasoning as _forms_db() above."""
+    global _ANALYTICS_MOD
+    if _ANALYTICS_MOD is None:
+        import importlib.util
+        p = os.path.join(SCRIPTS, "sites", "analytics.py")
+        spec = importlib.util.spec_from_file_location("pocket_sites_analytics", p)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        _ANALYTICS_MOD = mod
+    return _ANALYTICS_MOD
+
+
+def _sites_analytics_cached():
+    """The whole-registry aggregate, recomputed at most once per TTL — the
+    identical module-level dict+lock shape as gather_stats_cached()/
+    _site_probes(). One parse serves every site's page (the log is shared;
+    per-site slicing is free)."""
+    now = time.time()
+    with _SITES_ANALYTICS_LOCK:
+        if _SITES_ANALYTICS_CACHE["agg"] is not None \
+                and now - _SITES_ANALYTICS_CACHE["ts"] < SITES_ANALYTICS_CACHE_TTL_S:
+            return _SITES_ANALYTICS_CACHE["agg"]
+    mod = _analytics_mod()
+    agg = mod.aggregate(
+        mod.iter_log_lines(LOGS, SITES_ANALYTICS_RETENTION_DAYS),
+        DOMAIN, max_lines=SITES_ANALYTICS_MAX_LINES)
+    with _SITES_ANALYTICS_LOCK:
+        _SITES_ANALYTICS_CACHE["ts"] = now
+        _SITES_ANALYTICS_CACHE["agg"] = agg
+    return agg
+
+
+@app.route("/sites/<name>/analytics")
+@login_required
+def sites_analytics(name):
+    if not (ENABLE.get("sites") and ENABLE.get("sites-analytics")):
+        abort(404)
+    if not SITE_SUB_RE.fullmatch(name) or name in SITE_RESERVED:
+        abort(400)
+    try:
+        agg = _sites_analytics_cached()
+    except Exception:
+        # Isolated failure (unreadable log dir, etc.) — the rest of the panel
+        # is unaffected, matching _read_sites_registry()'s degrade convention.
+        log_audit("sites-analytics", name=name, ok=False, reason="aggregate-failed")
+        abort(500)
+    s = agg["sites"].get(name)
+    if s is None:
+        body_stats = "<p><em>No traffic recorded for this site yet (or the access log has rotated past the window).</em></p>"
+    else:
+        rows = "".join(
+            f"<tr><td><code>{e(p)}</code></td><td>{c}</td></tr>"
+            for p, c in s["top_paths"])
+        mb = s["bytes_hint"] / (1024 * 1024)
+        body_stats = f"""
+<div class=grid>
+<div class=box><h3>{s['requests']}</h3><p class=small>requests</p></div>
+<div class=box><h3>{s['approx_unique_visitors']}</h3><p class=small>approx. unique visitors (truncated-IP set, in-memory only)</p></div>
+<div class=box><h3>{s['status_2xx']}/{s['status_3xx']}/{s['status_4xx']}/{s['status_5xx']}</h3><p class=small>2xx / 3xx / 4xx / 5xx</p></div>
+<div class=box><h3>{mb:.1f} MiB</h3><p class=small>bytes served (best-effort)</p></div>
+</div>
+<h3>top paths</h3>
+<table><tr><th>path (query strings never recorded)</th><th>hits</th></tr>{rows}</table>"""
+    trunc_note = ("<p class=small>⚠ line cap hit — figures are a lower bound for the window.</p>"
+                  if agg.get("truncated") else "")
+    body = f"""
+<div class=box>
+<h2><span class=ico>\U0001F4C8</span> analytics — {e(name)}</h2>
+<p class=small>window: newest rotated logs within {SITES_ANALYTICS_RETENTION_DAYS} days — history depends on
+how much log-rotation headroom your traffic has used (rotation is by SIZE, not calendar), so a busy site
+may hold less than the full window. No client-side JS, no cookies; unique-visitor counts come from a
+truncated-IP set discarded after each pass — nothing per-visitor is ever stored.</p>
+{trunc_note}
+{body_stats}
+<p class=small><a href="/sites">&larr; sites</a></p>
+</div>"""
+    return render(f"analytics — {name} — {BRAND} admin", body)
+
+
+@app.route("/sites/<name>/forms/delete", methods=["POST"])
+@login_required
+def sites_forms_delete(name):
+    if not (ENABLE.get("sites") and ENABLE.get("sites-forms")):
+        abort(404)
+    if not SITE_SUB_RE.fullmatch(name) or name in SITE_RESERVED:
+        abort(400)
+    if not csrf_ok():
+        abort(403)
+    mode = request.form.get("mode", "selected")
+    db = _forms_db()
+    conn = db.connect(SITES_FORMS_DB)
+    try:
+        if mode == "spam":
+            n = db.delete_spam(conn, name)
+        else:
+            try:
+                ids = [int(i) for i in request.form.getlist("id")]
+            except ValueError:
+                abort(400)
+            n = db.delete_ids(conn, name, ids)
+    finally:
+        conn.close()
+    log_audit("sites-forms-delete", name=name, mode=mode, rows=n, ok=True)
+    flash_msg(f"deleted {n} submission(s)")
+    return redirect(url_for("sites_forms_inbox", name=name))
 
 
 @app.route("/sites/health.json")

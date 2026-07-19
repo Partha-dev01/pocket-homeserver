@@ -139,6 +139,14 @@ and is built fail-closed:
   and is audit-logged like every other mutation here.
 - **QR share** renders a QR of the site's public URL on demand — nothing
   secret is ever encoded.
+- **Per-site opt-in pages** (each behind its own flag, linked from the card
+  only when enabled): a **webhook setup** page (`ENABLE_SITES_WEBHOOKS`) that
+  provisions/rotates the site's git-push-to-deploy secret — shown **once**,
+  stored 0600 server-side; a **forms inbox** (`ENABLE_SITES_FORMS`) with
+  spam/ham views and CSRF-checked delete; and an **analytics** page
+  (`ENABLE_SITES_ANALYTICS`) aggregated on demand from the shared access log
+  (no daemon, no client JS). How each feature works end-to-end is in
+  [SITES.md](SITES.md).
 - **Maintenance buttons**: *rebuild registry* (re-derives the registry from the
   on-disk release tree if they ever disagree) and *reapply sites config*
   (re-renders + validates the wildcard vhost — how you pick up a
