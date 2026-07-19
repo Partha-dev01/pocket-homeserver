@@ -49,6 +49,7 @@ import hmac
 import json
 import os
 import re
+import secrets
 import subprocess
 import sys
 import threading
@@ -122,6 +123,34 @@ SECRETS     = os.path.join(DATA_DIR, "secrets")
 STATE       = _env("POCKET_STATE_DIR") or os.path.join(DATA_DIR, "state")
 LOGS        = _env("POCKET_LOG_DIR")   or os.path.join(DATA_DIR, "logs")
 BACKUP_DIR  = _env("BACKUP_DIR")       or os.path.join(DATA_DIR, "backups")
+# Metrics ring written by scripts/ops/metrics-sampler.py. Lives on ext4 (Termux
+# $HOME), NOT under DATA_DIR (often exFAT) — mirrors admin/app.py:70-71 exactly
+# (the sampler's launcher pins the same default, so both readers agree).
+METRICS_LOG = _env("POCKET_METRICS_LOG") or os.path.join(
+    os.path.expanduser("~"), ".pocket", "metrics", "metrics.jsonl")
+
+# Pocket Pages (Sites) — Termux-native host-side view of SITES_ROOT inside the
+# proot userland (AD-3), the same PD_BASE/SITES_ROOT/SITES_STAGING/SITES_REGISTRY
+# derivation admin/app.py:79-83 uses. Sites reads go straight to the registry
+# file, never through a subprocess (AD-3) — see _sites_registry() below.
+PD_BASE        = os.path.join(_env("PREFIX", "/data/data/com.termux/files/usr"),
+                               "var/lib/proot-distro/installed-rootfs")
+SITES_ROOT     = _env("POCKET_SITES_ROOT") or os.path.join(PD_BASE, "debian/var/www/sites")
+SITES_STAGING  = os.path.join(SITES_ROOT, ".staging")
+SITES_REGISTRY = os.path.join(SITES_ROOT, ".registry.json")
+# Name/job-id validation — ported verbatim from admin/app.py:2739-2748. This is
+# the THIRD hand-maintained mirror of the same reserved list (AD-3): lib-sites.sh's
+# RESERVED_SUBS is the first, admin/app.py's SITE_RESERVED the second — tests
+# assert three-way parity (§12).
+SITE_SUB_RE = re.compile(r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$")
+SITE_RESERVED = frozenset(
+    "chat admin files music books audiobooks read dav wiki vault links share rss notes "
+    "tasks search tools status stickers webmail ai mcp git dns "
+    "www mail mta smtp imap pop autoconfig autodiscover matrix sites api cdn ns1 ns2 preview".split()
+)
+# Same shape as the pipeline's RELEASE_ID_RE (lib-sites.sh:49): {4,6} tolerates
+# both HHMM and the HHMMSS form new_job_id()/new_release_id() actually mint.
+_SITE_JOB_RE = re.compile(r"^[0-9]{8}T[0-9]{4,6}Z-[0-9a-f]{4}$")
 
 # Backing-script roots. Mutating tools shell out to these with a FIXED argv.
 OPS         = os.path.join(SCRIPTS, "ops")
@@ -140,6 +169,9 @@ PRIVATE_FILE = os.path.join(SECRETS, "private-users.txt")
 DOMAIN      = _env("DOMAIN", "localhost")
 CADDY_BIND  = _env("CADDY_BIND", "127.0.0.1")
 CADDY_PORT  = _env("CADDY_PORT", "8443")
+# Loopback port of the admin panel itself — used only by the 3 unconditional
+# core HTTP probes (AD-7); mirrors admin/app.py:97's own ADMINWEB_PORT read.
+ADMINWEB_PORT = _env("ADMINWEB_PORT", "9000") or "9000"
 
 # Same loopback homeserver the panel's gather_health() / bot widget use.
 MATRIX_HS_API = "http://127.0.0.1:8448"
@@ -195,6 +227,12 @@ ENABLE = {
     "stickers":      _flag("ENABLE_STICKERS"),
     "adminbot":      _flag("ENABLE_ADMINBOT"),
     "email":         _flag("ENABLE_EMAIL"),
+    # AD-9 — four keys admin/app.py's ENABLE dict already carries
+    # (admin/app.py:114-154); no new .env key, gate registration only.
+    "sites":         _flag("ENABLE_SITES"),
+    "user-admin":    _flag("ENABLE_USER_ADMIN"),
+    "metrics":       _flag("ENABLE_METRICS"),
+    "offsite":       _flag("ENABLE_OFFSITE_BACKUP"),
 }
 
 # Default allowlist of log basenames pocket_logs may read. Operators can override
@@ -202,6 +240,12 @@ ENABLE = {
 _DEFAULT_ALLOWED_LOGS = (
     "caddy.log", "caddy-access.log", "cloudflared.log", "matrix.log",
     "adminweb.log", "auth-gw.log", "honeypot.log", "backup-daemon.log",
+    # AD-8 additions — every one an actual file a supervised service or a
+    # detached script writes (verified against ${POCKET_LOG_DIR} usage, not
+    # guessed). Per-job deploy logs (site-deploy-<job>.log) are deliberately
+    # NOT here — dynamic basename, read exclusively via pocket_site_status.
+    "metrics-sampler.log", "user-filter.log", "media-filter.log",
+    "honeypot-watcher.log", "adminweb-async.log", "mcp-async.log",
 )
 
 
@@ -322,6 +366,18 @@ _OPS_ALLOWLIST = frozenset((
     "ops/panic-hard.sh",
     "ops/rotate-registration-token.sh",
     "bootstrap/mint-invite-token.sh",
+    # M3 additions — parity tools (§7) + sites sync ops (§5).
+    "ops/doctor.sh",
+    "ops/rotate-backups.sh",
+    "ops/offsite-push.sh",
+    "ops/user-create.sh",
+    "ops/user-reset-password.sh",
+    "ops/user-suspend.sh",
+    "ops/user-unsuspend.sh",
+    "ops/user-deactivate.sh",
+    "start-stack.sh",
+    "sites/site-rollback.sh",
+    "sites/site-delete.sh",
 ))
 
 
@@ -341,12 +397,57 @@ def _run_ops(script_name, *args, timeout=OPS_TIMEOUT_DEFAULT):
         raise FileNotFoundError(f"backing script not found: {script_name}")
     cmd = ["bash", path, *[str(a) for a in args]]
     try:
-        p = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        # §14 finding 5 — explicit stdin=DEVNULL (was: inherited non-tty stdin).
+        # site-deploy.sh's non-interactive staging-containment check (AD-5) is
+        # gated on `[ ! -t 0 ]`; this makes that guarantee self-documenting
+        # instead of an implicit property of how the server happens to run.
+        p = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout,
+                            stdin=subprocess.DEVNULL)
         return p.returncode, (p.stdout or "") + (p.stderr or "")
     except subprocess.TimeoutExpired:
         return -1, f"timed out after {timeout}s"
     except Exception as ex:
         return -2, str(ex)
+
+
+# AD-2 — one new detached/async execution primitive, scoped to exactly ONE
+# caller (pocket_site_deploy, §5): a site deploy can legitimately run past a
+# reasonable tools/call timeout (SITES_BUILD_TIMEOUT defaults to 900s for the
+# node build tier), and the sites job-id + status-poll pattern requires
+# pocket_site_deploy to return almost immediately with a job id. Every other
+# mutating tool in this file stays synchronous via _run_ops (see the spec's
+# AD-2 rationale for NOT extending this to pocket_offsite_push/pocket_backup_all
+# — neither script has a job-state-file contract to poll against).
+_DETACHED_ALLOWLIST = frozenset(("sites/site-deploy.sh",))
+_MCP_ASYNC_LOG = "mcp-async.log"  # shared sink for every detached MCP-launched script
+
+
+def _run_ops_detached(script_name, *args):
+    """Launch an ALLOWLISTED backing script DETACHED (subprocess.Popen, not
+    run) — for the one mutating tool whose backing script can outlive a
+    reasonable tools/call timeout. Output goes to LOGS/mcp-async.log (mirrors
+    adminweb's single shared async sink, admin/app.py:2802) — per-JOB progress
+    is read back separately from the job's OWN log file (site-deploy-<job>.log),
+    never from this shared sink. Returns True/False (launch succeeded), never
+    raises."""
+    if script_name not in _DETACHED_ALLOWLIST:
+        raise ValueError(f"refusing to detach-launch non-allowlisted script {script_name!r}")
+    scripts_root = os.path.realpath(SCRIPTS)
+    path = os.path.realpath(os.path.join(SCRIPTS, script_name))
+    if path != scripts_root and not path.startswith(scripts_root + os.sep):
+        raise ValueError("resolved script path escapes the scripts/ tree")
+    if not os.path.isfile(path):
+        raise FileNotFoundError(f"backing script not found: {script_name}")
+    cmd = ["bash", path, *[str(a) for a in args]]
+    sink = os.path.join(LOGS, _MCP_ASYNC_LOG)
+    try:
+        os.makedirs(LOGS, exist_ok=True)
+        with open(sink, "ab", buffering=0) as lf:
+            subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=lf, stderr=lf,
+                              start_new_session=True, close_fds=True)
+        return True
+    except Exception:
+        return False
 
 
 # ---------- small read helpers (plumbing — no privileged logic) ----------
@@ -407,6 +508,93 @@ def _service_live(name):
         return True, pid
     except Exception:
         return False, pid
+
+
+def _degraded_marker(name):
+    """If the supervisor has flagged this service as crash-looping, return the
+    marker text (service/rc/fails/since); else None. Ported from
+    admin/app.py:1062-1072 (_degraded_marker) — written by supervise() in
+    scripts/lib/common.sh after POCKET_CRASHLOOP_FAILS rapid restarts. A
+    service can pgrep/pidfile-alive momentarily while crash-looping, so this
+    marker — not the instantaneous liveness check — is the reliable signal
+    (AD-7)."""
+    try:
+        with open(os.path.join(STATE, f"{name}.degraded"), encoding="utf-8") as fh:
+            return fh.read().strip() or None
+    except Exception:
+        return None
+
+
+# The 3 unconditional core HTTP probes (AD-7) — ported from the first 3 entries
+# of admin/app.py's _build_http_probes() (admin/app.py:849-856), the ones admin
+# always runs regardless of which optional apps are enabled. Full per-app probe
+# parity is an explicit non-goal for M3 (§13 OQ-2 resolution: bounded scope now,
+# a shared probe-module refactor later).
+_CORE_HTTP_PROBES = (
+    {"name": "conduwuit (local)", "host": "127.0.0.1:8448",
+     "path": "/_matrix/client/versions", "expect": 200, "scheme": "http"},
+    {"name": "matrix via caddy", "host": f"chat.{DOMAIN}",
+     "path": "/_matrix/client/versions", "expect": 200, "scheme": "loopback"},
+    {"name": "admin panel", "host": f"127.0.0.1:{ADMINWEB_PORT}",
+     "path": "/login", "expect": 200, "scheme": "http"},
+)
+
+
+def _probe(probe, timeout=5):
+    """One HTTP liveness probe. Ported from admin/app.py:1011-1046 (_probe_http)
+    — same no-follow-redirect behavior (a 30x to a login page proves the vhost
+    + its gate are live; letting urlopen follow it would report the login
+    page's 200 instead) and the same {code, latency_ms, ok, error} shape, plus
+    the probe's own "name" for a caller that fans out over _CORE_HTTP_PROBES."""
+    import urllib.error
+    if probe["scheme"] == "loopback":
+        # Caddy is plain HTTP on loopback (TLS terminates at the CF edge).
+        url = f"http://{CADDY_BIND}:{CADDY_PORT}{probe['path']}"
+    else:
+        url = f"http://{probe['host']}{probe['path']}"
+    req = urllib.request.Request(
+        url, method="GET",
+        headers={"Host": probe["host"], "User-Agent": "pocket-homeserver-mcp-health/1"})
+
+    class _NoFollow(urllib.request.HTTPRedirectHandler):
+        def redirect_request(self, *a, **k):
+            return None
+
+    opener = urllib.request.build_opener(_NoFollow)
+    t0 = time.time()
+    try:
+        with opener.open(req, timeout=timeout) as r:
+            code = r.status
+    except urllib.error.HTTPError as ex:
+        code = ex.code
+    except Exception as ex:
+        return {"name": probe["name"], "code": 0,
+                "latency_ms": int((time.time() - t0) * 1000),
+                "ok": False, "error": str(ex)[:80]}
+    latency = int((time.time() - t0) * 1000)
+    return {"name": probe["name"], "code": code, "latency_ms": latency,
+            "ok": code == probe["expect"], "error": ""}
+
+
+def _sites_registry():
+    """Direct file read of .registry.json (AD-3) — no subprocess, no proot
+    round-trip. A missing/corrupt registry degrades to an empty site list
+    rather than raising. Ported from admin/app.py:2813-2823
+    (_read_sites_registry)."""
+    try:
+        with open(SITES_REGISTRY) as f:
+            return json.load(f)
+    except Exception:
+        return {"version": 1, "sites": {}}
+
+
+def _new_job_id():
+    """Mint a job id in the SAME <UTC-ts>-<4hex> shape lib-sites.sh's
+    new_job_id() does (lib-sites.sh:141) — the identical one-liner the panel's
+    own upload route already uses (admin/app.py:3131). Minting in Python (not
+    parsing it back out of the script's stdout) means pocket_site_deploy can
+    return the job id before the detached script has necessarily even started."""
+    return time.strftime("%Y%m%dT%H%M%SZ", time.gmtime()) + "-" + secrets.token_hex(2)
 
 
 def _matrix_get(path, cred, timeout=10):
@@ -543,21 +731,45 @@ def pocket_status() -> str:
 
 @mcp.tool()
 def pocket_health() -> str:
-    """Per-service up/down liveness for every supervised service.
+    """Per-service up/DOWN/DEGRADED liveness for every supervised service, plus
+    the 3 unconditional core HTTP probes (AD-7: conduwuit direct, matrix via
+    Caddy, the admin panel's own /login — full per-app probe parity is a
+    non-goal for M3, §13 OQ-2).
 
-    Reads the supervisor pidfiles under POCKET_STATE_DIR (the same registry the
-    admin panel health list uses); no external probes."""
+    DEGRADED (a *.degraded crash-loop marker under POCKET_STATE_DIR) takes
+    precedence over a momentary pidfile hit — mirrors admin/app.py's
+    gather_health() (admin/app.py:1099-1103): "a crash-looping service is NOT
+    healthy even if pgrep caught it mid-respawn." Backward-compatible with the
+    v0.3.0 shape: the header line and the "UP  "/"DOWN" per-service prefixes
+    are unchanged; DEGRADED and the probe section are additive."""
     _audit("pocket_health")
     services = sorted(_supervised_services())
     lines = []
     up = 0
     for name in services:
         alive, pid = _service_live(name)
-        up += 1 if alive else 0
-        lines.append(f"{'UP  ' if alive else 'DOWN'} {name}"
-                     + (f" (pid {pid})" if pid else ""))
+        marker = _degraded_marker(name)
+        if marker:
+            status = "DEGRADED"
+        elif alive:
+            status = "UP  "
+            up += 1
+        else:
+            status = "DOWN"
+        suffix = f" (pid {pid})" if pid else ""
+        if marker:
+            suffix += f" — {marker}"
+        lines.append(f"{status} {name}{suffix}")
     header = f"{up}/{len(services)} supervised services up"
-    return header + ("\n" + "\n".join(lines) if lines else "")
+    out = header + ("\n" + "\n".join(lines) if lines else "")
+    probe_lines = []
+    for p in _CORE_HTTP_PROBES:
+        r = _probe(p)
+        probe_lines.append(
+            f"{'OK  ' if r['ok'] else 'FAIL'} {p['name']}"
+            + (f" (HTTP {r['code']})" if r["code"] else f" ({r['error']})"))
+    out += "\n\ncore HTTP probes:\n" + "\n".join(probe_lines)
+    return out
 
 
 @mcp.tool()
@@ -741,6 +953,190 @@ def pocket_restore_describe() -> str:
     return out if out.strip() else f"restore.sh dry-run produced no output (rc={rc})"
 
 
+@mcp.tool()
+def pocket_doctor() -> str:
+    """Read-only preflight/self-test (storage tiers, Termux integration, service
+    liveness, DEGRADED markers). Never changes anything. Wraps ops/doctor.sh
+    (--strict is deliberately never passed — MCP always gets the advisory,
+    always-exit-0 report; the exit code is not useful to an MCP client, the
+    TEXT is)."""
+    _audit("pocket_doctor")
+    rc, out = _run_ops("ops/doctor.sh", timeout=60)
+    return _redact(out) if out.strip() else f"doctor.sh produced no output (rc={rc})"
+
+
+_METRICS_MAX_SAMPLES = 500   # fixed cap (§13 OQ-4 resolution) — bound a client
+                             # from asking for the whole multi-day ring.
+
+if ENABLE["metrics"]:
+
+    @mcp.tool()
+    def pocket_metrics(samples: int = 60) -> str:
+        """Recent device/stack metrics (cpu/mem/load/disk/temp/battery/degraded
+        count) sampled by ops/metrics-sampler.py. Returns the last `samples`
+        JSONL records (bounded) plus a min/avg/max/current summary per field —
+        the same numbers admin/app.py's /metrics page cards show
+        (admin/app.py:3513-3530), as structured JSON instead of HTML."""
+        _audit("pocket_metrics", samples=samples)
+        try:
+            n = int(samples)
+        except (TypeError, ValueError):
+            raise ValueError("samples must be an integer")
+        n = max(1, min(n, _METRICS_MAX_SAMPLES))
+        try:
+            with open(METRICS_LOG) as f:
+                lines = f.readlines()[-n:]
+        except FileNotFoundError:
+            return json.dumps({"samples": [], "note": "no metrics recorded yet"}, indent=2)
+        recs = []
+        for ln in lines:
+            try:
+                recs.append(json.loads(ln))
+            except Exception:
+                continue
+        fields = ("cpu", "mem", "swap", "l1", "disk", "temp", "batt", "deg")
+        summary = {}
+        for field in fields:
+            vals = [r[field] for r in recs if isinstance(r.get(field), (int, float))]
+            if vals:
+                summary[field] = {"current": vals[-1], "min": min(vals),
+                                   "avg": round(sum(vals) / len(vals), 2), "max": max(vals)}
+        return json.dumps({"summary": summary, "sample_count": len(recs),
+                            "samples": recs}, indent=2)
+
+
+@mcp.tool()
+def pocket_problems() -> str:
+    """Everything currently wrong, and nothing else: crash-looping (DEGRADED)
+    services, DOWN services, and failing HTTP probes. Empty result means "all
+    green" — mirrors admin/app.py's /problems page (admin/app.py:3626-3686) as
+    structured JSON instead of HTML cards."""
+    _audit("pocket_problems")
+    degraded, down = [], []
+    for name in sorted(_supervised_services()):
+        marker = _degraded_marker(name)
+        if marker:
+            degraded.append({"service": name, "detail": marker})
+            continue
+        alive, _pid = _service_live(name)
+        if not alive:
+            down.append(name)
+    probe_fail = [p for p in (_probe(p) for p in _CORE_HTTP_PROBES) if not p["ok"]]
+    if not (degraded or down or probe_fail):
+        return json.dumps({"ok": True, "message": "no problems"}, indent=2)
+    return json.dumps({"ok": False, "degraded": degraded, "down": down,
+                        "failing_probes": probe_fail}, indent=2)
+
+
+@mcp.tool()
+def pocket_audit_recent(limit: int = 50) -> str:
+    """Recent audit-log entries from the SAME admin-audit.log both the panel and
+    this server append to (_audit(), above) — surfaces BOTH panel-sourced and
+    MCP-sourced actions, since it's one shared trail by design. Panel-sourced
+    entries carry the operator's own client ip/user-agent (admin/app.py:408-421)
+    — that's the operator's own metadata, not a third party's, so it is not
+    redacted, only capped."""
+    _audit("pocket_audit_recent", limit=limit)
+    try:
+        n = int(limit)
+    except (TypeError, ValueError):
+        raise ValueError("limit must be an integer")
+    n = max(1, min(n, 500))
+    lines = _read_file(AUDIT_LOG, default="").splitlines()[-n:]
+    out = []
+    for ln in lines:
+        try:
+            rec = json.loads(ln)
+        except Exception:
+            continue
+        for k, v in list(rec.items()):
+            if isinstance(v, str):
+                rec[k] = _redact(v)
+        out.append(rec)
+    return json.dumps(out, indent=2) if out else "no audit entries recorded"
+
+
+# pocket_sites_list / pocket_site_releases / pocket_site_status — registered
+# ONLY when ENABLE["sites"], same pattern as pocket_honeypot_recent above.
+# Pure reads: straight to .registry.json / the job state file, never a
+# subprocess (AD-3).
+if ENABLE["sites"]:
+
+    @mcp.tool()
+    def pocket_sites_list() -> str:
+        """List every deployed Pocket Pages site with its active release, release
+        count, size, and URL. Reads .registry.json directly (AD-3) — the same
+        derived-state file the panel's Sites page and `site-list.sh --json` both
+        read; a missing/corrupt registry degrades to an empty list rather than
+        raising."""
+        _audit("pocket_sites_list")
+        try:
+            with open(SITES_REGISTRY) as f:
+                raw = f.read()
+            json.loads(raw)  # validate before returning malformed JSON to a client
+            return raw
+        except Exception:
+            return json.dumps({"version": 1, "sites": {}}, indent=2)
+
+    @mcp.tool()
+    def pocket_site_releases(site: str) -> str:
+        """Release history + metadata for ONE site (created/updated/active_release/
+        releases/build/bytes/url), straight from the registry. `site` must be a
+        currently-registered site name — closed-world, like the `service` argument
+        of pocket_restart_service."""
+        _audit("pocket_site_releases", site=site)
+        reg = _sites_registry()
+        entry = reg.get("sites", {}).get(site)
+        if entry is None:
+            raise ValueError(
+                f"no such site {site!r}; known sites: {sorted(reg.get('sites', {}))}")
+        return json.dumps(entry, indent=2)
+
+    @mcp.tool()
+    def pocket_site_status(job_id: str) -> str:
+        """Poll a site job's state (deploy/rollback/delete). Returns the job
+        record (job/kind/site/state/release/started/ended/error) plus a short
+        redacted tail of the job's own log, when one exists.
+
+        A job id that doesn't have a state file YET (the brief window between
+        pocket_site_deploy returning and the detached process actually calling
+        job_start()) reports state="running" rather than raising — mirrors the
+        panel's own /sites/job/<id> behavior exactly (admin/app.py:3244-3248)."""
+        jid = (job_id or "").strip()
+        if not _SITE_JOB_RE.fullmatch(jid):
+            raise ValueError(f"invalid job id: {job_id!r}")
+        _audit("pocket_site_status", job=jid)
+        state_path = os.path.join(STATE, f"site-job-{jid}.json")
+        try:
+            with open(state_path) as f:
+                doc = json.load(f)
+        except Exception:
+            doc = {"job": jid, "state": "running"}
+        log_path = os.path.join(LOGS, f"site-deploy-{jid}.log")
+        tail = _tail_file(log_path, 20)
+        if not tail.startswith("(no such log") and not tail.startswith("(cannot read log"):
+            doc["log_tail"] = _redact(tail)
+        return json.dumps(doc, indent=2)
+
+
+# User-target validation — ported verbatim from admin/app.py:3695-3696, shared
+# by both the OPERATE-tier user tools (§7.8) and the DANGER-tier
+# pocket_user_deactivate (§7.9), so it is defined unconditionally here rather
+# than nested inside either tier's `if` block (same placement pattern as
+# _require_confirm below, for the DANGER tier).
+_VALID_LOCALPART = re.compile(r"^[a-z0-9][a-z0-9._=-]{0,63}$")
+_VALID_MXID = re.compile(r"^@[a-z0-9._=/+-]+:[A-Za-z0-9.:-]+$")
+
+
+def _valid_user_target(val, allow_mxid):
+    v = (val or "").strip()
+    if _VALID_LOCALPART.fullmatch(v):
+        return v
+    if allow_mxid and _VALID_MXID.fullmatch(v):
+        return v
+    raise ValueError(f"invalid user {val!r} (want a localpart, or @user:server where noted)")
+
+
 # ---------------------------------------------------------------------------
 # OPERATE tier — registered ONLY when MCP_ALLOW_OPERATE=true.
 # ---------------------------------------------------------------------------
@@ -820,6 +1216,156 @@ if MCP_ALLOW_OPERATE:
                 "intentionally NOT returned over MCP — reveal it from the admin "
                 "panel or that file. The OLD token stopped working immediately.")
 
+    @mcp.tool()
+    def pocket_restart_stack() -> str:
+        """Restart matrix + Caddy + cloudflared in order (apps untouched). Brief
+        (tens of seconds) ingress outage while the tunnel reconnects; fully
+        reversible. Wraps start-stack.sh --restart — the SAME script the panel's
+        danger-zone 'restart stack' card runs, but classified OPERATE here
+        rather than DANGER: its impact (bounded, reversible, apps untouched) is
+        the whole-stack analogue of the already-OPERATE pocket_restart_service,
+        not of panic-soft/hard's blast radius. The panel's own two-page confirm
+        is a touchscreen fat-finger guard, not a statement about severity."""
+        _audit("pocket_restart_stack")
+        rc, out = _run_ops("start-stack.sh", "--restart", timeout=120)
+        if rc != 0:
+            raise RuntimeError(f"start-stack.sh --restart exited {rc}: {_redact(out)[-400:]}")
+        return _redact(out) or "stack restart issued"
+
+    @mcp.tool()
+    def pocket_rotate_backups() -> str:
+        """Prune backup snapshots to the configured retention (BACKUP_KEEP_DB /
+        BACKUP_KEEP_ROOTFS). Safe to run any time — a no-op when nothing is due.
+        Wraps ops/rotate-backups.sh."""
+        _audit("pocket_rotate_backups")
+        rc, out = _run_ops("ops/rotate-backups.sh", timeout=120)
+        if rc != 0:
+            raise RuntimeError(f"rotate-backups.sh exited {rc}: {_redact(out)[-400:]}")
+        return _redact(out)
+
+    if ENABLE["offsite"]:
+
+        @mcp.tool()
+        def pocket_offsite_push() -> str:
+            """Push already-ENCRYPTED backups to the configured S3-compatible
+            bucket. Self-gated on ENABLE_OFFSITE_BACKUP and refuses (fail-closed)
+            if backups aren't age-encrypted (scripts/ops/offsite-push.sh:46-49) —
+            the S3 secret never touches this tool's return value. Synchronous
+            (AD-2), bounded by OPS_TIMEOUT_DEFAULT."""
+            _audit("pocket_offsite_push")
+            rc, out = _run_ops("ops/offsite-push.sh", timeout=OPS_TIMEOUT_DEFAULT)
+            if rc != 0:
+                raise RuntimeError(f"offsite-push.sh exited {rc}: {_redact(out)[-400:]}")
+            return _redact(out)
+
+    if ENABLE["user-admin"]:
+
+        @mcp.tool()
+        def pocket_user_create(localpart: str) -> str:
+            """Create a local Matrix user. The server GENERATES the password and
+            returns it in its reply — the tool's return value therefore CAN
+            contain a fresh credential (unlike every other tool here); it also
+            lands in the admin command room's history (ops/user-create.sh:8,
+            docs/USERS.md) regardless of how it was triggered."""
+            u = _valid_user_target(localpart, allow_mxid=False)
+            _audit("pocket_user_create", localpart=u)
+            rc, out = _run_ops("ops/user-create.sh", u, timeout=90)
+            if rc != 0:
+                raise RuntimeError(f"user-create.sh exited {rc}: {_redact(out)[-400:]}")
+            return out   # NOT _redact()'d — see the docstring; the generated password IS the payload
+
+        @mcp.tool()
+        def pocket_user_reset_password(localpart: str) -> str:
+            """Reset a local user's password; the NEW password is generated and
+            returned (same caveat as pocket_user_create)."""
+            u = _valid_user_target(localpart, allow_mxid=False)
+            _audit("pocket_user_reset_password", localpart=u)
+            rc, out = _run_ops("ops/user-reset-password.sh", u, timeout=90)
+            if rc != 0:
+                raise RuntimeError(f"user-reset-password.sh exited {rc}: {_redact(out)[-400:]}")
+            return out
+
+        @mcp.tool()
+        def pocket_user_suspend(user: str) -> str:
+            """Suspend an account (read-only). Reversible with pocket_user_unsuspend.
+            `user` is a localpart or a full @user:server MXID."""
+            u = _valid_user_target(user, allow_mxid=True)
+            _audit("pocket_user_suspend", user=u)
+            rc, out = _run_ops("ops/user-suspend.sh", u, timeout=90)
+            if rc != 0:
+                raise RuntimeError(f"user-suspend.sh exited {rc}: {_redact(out)[-400:]}")
+            return _redact(out) or f"suspended {u}"
+
+        @mcp.tool()
+        def pocket_user_unsuspend(user: str) -> str:
+            """Lift a suspension."""
+            u = _valid_user_target(user, allow_mxid=True)
+            _audit("pocket_user_unsuspend", user=u)
+            rc, out = _run_ops("ops/user-unsuspend.sh", u, timeout=90)
+            if rc != 0:
+                raise RuntimeError(f"user-unsuspend.sh exited {rc}: {_redact(out)[-400:]}")
+            return _redact(out) or f"unsuspended {u}"
+
+    if ENABLE["sites"]:
+
+        @mcp.tool()
+        def pocket_site_deploy(site: str, staged_path: str, build: str = "none") -> str:
+            """Deploy an ALREADY-STAGED artifact (a directory or a .zip placed under
+            SITES_ROOT/.staging by some other channel — scp/rsync, or the panel's own
+            upload) as a new release of `site`. Does NOT accept file content as an
+            argument (AD-1) — this tool only points the pipeline at a path.
+
+            Returns immediately with a job id; the deploy runs DETACHED (it can take
+            up to SITES_BUILD_TIMEOUT for the hugo/node build tiers) — poll progress
+            with pocket_site_status(job_id)."""
+            name = (site or "").strip()
+            if not SITE_SUB_RE.fullmatch(name) or name in SITE_RESERVED:
+                raise ValueError(f"invalid or reserved site name: {site!r}")
+            if build not in ("none", "hugo", "node"):
+                raise ValueError("build must be one of: none, hugo, node")
+            staging_root = os.path.realpath(SITES_STAGING)
+            real_path = os.path.realpath(staged_path)
+            if real_path != staging_root and not real_path.startswith(staging_root + os.sep):
+                raise ValueError(
+                    f"staged_path must resolve inside {SITES_STAGING} "
+                    f"(stage the artifact there first — MCP never carries file content, AD-1)")
+            if not os.path.exists(real_path):
+                raise ValueError(f"staged_path does not exist: {staged_path!r}")
+            job_id = _new_job_id()
+            _audit("pocket_site_deploy", site=name, staged_path=staged_path, build=build, job=job_id)
+            ok = _run_ops_detached("sites/site-deploy.sh", name, real_path,
+                                    "--build", build, "--job", job_id)
+            if not ok:
+                raise RuntimeError("could not launch the deploy — see " +
+                                    os.path.join(LOGS, _MCP_ASYNC_LOG))
+            return (f"deploy started: site={name} build={build} job={job_id} — "
+                    f"poll pocket_site_status({job_id!r}) for progress")
+
+        @mcp.tool()
+        def pocket_site_rollback(site: str, release: str = "") -> str:
+            """Instant pointer-swap rollback for `site` — no rebuild, no copy.
+            `release` is optional; empty means "the release immediately before
+            the current one" (site-rollback.sh's own default,
+            scripts/sites/site-rollback.sh:44-50). Synchronous — a rollback is a
+            single rename(2), never worth a detached job."""
+            name = (site or "").strip()
+            if not SITE_SUB_RE.fullmatch(name):
+                raise ValueError(f"invalid site name: {site!r}")
+            reg = _sites_registry()
+            entry = reg.get("sites", {}).get(name)
+            if entry is None:
+                raise ValueError(f"no such site {name!r}")
+            rel = (release or "").strip()
+            if rel and rel not in entry.get("releases", []):
+                raise ValueError(f"unknown release {rel!r} for site {name!r}; "
+                                  f"known: {entry.get('releases', [])}")
+            _audit("pocket_site_rollback", site=name, release=rel or "previous")
+            args = [name] + ([rel] if rel else [])
+            rc, out = _run_ops("sites/site-rollback.sh", *args, timeout=60)
+            if rc != 0:
+                raise RuntimeError(f"site-rollback.sh exited {rc}: {_redact(out)[-400:]}")
+            return _redact(out) or f"rolled back {name}"
+
 
 # ---------------------------------------------------------------------------
 # DANGER tier — registered ONLY when MCP_ALLOW_DANGER=true, AND each call
@@ -855,6 +1401,48 @@ if MCP_ALLOW_DANGER:
         if rc != 0:
             raise RuntimeError(f"panic-hard.sh exited {rc}: {_redact(out)[-400:]}")
         return _redact(out) or "panic-hard executed (all services stopped except the admin panel)"
+
+    if ENABLE["user-admin"]:
+
+        @mcp.tool()
+        def pocket_user_deactivate(user: str, confirm: str) -> str:
+            """BREAK-GLASS: deactivate (close) an account — effectively
+            irreversible; re-enabling means creating the account again
+            (ops/user-deactivate.sh:6-8). Requires `confirm` to exactly equal the
+            `user` value passed to THIS call (AD-4) — a direct port of the panel's
+            shipped retype-the-exact-id behavior (admin/app.py:3703, :3816-3820),
+            not a new design for this tool."""
+            u = _valid_user_target(user, allow_mxid=True)
+            _require_confirm(confirm, user)   # compares against the RAW argument,
+                                               # exactly like admin/app.py:3817
+                                               # compares against `val`, pre-expansion
+            _audit("pocket_user_deactivate", user=u, confirmed=True)
+            rc, out = _run_ops("ops/user-deactivate.sh", u, timeout=90)
+            if rc != 0:
+                raise RuntimeError(f"user-deactivate.sh exited {rc}: {_redact(out)[-400:]}")
+            return _redact(out) or f"deactivated {u}"
+
+    if ENABLE["sites"]:
+
+        @mcp.tool()
+        def pocket_site_delete(site: str, confirm: str) -> str:
+            """BREAK-GLASS: permanently delete a site and ALL its release history —
+            not just the live release. Not reversible. Requires `confirm` to
+            exactly equal `site` (AD-4) — the site name itself, not a fixed phrase,
+            because this action takes a target and a fixed phrase would authorize
+            deleting ANY site."""
+            name = (site or "").strip()
+            if not SITE_SUB_RE.fullmatch(name):
+                raise ValueError(f"invalid site name: {site!r}")
+            reg = _sites_registry()
+            if name not in reg.get("sites", {}):
+                raise ValueError(f"no such site {name!r} — nothing to delete")
+            _require_confirm(confirm, name)               # raises before any action
+            _audit("pocket_site_delete", site=name, confirmed=True)
+            rc, out = _run_ops("sites/site-delete.sh", name, "--yes", timeout=60)
+            if rc != 0:
+                raise RuntimeError(f"site-delete.sh exited {rc}: {_redact(out)[-400:]}")
+            return _redact(out) or f"deleted {name}"
 
 
 # ---------------------------------------------------------------------------
@@ -901,6 +1489,34 @@ def docs_resource(name: str) -> str:
     return _read_file(candidate, default=f"(docs/{base}.md is empty)")
 
 
+@mcp.resource("pocket://sites")
+def sites_resource() -> str:
+    """The full site registry (same as pocket_sites_list), as a resource."""
+    if not ENABLE["sites"]:
+        return json.dumps({"version": 1, "sites": {}, "note": "sites module disabled"})
+    try:
+        with open(SITES_REGISTRY) as f:
+            return f.read()
+    except Exception:
+        return json.dumps({"version": 1, "sites": {}})
+
+
+@mcp.resource("pocket://metrics")
+def metrics_resource() -> str:
+    """The last 60 metric samples' summary (same shape as pocket_metrics(60)),
+    as a resource — for a client that wants a cheap ambient status check
+    without an explicit tool call. The gate check happens BEFORE the
+    pocket_metrics(60) reference below is ever reached, so there is no
+    NameError risk even though pocket_metrics only exists as a module name
+    when ENABLE["metrics"] is true (verified: by the time any resource/tool is
+    actually invoked, the whole module has already finished one top-to-bottom
+    exec, so if this gate is true, the `if ENABLE["metrics"]:` block that
+    defines pocket_metrics already ran)."""
+    if not ENABLE["metrics"]:
+        return json.dumps({"note": "metrics module disabled"})
+    return pocket_metrics(60)   # reuses the tool function directly — same logic, no duplication
+
+
 # ---------------------------------------------------------------------------
 # Prompts (guided scaffolds — spec §9).
 # ---------------------------------------------------------------------------
@@ -928,6 +1544,25 @@ def health_report() -> str:
         "3. List any services that are DOWN and what they affect.\n"
         "4. Flag anything notable (low disk, high memory) and suggest next steps. "
         "Do not run any mutating tool without explicit operator approval."
+    )
+
+
+@mcp.prompt(title="Deploy report")
+def deploy_report(site: str) -> str:
+    """Walk the model through summarizing one site's deploy state."""
+    return (
+        f"Produce a concise deploy report for the Pocket Pages site '{site}' on "
+        f"this pocket-homeserver:\n"
+        f"1. Call pocket_site_releases('{site}') for its current state (active "
+        f"release, build tier, size, URL, release count).\n"
+        f"2. If the operator mentions an in-flight or recent job id, call "
+        f"pocket_site_status(job_id) and report its state/error.\n"
+        f"3. Summarize: is the site live, when was it last deployed, how many "
+        f"releases of history exist, and is there anything that looks stuck or "
+        f"failed.\n"
+        f"4. Do not call pocket_site_deploy, pocket_site_rollback, or "
+        f"pocket_site_delete without explicit operator approval — this prompt is "
+        f"for reporting, not for acting."
     )
 
 

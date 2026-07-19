@@ -5,6 +5,48 @@ All notable changes to pocket-homeserver are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **MCP sites tool group** (M3 of the Pocket Pages program) — drive Pocket
+  Pages from any MCP client: `pocket_sites_list` / `pocket_site_releases` /
+  `pocket_site_deploy` / `pocket_site_status` / `pocket_site_rollback` /
+  `pocket_site_delete`. Deploys run **detached** with a job id + status poll
+  (a node-tier build can outlive any tool-call timeout); artifacts are staged
+  out-of-band (`scp` into `.staging/`) — file content never travels over MCP.
+  The delete is danger-tier with a target-bound confirm (`confirm` = the site
+  name, not a fixed phrase). Spec: `docs/specs/SPEC-MCP-COMPLETION.md`; how-to:
+  `docs/MCP.md`.
+- **MCP operator-parity tools** — read: `pocket_doctor`, `pocket_metrics`
+  (`ENABLE_METRICS`), `pocket_problems`, `pocket_audit_recent`; operate:
+  `pocket_restart_stack`, `pocket_rotate_backups`, `pocket_offsite_push`
+  (`ENABLE_OFFSITE_BACKUP`), and the user lifecycle `pocket_user_create` /
+  `pocket_user_reset_password` / `pocket_user_suspend` / `pocket_user_unsuspend`
+  (`ENABLE_USER_ADMIN`); danger: `pocket_user_deactivate` (`confirm` = the user
+  exactly as typed). Plus resources `pocket://sites` + `pocket://metrics` and
+  the report-only `deploy_report(site)` prompt.
+- **MCP unit tests** — new `tests/test_mcp.py` (skips cleanly where the `mcp`
+  SDK is absent); the CI test job now installs the pinned `mcp`/`uvicorn` so
+  the suite actually runs.
+
+### Changed
+- **`pocket_health` now does what its docs always claimed** — in addition to
+  pidfile liveness it reads the `*.degraded` crash-loop markers (a
+  crash-looping service is not "up") and runs the three unconditional core
+  HTTP probes (conduwuit direct, matrix via Caddy, admin `/login`). The
+  v0.3.0 build was pidfile-only despite the documented contract.
+- **`pocket_logs` default allowlist widened** by six operational logs
+  (`metrics-sampler.log`, `user-filter.log`, `media-filter.log`,
+  `honeypot-watcher.log`, `adminweb-async.log`, `mcp-async.log`) — still a
+  closed allowlist, still operator-overridable via `MCP_ALLOWED_LOGS`.
+
+### Fixed
+- **`pocket-mcp.py` child-process stdin is now explicitly `/dev/null`** —
+  `_run_ops` previously relied on inheriting a non-tty stdin from the server
+  process; `site-deploy.sh`'s non-interactive staging-containment branch
+  depends on that guarantee, so it is now an explicit `stdin=DEVNULL` kwarg
+  (matching the admin panel's equivalent helpers).
+
 ## [1.1.0-pre2] - 2026-07-18
 
 Second staged prerelease of the v1.1.0 "Pocket Pages" line (M2 of 4: the

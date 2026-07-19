@@ -1,6 +1,8 @@
 # MCP Server — Design Specification
 
-> **Status:** IMPLEMENTED — shipped in v0.3.0.
+> **Status:** IMPLEMENTED — shipped in v0.3.0; **extended in v1.1.0** (M3 of the
+> Pocket Pages program: the `sites` tool group + operator-parity tools, designed in
+> [specs/SPEC-MCP-COMPLETION.md](specs/SPEC-MCP-COMPLETION.md)).
 > This document is the as-built design specification; the pivotal decisions in §13
 > were locked with the operator before implementation.
 
@@ -69,6 +71,12 @@ The server adds no capability that does not already exist. The complete surface 
 | `scripts/bootstrap/mint-invite-token.sh` | mint a one-time Matrix invite token |
 | admin `log_audit()` | append-only audit trail |
 | `scripts/lib/common.sh` (`load_env`, defaults, pidfiles, `.cmd`) | env + service registry |
+| `scripts/sites/*` + `.registry.json` (v1.1.0) | Pocket Pages: atomic site deploys, rollbacks, deletes, job state (`site-job-<id>.json`) |
+| `scripts/ops/doctor.sh` (v1.1.0) | read-only preflight/self-test (storage tiers, Termux integration, liveness) |
+| `scripts/ops/metrics-sampler.py` → `POCKET_METRICS_LOG` (v1.1.0) | device/stack metrics ring (cpu/mem/load/disk/temp/battery) |
+| `scripts/ops/rotate-backups.sh` (v1.1.0) | prune backup snapshots to the configured retention |
+| `scripts/ops/offsite-push.sh` (v1.1.0) | push already-encrypted backups to the S3-compatible offsite bucket |
+| `scripts/ops/user-*.sh` (v1.1.0) | Matrix user lifecycle (create / reset-password / suspend / unsuspend / deactivate) |
 | `scripts/gateway/matrix-auth-gw.py` | (future) an existing OIDC IdP for remote OAuth |
 
 Tools that are interactive, two-phase, or paste-driven are **intentionally excluded** from
@@ -211,14 +219,21 @@ enabled, so a client never sees a tool it cannot call.
 | Tool | Wraps | Returns |
 | --- | --- | --- |
 | `pocket_status` | `ops/status.sh` / `gather_stats()` | overall stack snapshot (services, uptime, disk, memory) |
-| `pocket_health` | admin `HEALTH_PROCS` / HTTP checks | per-service up/down + the probe used |
+| `pocket_health` | pidfiles + `*.degraded` crash-loop markers + the 3 unconditional core HTTP probes (conduwuit direct, matrix via Caddy, admin `/login`) | per-service up/down/degraded + per-probe result. *(v1.1.0 — the v0.3.0 build was pidfile-only despite this table's original claim; corrected per SPEC-MCP-COMPLETION AD-7)* |
 | `pocket_list_services` | `${POCKET_STATE_DIR}/*.cmd` + pidfiles | supervised services and their liveness |
-| `pocket_logs` | tail an **allowlisted** log file | last N lines, **redacted** (see §9) |
+| `pocket_logs` | tail an **allowlisted** log file (default list widened in v1.1.0, AD-8) | last N lines, **redacted** (see §9) |
 | `pocket_config` | `.env` `ENABLE_*` + non-secret keys | which subsystems are enabled (no secrets) |
 | `pocket_backups_list` | `BACKUP_DIR` listing | backups present (name/size/mtime, no contents) |
 | `pocket_honeypot_recent` | honeypot ledger read (only if `ENABLE_HONEYPOT`) | recent events (IPs already public attacker data) |
 | `pocket_matrix_users` | Matrix admin API (read-only) | user list / count (no tokens) |
 | `pocket_restore_describe` | `ops/restore.sh` dry-run / plan | the restore plan, **never executes** (see §8.4) |
+| `pocket_doctor` (v1.1.0) | `ops/doctor.sh` (advisory mode, never `--strict`) | the full preflight/self-test report, redacted |
+| `pocket_metrics` (v1.1.0) | `POCKET_METRICS_LOG` ring file (only if `ENABLE_METRICS`) | last N samples (≤500) + min/avg/max/current summary per field |
+| `pocket_problems` (v1.1.0) | degraded markers + pidfiles + core HTTP probes | only what's currently wrong (degraded / down / failing probes); `ok: true` when green |
+| `pocket_audit_recent` (v1.1.0) | `admin-audit.log` tail (the shared panel+MCP trail) | last N entries (≤500), string fields redacted |
+| `pocket_sites_list` (v1.1.0) | `.registry.json` direct read (only if `ENABLE_SITES`) | every deployed site: active release, count, size, URL |
+| `pocket_site_releases` (v1.1.0) | `.registry.json` direct read (only if `ENABLE_SITES`) | one site's full release history + metadata |
+| `pocket_site_status` (v1.1.0) | `site-job-<id>.json` + the job's own log tail (only if `ENABLE_SITES`) | job state (deploy/rollback/delete) — see §8.5 |
 
 ### 8.2 OPERATE tier — `MCP_ALLOW_OPERATE=true`
 
@@ -226,20 +241,34 @@ enabled, so a client never sees a tool it cannot call.
 | --- | --- | --- |
 | `pocket_restart_service` | `ops/restart.sh <svc>` | `<svc>` validated against the supervised set |
 | `pocket_backup_db` | `ops/backup-db.sh` | stop-matrix → tar → restart; returns artifact metadata |
-| `pocket_backup_all` | `ops/backup-all.sh` | full rootfs tar; returns artifact metadata |
-| `pocket_mint_invite_token` | `bootstrap/mint-invite-token.sh` | returns a one-time invite token (its purpose is to be shared) |
+| `pocket_backup_all` | `ops/backup-all.sh` | full rootfs tar; returns artifact metadata; **synchronous** (SPEC-MCP-COMPLETION AD-2/OQ-1) |
+| `pocket_mint_invite_token` | `bootstrap/mint-invite-token.sh` | returns a one-time invite token (its purpose is to be shared); also the "invite" user-mgmt op — no separate `pocket_user_invite` exists (AD-6) |
 | `pocket_rotate_registration_token` | `ops/rotate-registration-token.sh` | returns **metadata only**, never the token |
+| `pocket_restart_stack` (v1.1.0) | `start-stack.sh --restart` | matrix + Caddy + cloudflared, apps untouched; bounded + reversible, hence OPERATE not DANGER |
+| `pocket_rotate_backups` (v1.1.0) | `ops/rotate-backups.sh` | prune to retention; no-op when nothing is due |
+| `pocket_offsite_push` (v1.1.0) | `ops/offsite-push.sh` (only if `ENABLE_OFFSITE_BACKUP`) | **synchronous**, bounded by the ops timeout (AD-2/OQ-1); fail-closed if backups aren't age-encrypted |
+| `pocket_user_create` (v1.1.0) | `ops/user-create.sh` (only if `ENABLE_USER_ADMIN`) | the generated password **is** the return payload (same accepted trade-off as invite-mint) |
+| `pocket_user_reset_password` (v1.1.0) | `ops/user-reset-password.sh` (only if `ENABLE_USER_ADMIN`) | same credential-return caveat as create |
+| `pocket_user_suspend` (v1.1.0) | `ops/user-suspend.sh` (only if `ENABLE_USER_ADMIN`) | reversible; takes a localpart or full MXID |
+| `pocket_user_unsuspend` (v1.1.0) | `ops/user-unsuspend.sh` (only if `ENABLE_USER_ADMIN`) | lifts a suspension |
+| `pocket_site_deploy` (v1.1.0) | `sites/site-deploy.sh` (only if `ENABLE_SITES`) | **detached** — returns a job id immediately; artifact must be pre-staged under `.staging/` (AD-1, never file bytes over MCP); see §8.5 |
+| `pocket_site_rollback` (v1.1.0) | `sites/site-rollback.sh` (only if `ENABLE_SITES`) | instant pointer-swap; synchronous |
 
 ### 8.3 DANGER tier — `MCP_ALLOW_DANGER=true` **and** a per-call typed confirmation
 
-Mirrors the admin panel danger-zone: the tool schema requires a `confirm` argument whose
-value must equal a fixed phrase (e.g. the tool name) or the call is refused before anything
-runs.
+Mirrors the admin panel danger-zone: the tool schema requires a `confirm` argument, or the
+call is refused before anything runs. Two confirm shapes exist (SPEC-MCP-COMPLETION AD-4):
+an **unparameterized** danger tool (identical blast radius every call) requires a fixed
+phrase equal to the tool's name; a **parameterized** danger tool (the action takes a target)
+requires `confirm` to exactly equal the *target itself* — a fixed phrase would authorize
+acting on *any* target with the same unchanging string.
 
-| Tool | Wraps |
-| --- | --- |
-| `pocket_panic_soft` | `ops/panic-soft.sh` (drop the tunnel — server goes dark, recoverable) |
-| `pocket_panic_hard` | `ops/panic-hard.sh` (stop everything except the admin panel) |
+| Tool | Wraps | Confirm shape |
+| --- | --- | --- |
+| `pocket_panic_soft` | `ops/panic-soft.sh` (drop the tunnel — server goes dark, recoverable) | fixed phrase = tool name |
+| `pocket_panic_hard` | `ops/panic-hard.sh` (stop everything except the admin panel) | fixed phrase = tool name |
+| `pocket_user_deactivate` (v1.1.0) | `ops/user-deactivate.sh` (only if `ENABLE_USER_ADMIN`) — effectively irreversible | `confirm == user`, compared against the raw argument as typed (the panel's shipped retype-the-exact-id behavior) |
+| `pocket_site_delete` (v1.1.0) | `sites/site-delete.sh --yes` (only if `ENABLE_SITES`) — deletes the site and ALL release history | `confirm == site` |
 
 ### 8.4 Intentionally NOT exposed as mutating tools
 
@@ -250,6 +279,33 @@ runs.
 `restore.sh` in its dry-run/plan mode and returns the plan output **without executing**
 anything (decision §13). Bootstrap creation steps (`create-admin`, `create-spaces`,
 `create-announcements`) are one-time and idempotency-sensitive and are left to the TUI/CLI.
+Also intentionally absent: `pocket_user_invite` (redundant — `ops/user-invite.sh` is an
+`exec` forward to the same script `pocket_mint_invite_token` wraps, AD-6), a
+`pocket_sites_rebuild_registry` tool (a panel-only self-healing escape hatch), and any tool
+accepting site content as an argument (AD-1 — artifacts are staged out-of-band).
+
+### 8.5 The job-id + status-poll pattern (v1.1.0)
+
+Exactly one tool family is asynchronous: `pocket_site_deploy` → `pocket_site_status`. A
+deploy can legitimately outrun any reasonable `tools/call` timeout (the node build tier
+alone defaults to a 900 s budget), so:
+
+1. `pocket_site_deploy` validates everything it can synchronously (name, staged-path
+   containment, build enum), mints the job id **in Python** (same `<UTC-ts>-<4hex>` shape as
+   `lib-sites.sh`), audits, launches `site-deploy.sh` **detached** (`start_new_session`,
+   output to `mcp-async.log`), and returns the job id immediately.
+2. The backing script owns the job state file (`job_start`/`job_done`/`job_fail` from the
+   M1 pipeline) — the MCP layer never writes it.
+3. `pocket_site_status(job_id)` validates the id shape, reads the state file — tolerating
+   "doesn't exist yet" as `state: "running"` (the launch race window, mirroring the panel's
+   shipped `/sites/job/<id>` behavior) — and attaches a redacted tail of the job's own log.
+4. There is no push channel; the client polls (3–5 s recommended — well under the default
+   `MCP_RATE_LIMIT` of 60/min for one in-flight deploy).
+
+Every other mutating tool — including `pocket_backup_all` and `pocket_offsite_push` — stays
+synchronous: the `scripts/ops/*` tree has no job-state-file convention, and inventing one is
+out of scope for an MCP-only milestone (AD-2/OQ-1; a named follow-up in §14). The detached
+primitive is allowlisted to `sites/site-deploy.sh` and nothing else.
 
 ## 9. Resources and prompts
 
@@ -259,12 +315,18 @@ anything (decision §13). Bootstrap creation steps (`create-admin`, `create-spac
 - `pocket://config` — enabled subsystems + non-secret config.
 - `pocket://docs/{name}` — a templated resource exposing this repo's `docs/*.md` so a client
   can pull the runbooks (e.g. `pocket://docs/BACKUPS`).
+- `pocket://sites` (v1.1.0) — the full site registry (same as `pocket_sites_list`).
+- `pocket://metrics` (v1.1.0) — the last 60 metric samples' summary, for a cheap ambient
+  status check without an explicit tool call.
 
 **Prompts** (shipped in v1, decision §13):
 
 - `triage(service)` — a prompt scaffold that walks the model through diagnosing one service
   (check health → tail its log → suggest a restart).
 - `health-report` — summarize overall stack health from `pocket_status` + `pocket_health`.
+- `deploy_report(site)` (v1.1.0) — summarize one site's deploy state (releases, in-flight
+  jobs, anything stuck); explicitly report-only — it instructs the model not to call the
+  mutating sites tools without operator approval.
 
 ## 10. Security model
 
@@ -303,6 +365,12 @@ All keys default to the safe/off value; the server is inert until `ENABLE_MCP=tr
 
 (HTTP mode also reuses the admin panel's `CF_ACCESS_MODE` / `CF_ACCESS_TEAM_DOMAIN` /
 `CF_ACCESS_AUD` for JWT validation — no new CF keys.)
+
+The v1.1.0 tool additions introduce **no new keys**: the sites / user-admin / metrics /
+offsite tools inherit their own app's existing flag (`ENABLE_SITES`, `ENABLE_USER_ADMIN`,
+`ENABLE_METRICS`, `ENABLE_OFFSITE_BACKUP`) *in addition to* the tier gates above — a tool
+whose module is disabled is simply not registered, exactly like the honeypot tool has
+always behaved.
 
 ## 12. Repository integration (the implementation this spec drives)
 
@@ -350,6 +418,17 @@ The pivotal choices, settled by the operator:
    the read-only `pocket_restore_describe`, **and** the guided prompts (`triage`,
    `health-report`) all ship.
 
+**M3 additions (locked 2026-07-19, [specs/SPEC-MCP-COMPLETION.md](specs/SPEC-MCP-COMPLETION.md)):**
+
+5. **Sites tool group + operator-parity tools** ship as designed there: six sites tools, the
+   doctor/metrics/problems/audit reads, restart-stack/rotate-backups/offsite-push, and the
+   user-lifecycle group. Key resolutions: `pocket_backup_all`/`pocket_offsite_push` stay
+   **synchronous** (OQ-1 — a `scripts/ops/` job-file convention is a named follow-up);
+   `pocket_health`'s probe set is **bounded** to the 3 unconditional core probes + degraded
+   markers (OQ-2 — full per-app parity waits for a shared probe-module refactor);
+   parameterized DANGER tools use **target-bound** confirm strings (AD-4); no
+   `pocket_user_invite` (AD-6); `pocket_metrics` keeps a fixed 500-sample cap (OQ-4).
+
 ## 14. Future work
 
 - Server-initiated streaming over SSE (progress for long backups), MCP `sampling`, and
@@ -360,6 +439,11 @@ The pivotal choices, settled by the operator:
   delegate auth to it per the MCP authorization spec, replacing the CF-Access + bearer combo
   for operators who run the gateway. v1 stays on CF Access (simpler, already in the stack).
 - A `resources/subscribe` channel for live status push.
+- A job-state-file convention for `scripts/ops/*.sh` (the OQ-1 named follow-up), so the
+  §8.5 job-id + status-poll pattern can extend to `pocket_backup_all`/`pocket_offsite_push`.
+- Factoring the admin panel's `_build_http_probes()`/`_build_health_procs()` into a shared
+  module both `admin/app.py` and `pocket-mcp.py` import (the OQ-2 named follow-up), instead
+  of a third hand-maintained per-app conditional list.
 
 ## 15. References
 

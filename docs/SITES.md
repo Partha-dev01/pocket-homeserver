@@ -142,5 +142,8 @@ retention (above) keeps it bounded.
 - **Admin panel**: the Sites section (drag-drop deploys, live deploy log,
   rollback, QR share, guarded delete) covers day-to-day operation — see
   "From the admin panel" above; builds and bulk work stay on the CLI.
-- **MCP**: agentic deploy tools (`pocket_site_deploy` etc.) ship with the MCP
-  completion milestone.
+- **MCP**: with the MCP server enabled, an LLM agent can drive the same
+  pipeline — list/deploy/poll/rollback/delete (`pocket_sites_list`,
+  `pocket_site_deploy`, …). Artifacts are staged out-of-band (`scp` into
+  `.staging/`), never sent over MCP — see
+  [MCP.md — Deploying a site over MCP](MCP.md#deploying-a-site-over-mcp).

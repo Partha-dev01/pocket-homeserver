@@ -167,7 +167,7 @@ never appears in `tools/list` and a call to it is refused.
 | Tool | Returns |
 |---|---|
 | `pocket_status` | overall stack snapshot (services, uptime, disk, memory) |
-| `pocket_health` | per-service up/down + the probe used |
+| `pocket_health` | per-service up/down/**degraded** (pidfiles + crash-loop markers) + the 3 core HTTP probes (conduwuit, matrix-via-Caddy, admin `/login`) |
 | `pocket_list_services` | supervised services and their liveness |
 | `pocket_logs` | last N lines of an **allowlisted** log file, **redacted** |
 | `pocket_config` | which subsystems are enabled (`ENABLE_*` + non-secret keys; **no secrets**) |
@@ -175,22 +175,46 @@ never appears in `tools/list` and a call to it is refused.
 | `pocket_honeypot_recent` | recent honeypot events (only if `ENABLE_HONEYPOT`; the IPs are already-public attacker data) |
 | `pocket_matrix_users` | Matrix user list / count, read-only (no tokens) |
 | `pocket_restore_describe` | the restore **plan** (dry-run) — **never executes** anything |
+| `pocket_doctor` | the full read-only preflight/self-test report (`ops/doctor.sh`), redacted |
+| `pocket_metrics` | recent device/stack metrics + min/avg/max/current summary (only if `ENABLE_METRICS`; last N samples, capped at 500) |
+| `pocket_problems` | only what's currently **wrong** — degraded / down services + failing probes; `ok: true` when all green |
+| `pocket_audit_recent` | recent entries from the shared panel+MCP audit trail (last N, capped at 500, redacted) |
+| `pocket_sites_list` | every deployed Pocket Pages site: active release, count, size, URL (only if `ENABLE_SITES`) |
+| `pocket_site_releases` | one site's full release history + metadata (only if `ENABLE_SITES`) |
+| `pocket_site_status` | a deploy/rollback/delete **job's** state + a redacted tail of its log (only if `ENABLE_SITES`; see the deploy how-to below) |
 
 Read tools also surface as MCP **resources** (`pocket://status`,
-`pocket://config`, and `pocket://docs/{name}` for this repo's runbooks, e.g.
-`pocket://docs/BACKUPS`) and two guided **prompts**: `triage(service)` (walk the
-model through diagnosing one service) and `health-report` (summarise overall
-health).
+`pocket://config`, `pocket://sites`, `pocket://metrics`, and
+`pocket://docs/{name}` for this repo's runbooks, e.g. `pocket://docs/BACKUPS`)
+and three guided **prompts**: `triage(service)` (walk the model through
+diagnosing one service), `health-report` (summarise overall health), and
+`deploy_report(site)` (summarise one site's deploy state — report-only by
+design).
 
 ### OPERATE tier — set `MCP_ALLOW_OPERATE=true`
 
 | Tool | What it does |
 |---|---|
 | `pocket_restart_service` | `ops/restart.sh <svc>` — `<svc>` validated against the supervised set |
+| `pocket_restart_stack` | `start-stack.sh --restart` — matrix + Caddy + cloudflared in order, apps untouched (brief ingress blip, fully reversible) |
 | `pocket_backup_db` | `ops/backup-db.sh` — stop-matrix → tar → restart; returns artifact metadata |
-| `pocket_backup_all` | `ops/backup-all.sh` — full rootfs tar; returns artifact metadata |
-| `pocket_mint_invite_token` | `bootstrap/mint-invite-token.sh` — returns a one-time invite token (its purpose is to be shared) |
+| `pocket_backup_all` | `ops/backup-all.sh` — full rootfs tar; returns artifact metadata (synchronous, bounded) |
+| `pocket_rotate_backups` | `ops/rotate-backups.sh` — prune snapshots to the configured retention; no-op when nothing is due |
+| `pocket_offsite_push` | `ops/offsite-push.sh` — push already-encrypted backups to the offsite bucket (only if `ENABLE_OFFSITE_BACKUP`; synchronous, bounded) |
 | `pocket_rotate_registration_token` | `ops/rotate-registration-token.sh` — returns **metadata only**, never the token |
+| `pocket_site_deploy` | `sites/site-deploy.sh` — deploy a **pre-staged** artifact as a new release; returns a job id immediately (only if `ENABLE_SITES`; see the how-to below) |
+| `pocket_site_rollback` | `sites/site-rollback.sh` — instant pointer-swap back to a previous release (only if `ENABLE_SITES`) |
+
+**User management** (each additionally needs `ENABLE_USER_ADMIN=true`, except
+invite-mint, which is tier-gated only):
+
+| Tool | What it does |
+|---|---|
+| `pocket_user_create` | `ops/user-create.sh <localpart>` — the **generated password is the reply** (the one tool family, with reset-password, whose return value is deliberately a fresh credential) |
+| `pocket_user_reset_password` | `ops/user-reset-password.sh <localpart>` — same credential-return caveat |
+| `pocket_user_suspend` | `ops/user-suspend.sh` — reversible; takes a localpart or a full `@user:server` MXID |
+| `pocket_user_unsuspend` | `ops/user-unsuspend.sh` — lifts a suspension |
+| `pocket_mint_invite_token` | `bootstrap/mint-invite-token.sh` — mint one-time invite tokens (this **is** the "invite" operation; `ops/user-invite.sh` forwards to the same script, so there is no separate `pocket_user_invite`) |
 
 Enable the tier, then re-install so the change takes effect:
 
@@ -203,14 +227,18 @@ bash scripts/install.sh --force
 ### DANGER tier — set `MCP_ALLOW_DANGER=true` **and** pass a per-call typed confirm
 
 Implemented but off by default. Even with the flag on, each danger tool's schema
-requires a `confirm` argument whose value must equal the fixed phrase (the tool
-name) or the call is refused **before anything runs** — exactly like the admin
-panel danger-zone.
+requires a `confirm` argument or the call is refused **before anything runs** —
+exactly like the admin panel danger-zone. For the panic tools `confirm` must
+equal the **tool name**; for the tools that take a target it must equal the
+**target itself** (the site or user you are acting on) — a fixed phrase would
+authorize acting on *any* target with one unchanging string.
 
-| Tool | What it does |
-|---|---|
-| `pocket_panic_soft` | `ops/panic-soft.sh` — drop the tunnel (the server goes dark, recoverable) |
-| `pocket_panic_hard` | `ops/panic-hard.sh` — stop everything except the admin panel |
+| Tool | What it does | `confirm` must equal |
+|---|---|---|
+| `pocket_panic_soft` | `ops/panic-soft.sh` — drop the tunnel (the server goes dark, recoverable) | `pocket_panic_soft` |
+| `pocket_panic_hard` | `ops/panic-hard.sh` — stop everything except the admin panel | `pocket_panic_hard` |
+| `pocket_user_deactivate` | `ops/user-deactivate.sh` — close an account, effectively irreversible (also needs `ENABLE_USER_ADMIN`) | the `user` value, exactly as you typed it |
+| `pocket_site_delete` | `sites/site-delete.sh` — delete a site **and all its release history** (also needs `ENABLE_SITES`) | the site name |
 
 ```bash
 # in .env
@@ -225,6 +253,48 @@ Interactive, two-phase, or paste-driven operations are **not** mutating tools:
 `rotate-adminbot-token`, `rotate-all`, the backup daemon, and `restore` (offered
 only read-only, as `pocket_restore_describe`). One-time bootstrap creation steps
 are left to the TUI/CLI. Run those from `./pocket.sh`, the admin panel, or the CLI.
+There is also deliberately no `pocket_user_invite` (invite-mint already covers it,
+above) and no tool that accepts site content as an argument — artifacts are staged
+out-of-band (next section).
+
+## Deploying a site over MCP
+
+MCP never carries the artifact bytes — a file-content tool argument would hold
+the whole archive in memory as base64 inside one JSON-RPC message, with no way
+to enforce the upload cap before parsing it (design decision AD-1 in
+[specs/SPEC-MCP-COMPLETION.md](specs/SPEC-MCP-COMPLETION.md)). A deploy is
+therefore two steps:
+
+**1. Stage the artifact out-of-band.** Place a zip (or a plain directory) under
+the sites module's staging directory — over the same SSH channel the stdio
+transport already uses:
+
+```bash
+# the staging dir, as seen from Termux/SSH (it is /var/www/sites/.staging
+# inside the userland — the same directory the panel's uploads stream into):
+scp site.zip '<your-ssh-host>:$PREFIX/var/lib/proot-distro/installed-rootfs/debian/var/www/sites/.staging/'
+```
+
+Staged files are temporary: consumed or not, they are garbage-collected by age
+(`SITES_JOB_RETENTION_DAYS`) by `site-gc.sh`.
+
+**2. Deploy, then poll the job.**
+
+- `pocket_site_deploy(site, staged_path)` validates the name and that
+  `staged_path` resolves **inside** the staging directory, then launches the
+  same `site-deploy.sh` pipeline the panel and CLI use, **detached** — it
+  returns a job id immediately instead of blocking (a `node`-tier build alone
+  can run for many minutes). Pass `build="hugo"` or `build="node"` to use the
+  on-phone build tiers (see [SITES.md](SITES.md#build-tiers)).
+- Poll `pocket_site_status(job_id)` every 3–5 seconds until `state` is `done`
+  or `failed` (the record carries the error and a redacted tail of the deploy
+  log). That cadence stays well inside the default `MCP_RATE_LIMIT` (60/min).
+- If the new release is wrong: `pocket_site_rollback(site)` is an instant
+  pointer swap — no rebuild, no redeploy.
+
+Sites tools need `ENABLE_SITES=true`; deploy/rollback additionally need
+`MCP_ALLOW_OPERATE=true`, and delete needs `MCP_ALLOW_DANGER=true` plus
+`confirm` equal to the site name.
 
 ## Operations
 
@@ -285,18 +355,33 @@ for in-process JWT validation — no new Cloudflare keys. Unlike the admin panel
 HTTP transport always enforces the JWT when a team domain is set (it does not honor
 a `CF_ACCESS_MODE=log` permissive mode — a remote surface is fail-closed).
 
+Four existing app flags additionally gate their own tool groups (no new keys —
+the MCP server reads the same `.env` values every other surface does):
+`ENABLE_SITES` (the sites tools), `ENABLE_USER_ADMIN` (the user-management
+tools), `ENABLE_METRICS` (`pocket_metrics` + `pocket://metrics`), and
+`ENABLE_OFFSITE_BACKUP` (`pocket_offsite_push`).
+
 ## Troubleshooting
 
 - **`import mcp` fails at install (the post-install check stops the step).** The
   `pydantic-core` Rust extension could not be installed/built on Termux. Install a
   toolchain (`pkg install rust binutils`) and re-run
   `bash scripts/install.sh --force`. See the *Build caveat* above.
-- **A tool is missing from `tools/list`.** Its tier flag is off. Operate tools need
-  `MCP_ALLOW_OPERATE=true`; danger tools need `MCP_ALLOW_DANGER=true`;
-  `pocket_honeypot_recent` also needs `ENABLE_HONEYPOT=true`. Set the flag and
-  re-install with `--force`.
-- **A danger tool is listed but every call is refused.** You did not pass the
-  `confirm` argument (it must equal the tool name).
+- **A tool is missing from `tools/list`.** Its tier flag is off — operate tools
+  need `MCP_ALLOW_OPERATE=true`, danger tools `MCP_ALLOW_DANGER=true` — **or**
+  its module flag is off: `pocket_honeypot_recent` needs `ENABLE_HONEYPOT=true`,
+  the sites tools `ENABLE_SITES=true`, the user-management tools
+  `ENABLE_USER_ADMIN=true`, `pocket_metrics` `ENABLE_METRICS=true`, and
+  `pocket_offsite_push` `ENABLE_OFFSITE_BACKUP=true`. Set the flag and re-install
+  with `--force` (stdio mode picks it up on the next client launch).
+- **A danger tool is listed but every call is refused.** The `confirm` argument
+  is missing or wrong — it must equal the tool name (panic tools) or the exact
+  target (`pocket_site_delete`: the site name; `pocket_user_deactivate`: the
+  `user` value as you typed it).
+- **`pocket_site_deploy` refuses the `staged_path`.** The path must resolve
+  *inside* the staging directory (see the deploy how-to above) — stage the
+  artifact there first; symlinks or `..` that escape it are rejected, and MCP
+  never accepts file content directly.
 - **HTTP `403` Forbidden.** Cloudflare Access is not in front of `mcp.${DOMAIN}` —
   the `@no_cf_jwt` gate rejected the request because it carried no Access
   assertion. Publish the hostname through the tunnel **and** attach an Access policy
@@ -321,6 +406,8 @@ re-enable later without reconfiguring.
 ## See also
 
 - [MCP_SERVER_SPEC.md](MCP_SERVER_SPEC.md) — the design spec (transports, tiers, threat model).
+- [specs/SPEC-MCP-COMPLETION.md](specs/SPEC-MCP-COMPLETION.md) — the v1.1.0 sites + parity tool design (M3).
+- [SITES.md](SITES.md) — Pocket Pages itself: the pipeline the sites tools drive.
 - [ADMIN.md](ADMIN.md) — the web admin panel: the same ops surface, in a browser.
 - [ADMINBOT.md](ADMINBOT.md) — the Matrix admin bot: the same ops surface, in chat.
 - [APP_AUTH.md](APP_AUTH.md) — the Cloudflare Access model used by the HTTP transport.
