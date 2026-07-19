@@ -5,7 +5,7 @@ All notable changes to pocket-homeserver are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.1.0-pre3] - 2026-07-19
 
 ### Added
 - **MCP sites tool group** (M3 of the Pocket Pages program) — drive Pocket
