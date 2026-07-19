@@ -7,6 +7,12 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 
 ## [Unreleased]
 
+## [1.1.0-pre4] - 2026-07-19
+
+Fourth and final staged prerelease of the v1.1.0 "Pocket Pages" line (M4 of 4:
+the differentiators — git-push-to-deploy, on-phone share/widget deploys, forms,
+analytics).
+
 ### Added
 - **Git-push-to-deploy (M4)** — `ENABLE_SITES_WEBHOOKS`: push to a repo on the
   bundled Forgejo and its plain webhook (HMAC-SHA256 over the raw body,
