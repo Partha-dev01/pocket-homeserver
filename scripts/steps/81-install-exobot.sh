@@ -38,7 +38,7 @@
 # SECRET HANDLING: the bot's access token lives ONLY in the 0600 secrets file,
 # which the launcher `source`s — it never reaches argv / /proc/<pid>/cmdline.
 # Registering the bot account + minting that token is a manual operator step
-# (see the TODO(human) block below + docs/CHATBOTS.md).
+# (see the secrets-template section further down + docs/CHATBOTS.md).
 #
 # Generalized from a working deployment; review before running on a fresh phone.
 

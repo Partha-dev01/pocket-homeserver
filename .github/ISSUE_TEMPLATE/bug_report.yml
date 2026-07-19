@@ -37,4 +37,4 @@ body:
     id: device
     attributes:
       label: Device / Android / Termux versions
-      placeholder: "e.g. Realme 3 Pro, Android 11, Termux 0.118, proot-distro Debian"
+      placeholder: "e.g. Pixel 4a, Android 11, Termux 0.118, proot-distro Debian"

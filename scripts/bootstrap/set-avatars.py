@@ -57,7 +57,7 @@ def _load_creds():
     return creds
 
 
-# TODO(human): ADMIN_TOKEN loaded here is a privileged homeserver access token
+# OPERATOR NOTE: ADMIN_TOKEN loaded here is a privileged homeserver access token
 # (it can upload media and write room state / the admin profile). Confirm the
 # creds file is 0600 and that you accept any reader of it can act as the admin.
 _CREDS = _load_creds()

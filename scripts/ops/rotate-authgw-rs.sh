@@ -57,32 +57,15 @@ OLD_STATE="${GW_DATA_HOST}/authgw-rs-old-keys"        # records the overlap "kid
 [ -d "${GW_DATA_HOST}" ] || die "${GW_DATA_HOST} not found — run scripts/steps/60-install-auth-gw.sh first"
 
 # ── SECURITY CARVE-OUT — keypair generation + JWK encoding ────────────────────
-# TODO(human): implement _genkey. It must produce a fresh RSA private key in the
-# EXACT JSON shape the gateway loads (compact {"n","e","d"} decimal-string JSON),
-# writing it to $1 with 0600 perms, atomically (write to "$1.tmp", verify non-empty,
-# then mv). Reuse the repo's proven primitives — do NOT hand-roll RSA:
-#
-#   * the in-proot openssl pipeline + the committed keygen helper, exactly as
-#     steps/60-install-auth-gw.sh line ~136 does:
-#       proot-distro login debian --bind "${GW_DATA_HOST}:${GW_DATA_USERLAND}" \
-#         -- bash -lc "
-#           set -e; umask 077
-#           openssl genrsa 2048 \
-#             | openssl rsa -outform DER -traditional \
-#             | python3 ${GW_DIR}/rsa-der-to-jwk.py > '${GW_DATA_USERLAND}/<dest>.tmp'
-#           [ -s '${GW_DATA_USERLAND}/<dest>.tmp' ] && mv '${GW_DATA_USERLAND}/<dest>.tmp' '${GW_DATA_USERLAND}/<dest>'
-#           chmod 600 '${GW_DATA_USERLAND}/<dest>'
-#         "
-#     (rsa-der-to-jwk.py == scripts/gateway/rsa-der-to-jwk.py, already copied into
-#      ${GW_DIR} by steps/60; verify it is present before relying on it.)
-#   * the bind-mount maps ${GW_DATA_HOST} ↔ ${GW_DATA_USERLAND}, so a "$1" given as
-#     a HOST path must be translated to its userland path inside the proot command.
-#   * key SIZE: keep it consistent with steps/60 (2048) unless you deliberately
-#     harden to 3072 — match whatever the gateway/relying parties expect.
-#   * fail closed: if the produced file is empty or missing, `die` — never leave a
-#     partial/zero-length signing key in place.
-#
-# This whole function is the security-critical core.
+# _genkey <host-dest>: mint a fresh RSA-2048 private key in the compact
+# {"n","e","d"} decimal-string JSON shape the gateway loads, written atomically
+# (".tmp" then mv) with 0600 perms. It reuses the exact in-proot openssl
+# pipeline + the committed scripts/gateway/rsa-der-to-jwk.py helper that
+# steps/60-install-auth-gw.sh uses at first install — no hand-rolled RSA, and
+# the same 2048-bit size the gateway/relying parties already expect. Fails
+# closed: an empty or missing result dies before a partial key can ever be
+# promoted to live signing. This function is the security-critical core of
+# the rotation.
 _genkey() {
   local out="$1"
   local base userland

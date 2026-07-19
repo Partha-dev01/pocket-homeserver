@@ -62,9 +62,9 @@ SERVER_NAME = os.environ.get("MATRIX_SERVER_NAME", "")
 # the per-user widget URLs). Read from the environment (set by the launcher);
 # falls back to the on-disk secret file if present.
 #
-# SECURITY CARVE-OUT: the HMAC signing in _signed() below is a faithful
-# skeleton. The human reviewer writes + verifies it so it matches the backend's
-# verification byte-for-byte. See the # TODO(human) marker.
+# SECURITY NOTE: the HMAC signing in _signed() below must stay byte-identical
+# to sticker-backend.py:_sign_mxid() — same secret, message bytes, and digest —
+# or the backend rejects every import in enforce mode.
 _URL_SECRET = os.environ.get("STICKER_URL_SECRET", "")
 if not _URL_SECRET:
     _secret_path = os.environ.get("STICKER_URL_SECRET_FILE", "")

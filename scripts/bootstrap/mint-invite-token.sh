@@ -37,7 +37,7 @@ CREDS_FILE="${SECRETS_DIR}/admin-credentials.env"
 OUT="${SECRETS_DIR}/invite-tokens.txt"
 
 # ── Read the admin token from the 0600 creds file (NEVER from argv) ──────────
-# TODO(human): the value sourced here (ADMIN_TOKEN) is a privileged homeserver
+# OPERATOR NOTE: the value sourced here (ADMIN_TOKEN) is a privileged homeserver
 # access token — it can create accounts and read the admin API. Confirm the file
 # is 0600, owned by you, and that you are comfortable that any process able to
 # read ${CREDS_FILE} can mint signup tokens.

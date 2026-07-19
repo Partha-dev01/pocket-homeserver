@@ -76,7 +76,7 @@ if [ -z "${ADMIN_PASS}" ]; then
 fi
 
 # ── Read the registration token (0600 file) ──────────────────────────────────
-# TODO(human): confirm this is the SAME token written by
+# OPERATOR NOTE: confirm this is the SAME token written by
 #   scripts/ops/rotate-registration-token.sh into ${TOKEN_FILE} (0600) and that
 #   registration is currently OPEN (allow_registration = true in the deployed
 #   conduwuit.toml). This token is a privileged signup credential — keep it 0600

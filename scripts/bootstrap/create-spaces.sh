@@ -34,7 +34,7 @@ CREDS_FILE="${SECRETS_DIR}/admin-credentials.env"
 STATE_FILE="${POCKET_STATE_DIR}/matrix-space-structure.json"   # audit trail (host-side)
 
 # ── Read admin credentials (token NEVER on argv) ─────────────────────────────
-# TODO(human): ADMIN_TOKEN sourced here is a privileged homeserver token. Confirm
+# OPERATOR NOTE: ADMIN_TOKEN sourced here is a privileged homeserver token. Confirm
 # the creds file is 0600 and that you accept any reader of it can create rooms.
 [ -s "${CREDS_FILE}" ] || die "admin credentials missing at ${CREDS_FILE} — run scripts/bootstrap/create-admin.sh first"
 # shellcheck disable=SC1090

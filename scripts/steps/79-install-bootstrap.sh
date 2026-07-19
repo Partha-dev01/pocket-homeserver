@@ -25,8 +25,8 @@
 #
 # SECRETS: the admin password and the registration token are read from 0600 files
 # under ${DATA_DIR}/secrets (or env), NEVER passed on argv. The admin access token
-# the helpers mint is the privileged credential they reuse — see the TODO(human)
-# markers in the helpers.
+# the helpers mint is the privileged credential they reuse — see the OPERATOR
+# NOTE markers in the helpers.
 #
 # PREREQS: the homeserver must be running, and registration must be OPEN with a
 # token. Mint/enable one first with:  scripts/ops/rotate-registration-token.sh
