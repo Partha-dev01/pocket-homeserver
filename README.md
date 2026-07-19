@@ -9,9 +9,9 @@ A full Matrix chat homeserver plus a suite of self-hosted web apps —
 with **no root, no public IP, and no monthly hosting bill.**
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Release](https://img.shields.io/github/v/release/Partha-dev01/pocket-homeserver?include_prereleases&sort=semver&label=release)](https://github.com/Partha-dev01/pocket-homeserver/releases)
+[![Release](https://img.shields.io/github/v/release/Partha-dev01/pocket-homeserver?sort=semver&label=release)](https://github.com/Partha-dev01/pocket-homeserver/releases)
 [![Platform](https://img.shields.io/badge/platform-Android%20%2F%20Termux-3DDC84.svg)](docs/SETUP.md)
-[![Status](https://img.shields.io/badge/status-stable%20v1.0.0-brightgreen.svg)](CHANGELOG.md)
+[![Status](https://img.shields.io/badge/status-stable%20v1.1.0-brightgreen.svg)](CHANGELOG.md)
 
 </div>
 

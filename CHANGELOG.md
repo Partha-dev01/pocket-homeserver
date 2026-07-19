@@ -7,6 +7,31 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-07-19
+
+**Pocket Pages** — this release makes pocket-homeserver a place you can *publish
+from*, not just run services on: Netlify-like static-site hosting entirely on the
+phone. Zip/dir/drag-drop deploys land in immutable per-site release trees behind
+an atomic symlink swap with instant rollback, served at `<site>.${DOMAIN}` by one
+wildcard Caddy vhost (deploys never touch Caddy config); optional pinned-Hugo and
+locked/timeboxed Node build tiers run on the device. On top of the pipeline: a
+full admin-panel Sites section and a landing portal that stays in sync with
+deployed state (and now shares the panel's teal identity), first-class MCP tools
+so an agent can deploy, poll, roll back and inspect sites remotely, and four
+integrations no cloud PaaS can offer on your own phone — git-push-to-deploy via
+the bundled Forgejo, Android share-sheet and home-screen-widget deploys,
+Netlify-style forms with a privacy-preserving inbox, and parse-on-demand
+analytics-lite. Everything ships **OFF by default** behind `ENABLE_SITES` and
+per-feature flags.
+
+The full feature detail is in the staged prerelease entries below
+([1.1.0-pre1] pipeline · [1.1.0-pre2] panel + landing · [1.1.0-pre3] MCP ·
+[1.1.0-pre4] differentiators). This tag promotes that line to stable: on top of
+pre4 it carries only comment/doc wording polish (no behavior changes) and the
+release roll itself. Verified by the 322-test unit suite, the 5 CI gates, and an
+arm64 (qemu) end-to-end install/serve/deploy matrix including a real Forgejo
+push-to-deploy — 121 checks green.
+
 ## [1.1.0-pre4] - 2026-07-19
 
 Fourth and final staged prerelease of the v1.1.0 "Pocket Pages" line (M4 of 4:
@@ -934,6 +959,12 @@ productized from a real deployment that has run for ~20 users for months.
   for now (see the setup guide), and the watchdog is on the roadmap. The
   per-service supervisor (crash-respawn) does ship.
 
+[Unreleased]: https://github.com/Partha-dev01/pocket-homeserver/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/Partha-dev01/pocket-homeserver/releases/tag/v1.1.0
+[1.1.0-pre4]: https://github.com/Partha-dev01/pocket-homeserver/releases/tag/v1.1.0-pre4
+[1.1.0-pre3]: https://github.com/Partha-dev01/pocket-homeserver/releases/tag/v1.1.0-pre3
+[1.1.0-pre2]: https://github.com/Partha-dev01/pocket-homeserver/releases/tag/v1.1.0-pre2
+[1.1.0-pre1]: https://github.com/Partha-dev01/pocket-homeserver/releases/tag/v1.1.0-pre1
 [1.0.0]: https://github.com/Partha-dev01/pocket-homeserver/releases/tag/v1.0.0
 [0.9.1]: https://github.com/Partha-dev01/pocket-homeserver/releases/tag/v0.9.1
 [0.9.0]: https://github.com/Partha-dev01/pocket-homeserver/releases/tag/v0.9.0
@@ -947,4 +978,6 @@ productized from a real deployment that has run for ~20 users for months.
 [0.3.1]: https://github.com/Partha-dev01/pocket-homeserver/releases/tag/v0.3.1
 [0.3.0]: https://github.com/Partha-dev01/pocket-homeserver/releases/tag/v0.3.0
 [0.2.0]: https://github.com/Partha-dev01/pocket-homeserver/releases/tag/v0.2.0
+[0.1.2]: https://github.com/Partha-dev01/pocket-homeserver/releases/tag/v0.1.2
+[0.1.1]: https://github.com/Partha-dev01/pocket-homeserver/releases/tag/v0.1.1
 [0.1.0]: https://github.com/Partha-dev01/pocket-homeserver/releases/tag/v0.1.0
